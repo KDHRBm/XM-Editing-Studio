@@ -1,3 +1,4 @@
+import { MusicUsageHistory } from './MusicUsageHistory.jsx';
 import { SegmentRecommendations } from './SegmentRecommendations.jsx';
 import { MusicDragButton } from './MusicDragButton.jsx';
 import { Pagination, usePages } from './Pagination.jsx';
@@ -25,7 +26,7 @@ export function clearCurrentLibraryMatch(projectId, draft) {
   publish({ ...(cancel ? { busy: false } : {}), ...(sameRecord ? { record: null } : {}), error: '' });
 }
 
-export function MusicLibrary({ input, projectId, savedRecommendation, onAnalysis, onChange, lines, gemini, generationAnalyzer = gemini, settings, onUse, onGenerate, segmentJob, onViewJob }) {
+export function MusicLibrary({ input, projectId, savedRecommendation, onAnalysis, onChange, lines, gemini, generationAnalyzer = gemini, settings, onUse, isSelected = () => false, onGenerate, segmentJob, onViewJob }) {
   const analyzerName = analysisName(gemini);
   const [catalog, setCatalog] = i.useState(emptyCatalog);
   const [scanning, setScanning] = i.useState(false);
@@ -37,11 +38,9 @@ export function MusicLibrary({ input, projectId, savedRecommendation, onAnalysis
   const [analysisNotice, setAnalysisNotice] = i.useState('');
   const match = i.useSyncExternalStore(subscribe, snapshot);
   const usage = i.useSyncExternalStore(musicUsage.subscribe, musicUsage.snapshot);
-  const [historyCollapsed, toggleHistory] = usePanelCollapsed('music-usage');
   const [randomOrder, setRandomOrder] = i.useState(true);
   const [shuffleRevision, setShuffleRevision] = i.useState(0);
   const eligibleTracks = i.useMemo(() => excludeUsedMusic(catalog.tracks, usage.history), [catalog.tracks, usage.history]);
-  const historyPages = usePages(usage.history);
   const api = globalThis.blackObsidian;
   const ready = typeof api?.getMusicLibrary === 'function';
   const catalogPages = usePages(catalog.tracks);
@@ -50,15 +49,16 @@ export function MusicLibrary({ input, projectId, savedRecommendation, onAnalysis
     try {
       const keywords = parseCustomKeywords(keywordText);
       const all = searchMusicTitles(catalog.tracks, keywords);
-      const eligible = new Set(eligibleTracks.map(track => track.id));
+      // Keep this search's cards available for undo. Apply recent-use exclusions
+      // when the user next changes the search, refreshes, or requests a new batch.
+      const eligible = new Set(excludeUsedMusic(catalog.tracks, musicUsage.snapshot().history).map(track => track.id));
       const results = all.filter(item => eligible.has(item.track.id));
       return { keywords, results, excluded: all.length - results.length, error: '' };
     } catch (err) { return { keywords: [], results: [], excluded: 0, error: err.message }; }
-  }, [keywordText, catalog.tracks, eligibleTracks]);
+  }, [keywordText, catalog.tracks, catalog.revision, projectId, randomOrder, shuffleRevision]);
   const orderedResults = i.useMemo(() => randomOrder ? shuffleMusicResults(search.results) : search.results, [search.results, randomOrder, shuffleRevision]);
   const searchPages = usePages(orderedResults);
-  i.useEffect(() => { searchPages.setPage(1); }, [keywordText, catalog.revision, randomOrder, shuffleRevision, usage.history]);
-  i.useEffect(() => { historyPages.setPage(1); }, [usage.history]);
+  i.useEffect(() => { searchPages.setPage(1); }, [keywordText, catalog.revision, randomOrder, shuffleRevision]);
   const changeKeywords = value => { onChange({ customKeywords: value }); setError(''); setNotice(''); };
   const addKeyword = word => {
     try {
@@ -92,7 +92,7 @@ export function MusicLibrary({ input, projectId, savedRecommendation, onAnalysis
     activeRequest = request;
     const captured = { script: input.script, title: input.title, hint: input.hint, customKeywords: keywordText, segmented: !!input.segmented, segmentCount: Number(input.segmentCount || 3), analyzer: analyzerName, libraryGeminiKey: gemini.key || input.libraryGeminiKey || '' };
     try {
-      const value = await requestScriptAnalysis('library-match', { ...captured, provider: gemini.provider, model: gemini.model, tracks: excludeUsedMusic(catalog.tracks, musicUsage.snapshot().history).map(({ id, title }) => ({ id, title })) }, webAnalyzer(gemini) ? request.controller.signal : AbortSignal.any([request.controller.signal, AbortSignal.timeout(255000)]));
+      const value = await requestScriptAnalysis('library-match', { ...captured, provider: gemini.provider, model: gemini.model, tracks: excludeUsedMusic(catalog.tracks, musicUsage.snapshot().history).map(({ id, title }) => ({ id, title })) }, webAnalyzer(gemini) ? request.controller.signal : AbortSignal.any([request.controller.signal, AbortSignal.timeout(730000)]));
       if (activeRequest !== request) return;
       if (value.segments) value.segments = value.segments.map(segment => ({ ...segment, matches: segment.matches.map(match => ({ ...match, title: catalog.tracks.find(track => track.id === match.id)?.title || match.id })) }));
       const record = { ...captured, revision: catalog.revision, value: { ...value, matches: (value.matches || []).map(m => ({ ...m, title: catalog.tracks.find(t => t.id === m.id)?.title || m.id })) } };
@@ -112,27 +112,29 @@ export function MusicLibrary({ input, projectId, savedRecommendation, onAnalysis
   i.useEffect(() => { catalogPages.setPage(1); }, [catalog.revision]);
   i.useEffect(() => { matchPages.setPage(1); }, [result]);
   const useAndRemember = async (...args) => {
-    await onUse(...args);
-    musicUsage.remember(args[0]);
+    const selected = (await onUse(...args)) !== false;
+    if (selected) musicUsage.remember(args[0]);
+    else musicUsage.forget(args[0].id);
+    return selected;
   };
   const markUsed = (track, source = 'library') => {
-    musicUsage.remember(track);
-    (source === 'analysis' ? setAnalysisNotice : setNotice)(`已记录「${track.title}」，后续检索自动避开最近 ${MUSIC_USAGE_LIMIT} 首已使用音乐。`);
+    const used = musicUsage.toggle(track);
+    (source === 'analysis' ? setAnalysisNotice : setNotice)(used ? `已记录「${track.title}」，后续检索自动避开最近 ${MUSIC_USAGE_LIMIT} 首已使用音乐。` : `已取消「${track.title}」的使用标记，可再次参与检索和推荐。`);
   };
   const useTrack = async item => {
-    try { setAnalysisError(''); await useAndRemember(item.track, result.analysis, item.reason, lines); setAnalysisNotice(`已选用「${item.track.title}」，可在下方任务区导出素材。`); }
+    try { setAnalysisError(''); const selected = await useAndRemember(item.track, result.analysis, item.reason, lines); setAnalysisNotice(selected ? `已选用「${item.track.title}」，可在下方任务区导出素材。` : `已取消选用「${item.track.title}」，已移除对应任务和使用标记。`); }
     catch (err) { setAnalysisError(err.message); }
   };
   const useSearchTrack = async item => {
     try {
       setError('');
       const reason = `手动检索，音乐标题命中：${item.keywords.join('、')}`.slice(0, 500);
-      await useAndRemember(item.track, { summary: '按自定义关键词检索本地音乐，由用户试听后选用；未调用 AI 评估。', keywords: search.keywords }, reason, lines);
-      setNotice(`已选用「${item.track.title}」，可在下方任务区导出素材。`);
+      const selected = await useAndRemember(item.track, { summary: '按自定义关键词检索本地音乐，由用户试听后选用；未调用 AI 评估。', keywords: search.keywords }, reason, lines);
+      setNotice(selected ? `已选用「${item.track.title}」，可在下方任务区导出素材。` : `已取消选用「${item.track.title}」，已移除对应任务和使用标记。`);
     } catch (err) { setError(err.message); }
   };
   return <><section className="bos-library bos-script-panel" aria-labelledby="bos-library-title">
-    <div className="bos-library-heading"><div><span className="bos-script-eyebrow">YOUR MUSIC LIBRARY</span><h3 id="bos-library-title">本地音乐库</h3><p>管理音乐文件夹、检索标题与查看使用历史。支持多个文件夹与子目录。</p></div><div className="bos-script-actions"><button type="button" disabled={scanning} onClick={() => changeCatalog(() => api.connectMusicLibrary())}>{scanning ? '正在扫描…' : '连接音乐文件夹'}</button><button type="button" disabled={scanning || !catalog.directories.length} onClick={() => changeCatalog(() => api.refreshMusicLibrary())}>刷新音乐库</button><button type="button" className="bos-panel-toggle" aria-expanded={!collapsed} aria-controls="bos-library-body" onClick={toggleCollapsed}>{collapsed ? '展开本地配乐' : '收起本地配乐'} <span aria-hidden="true">{collapsed ? '⌄' : '⌃'}</span></button></div></div>
+    <div className="bos-library-heading"><div><span className="bos-script-eyebrow">YOUR MUSIC LIBRARY</span><h3 id="bos-library-title">本地音乐库</h3><p>管理音乐文件夹与检索标题。支持多个文件夹与子目录。</p></div><div className="bos-script-actions"><button type="button" disabled={scanning} onClick={() => changeCatalog(() => api.connectMusicLibrary())}>{scanning ? '正在扫描…' : '连接音乐文件夹'}</button><button type="button" disabled={scanning || !catalog.directories.length} onClick={() => changeCatalog(() => api.refreshMusicLibrary())}>刷新音乐库</button><button type="button" className="bos-panel-toggle" aria-expanded={!collapsed} aria-controls="bos-library-body" onClick={toggleCollapsed}>{collapsed ? '展开本地配乐' : '收起本地配乐'} <span aria-hidden="true">{collapsed ? '⌄' : '⌃'}</span></button></div></div>
     <div id="bos-library-body" hidden={collapsed}>
     {error && <div className="bos-script-alert" role="alert">{error}</div>}
     {usage.error && <p className="bos-script-warning" role="alert">{usage.error}</p>}
@@ -149,21 +151,14 @@ export function MusicLibrary({ input, projectId, savedRecommendation, onAnalysis
         <summary>本地标题检索 · {search.results.length} 首 · 可直接试听选用</summary>
         <div className="bos-library-random-tools"><div className="bos-script-actions" role="group" aria-label="检索结果排序"><button type="button" aria-pressed={randomOrder} onClick={() => { setRandomOrder(true); setShuffleRevision(value => value + 1); }} disabled={!search.results.length}>{randomOrder ? '随机换一批' : '随机排序'}</button><button type="button" aria-pressed={!randomOrder} onClick={() => setRandomOrder(false)} disabled={!search.results.length}>按匹配度</button></div><small>已避开最近使用中的 {search.excluded} 首匹配音乐 · 每页 5 首</small></div>
         {!search.results.length && <p className="bos-library-empty">{search.excluded ? '匹配的音乐都在最近使用记录中，已自动避开。可更换关键词或添加其他音乐。' : catalog.tracks.length ? `没有标题命中这些关键词。可尝试同义词、英文名称，或使用下方 ${analyzerName} 结合剧情匹配。` : '请先连接音乐文件夹。'}</p>}
-        {searchPages.visible.map((item, index) => <article className="bos-library-match" key={item.track.id}><div className="bos-library-match-title"><span>{String((searchPages.page - 1) * 5 + index + 1).padStart(2, '0')}</span><div><h4>{item.track.title}</h4><small>{item.track.relativePath}</small></div><button type="button" disabled={!input.script.trim() || scanning} title={!input.script.trim() ? '粘贴剧本后可选用并导出素材' : '选用这首本地音乐'} onClick={() => useSearchTrack(item)}>选用此音乐</button></div><p>标题命中：{item.keywords.join(' · ')}</p><audio controls preload="none" src={`/local-music/${item.track.id}`} aria-label={`检索试听 ${item.track.title}`} /><div className="bos-library-use-tools"><MusicDragButton libraryId={item.track.id} /><button type="button" onClick={() => markUsed(item.track)}>标记已使用</button></div></article>)}
+        {searchPages.visible.map((item, index) => <article className="bos-library-match" key={item.track.id}><div className="bos-library-match-title"><span>{String((searchPages.page - 1) * 5 + index + 1).padStart(2, '0')}</span><div><h4>{item.track.title}</h4><small>{item.track.relativePath}</small></div><button type="button" aria-pressed={isSelected(item.track)} disabled={!isSelected(item.track) && (!input.script.trim() || scanning)} title={isSelected(item.track) ? '再次点击取消选用' : !input.script.trim() ? '粘贴剧本后可选用并导出素材' : '选用这首本地音乐'} onClick={() => useSearchTrack(item)}>{isSelected(item.track) ? '已选用 · 点击取消' : '选用此音乐'}</button></div><p>标题命中：{item.keywords.join(' · ')}</p><audio controls preload="none" src={`/local-music/${item.track.id}`} aria-label={`检索试听 ${item.track.title}`} /><div className="bos-library-use-tools"><MusicDragButton libraryId={item.track.id} /><button type="button" aria-pressed={usage.history.some(track => track.id === item.track.id)} title="再次点击可取消使用标记" onClick={() => markUsed(item.track)}>{usage.history.some(track => track.id === item.track.id) ? '已标记使用' : '标记已使用'}</button></div></article>)}
         {!!search.results.length && <Pagination {...searchPages} label="自定义检索结果页码" />}
       </details>}
     </div>
-    <section className="bos-library-history" aria-label="历史使用音乐">
-      <div className="bos-library-history-heading"><div><h4>历史使用音乐 <small>{usage.history.length} / {MUSIC_USAGE_LIMIT}</small></h4><p>按最近使用排序，跨剧本保留。选用或标记后记录；试听不计入。下次检索和 {analyzerName} 匹配自动避开这十首。</p></div><button type="button" className="bos-panel-toggle" aria-expanded={!historyCollapsed} aria-controls="bos-music-usage-body" onClick={toggleHistory}>{historyCollapsed ? '展开历史' : '收起历史'}</button></div>
-      <div id="bos-music-usage-body" hidden={historyCollapsed}>
-        {!usage.history.length && <p className="bos-library-empty">暂无使用记录。直接拖入剪映后，可点检索结果中的“标记已使用”。</p>}
-        {historyPages.visible.map(item => { const track = catalog.tracks.find(track => track.id === item.id); return <article className="bos-library-match" key={item.id}><div className="bos-library-match-title"><div><h4>{track?.title || item.title}</h4><small>{item.usedAt ? new Date(item.usedAt).toLocaleString() : '此前使用'} · {track?.relativePath || item.relativePath}</small></div><span className="bos-library-used-badge">最近已使用</span></div>{track ? <><audio controls preload="none" src={'/local-music/' + track.id} aria-label={'历史试听 ' + track.title} /><MusicDragButton libraryId={track.id} /></> : <p className="bos-script-footnote">音乐当前未连接或已移除，使用记录仍保留。</p>}</article>; })}
-        {usage.history.length > 5 && <Pagination {...historyPages} label="历史使用音乐页码" />}
-      </div>
-    </section>
     {notice && <p role="status" className="bos-script-message">{notice}</p>}
     </div>
   </section>
+  <MusicUsageHistory tracks={catalog.tracks} />
   <section className="bos-library bos-script-panel bos-music-analysis-panel" aria-labelledby="bos-music-analysis-title">
     <div className="bos-library-heading"><div><span className="bos-script-eyebrow">STORY SOUNDTRACK</span><h3 id="bos-music-analysis-title">分析配乐</h3><p>使用当前剧本与所选模型，提取关键词并推荐整篇或各情节的配乐。</p></div><div className="bos-script-actions"><span role="status">{match.busy ? `${analysisName(match.analyzer || analyzerName)} 正在分析…` : result ? '已有推荐' : '等待分析'}</span><button type="button" className="bos-panel-toggle" aria-expanded={!analysisCollapsed} aria-controls="bos-music-analysis-body" onClick={toggleAnalysisCollapsed}>{analysisCollapsed ? '展开分析配乐' : '收起分析配乐'} <span aria-hidden="true">{analysisCollapsed ? '⌄' : '⌃'}</span></button></div></div>
     <div id="bos-music-analysis-body" hidden={analysisCollapsed}>
@@ -178,11 +173,12 @@ export function MusicLibrary({ input, projectId, savedRecommendation, onAnalysis
       <h4>剧本关键词</h4><p>{result.analysis.summary}</p><small>点击关键词可加入上方自定义检索。</small><div className="bos-library-keywords">{result.analysis.keywords.map(word => <button type="button" key={word} disabled={!!search.error || search.keywords.some(term => term.toLocaleLowerCase() === word.toLocaleLowerCase())} title={`加入检索：${word}`} onClick={() => addKeyword(word)}>{word} <span aria-hidden="true">＋</span></button>)}</div>
       {record.revision !== catalog.revision && <p className="bos-script-warning">音乐库已有更新；新增标题需要重新匹配。现存的推荐仍可试听和选用。</p>}
       <div className="bos-script-section-title"><h4>{result.segments ? "各情节音乐推荐" : "适合这份剧本的音乐"}</h4><small>检索 {result.total} 首 · {analysisName(record.analyzer)} 评估 {result.evaluated} 首候选</small></div>
+      {!result.segments && result.noMatchReason && <p className="bos-script-footnote">{result.noMatchReason}</p>}
       {!result.segments && !available.length && <p className="bos-library-empty">{result.total ? '暂无适合的可用音乐。可以添加标题含场景、情绪或风格关键词的音乐后刷新重试，或切换到 Suno 生成配乐。' : '关键词已提取。连接音乐文件夹后，再次匹配即可列出候选。'}</p>}
-      {result.segments && <SegmentRecommendations segments={result.segments} tracks={catalog.tracks} current={current} lines={lines} onUse={useAndRemember} onError={setAnalysisError} onGenerate={onGenerate} segmentJob={segmentJob} onViewJob={onViewJob} onMarkUsed={track => markUsed(track, 'analysis')} usedIds={usage.history.map(track => track.id)} analyzer={generationAnalyzer} />}
-      {matchPages.visible.map((item, index) => <article className="bos-library-match" key={item.id}><div className="bos-library-match-title"><span>{String((matchPages.page - 1) * 5 + index + 1).padStart(2, '0')}</span><div><h4>{item.track.title}</h4><small>{item.track.relativePath}</small></div><button type="button" disabled={!item.available || !current} onClick={() => useTrack(item)}>{!item.available ? '需连接音乐库' : !current ? '请重新匹配' : '选用此音乐'}</button></div><p>{item.reason}</p><div className="bos-library-keywords">{item.keywords.map((word, idx) => <span key={`${word}-${idx}`}>{word}</span>)}</div>{item.available && <audio controls preload="none" src={`/local-music/${item.id}`} aria-label={`试听 ${item.track.title}`} />}{item.available && <div className="bos-library-use-tools"><MusicDragButton libraryId={item.id} /><button type="button" disabled={usage.history.some(track => track.id === item.id)} onClick={() => markUsed(item.track, 'analysis')}>{usage.history.some(track => track.id === item.id) ? '已标记使用' : '标记已使用'}</button></div>}</article>)}
+      {result.segments && <SegmentRecommendations segments={result.segments} tracks={catalog.tracks} current={current} lines={lines} onUse={useAndRemember} isSelected={isSelected} onError={setAnalysisError} onGenerate={onGenerate} segmentJob={segmentJob} onViewJob={onViewJob} onMarkUsed={track => markUsed(track, 'analysis')} usedIds={usage.history.map(track => track.id)} analyzer={generationAnalyzer} />}
+      {matchPages.visible.map((item, index) => <article className="bos-library-match" key={item.id}><div className="bos-library-match-title"><span>{String((matchPages.page - 1) * 5 + index + 1).padStart(2, '0')}</span><div><h4>{item.track.title}</h4><small>{item.track.relativePath}</small></div><button type="button" aria-pressed={isSelected(item.track)} title={isSelected(item.track) ? '再次点击取消选用' : '选用这首本地音乐'} disabled={!isSelected(item.track) && (!item.available || !current)} onClick={() => useTrack(item)}>{isSelected(item.track) ? '已选用 · 点击取消' : !item.available ? '需连接音乐库' : !current ? '请重新匹配' : '选用此音乐'}</button></div><p>{item.reason}</p><div className="bos-library-keywords">{item.keywords.map((word, idx) => <span key={`${word}-${idx}`}>{word}</span>)}</div>{item.available && <audio controls preload="none" src={`/local-music/${item.id}`} aria-label={`试听 ${item.track.title}`} />}{item.available && <div className="bos-library-use-tools"><MusicDragButton libraryId={item.id} /><button type="button" aria-pressed={usage.history.some(track => track.id === item.id)} title="再次点击可取消使用标记" onClick={() => markUsed(item.track, 'analysis')}>{usage.history.some(track => track.id === item.id) ? '已标记使用' : '标记已使用'}</button></div>}</article>)}
       {available.length > 5 && <Pagination {...matchPages} label="推荐音乐页码" />}
-      <p className="bos-script-footnote">推荐依据音乐标题语义，选用前可试听确认。音乐超过 80 首时，先用中英文关键词筛选最多 80 首候选交给 {analyzerName}；文件名越清晰，越容易匹配。</p>
+      <p className="bos-script-footnote">每个情节优先推荐 5–8 首，不足会补充评估并说明原因。推荐依据音乐标题语义，选用前可试听确认。音乐超过 80 首时，先用中英文关键词筛选最多 80 首候选交给 {analyzerName}；文件名越清晰，越容易匹配。</p>
     </div>}
     {analysisNotice && <p role="status" className="bos-script-message">{analysisNotice}</p>}
     </div>

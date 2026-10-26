@@ -116,9 +116,11 @@ test('segment selection also records usage; history survives disconnected tracks
   catalog = { ...catalog, tracks: tracks.slice(0, 10) }; slots = []; tree = render(props);
   assert.equal(searchIds(tree).length, 0);
   assert.match(textOf(tree), /匹配的音乐都在最近使用记录中/);
-  assert(nodes(tree).some(node => node.props.label === '历史使用音乐页码'));
+  let history = nodes(tree).find(node => typeof node.type === 'function' && node.type.name === 'MusicUsageHistory');
+  slots = []; cursor = 0; assert(nodes(history.type(history.props)).some(node => node.props.label === '历史使用音乐页码'));
   catalog = { ...catalog, tracks: [] }; slots = []; tree = render(props);
-  assert.match(textOf(tree), /音乐当前未连接或已移除/);
+  history = nodes(tree).find(node => typeof node.type === 'function' && node.type.name === 'MusicUsageHistory');
+  slots = []; cursor = 0; assert.match(textOf(history.type(history.props)), /音乐当前未连接或已移除/);
   assert.equal(musicUsage.snapshot().history.length, 10);
 });
 
@@ -137,10 +139,56 @@ test('marking segment and whole recommendations shares recent history without cr
   button(segment, '标记已使用').props.onClick();
   assert.equal(uses, 0); assert.equal(musicUsage.snapshot().history[0].id, selected.id);
   assert.equal(JSON.parse(localStorage.getItem(MUSIC_USAGE_KEY))[0].id, selected.id);
-  slots = []; segment = segmentTree(render(currentProps)); assert.equal(button(segment, '已标记使用').props.disabled, true);
+  slots = []; segment = segmentTree(render(currentProps)); assert.equal(button(segment, '已标记使用').props['aria-pressed'], true);
+  button(segment, '已标记使用').props.onClick();assert.ok(!musicUsage.snapshot().history.some(t=>t.id===selected.id));
+  slots=[];segment=segmentTree(render(currentProps));button(segment,'标记已使用').props.onClick();
   slots = []; assert(!searchIds(render(props)).includes('/local-music/' + selected.id));
   const whole = tracks[13]; slots = [];
   const wholeTree = render({ ...props, onUse: () => uses++, savedRecommendation: { ...input, revision: 'fixture', value: { analysis: { summary: '', keywords: [] }, matches: [{ id: whole.id, title: whole.title, reason: '适合', keywords: [] }] } } });
   const article = nodes(wholeTree).find(node => node.type === 'article' && nodes(node).some(child => child.type === 'audio' && child.props['aria-label'] === '试听 ' + whole.title));
   button(article, '标记已使用').props.onClick(); assert.equal(musicUsage.snapshot().history[0].id, whole.id); assert.equal(uses, 0); assert.equal(musicUsage.snapshot().history.length, 10);
+});
+
+test('search cards remain available for marking and selection undo; the next search excludes used music', async () => {
+  catalog = { directories: [], tracks, revision: 'fixture' }; slots = [];
+  musicUsage.snapshot().history.forEach(track => musicUsage.forget(track.id));
+  const selected = new Set();
+  const currentProps = { ...props, isSelected: track => selected.has(track.id), onUse: track => {
+    if (selected.has(track.id)) { selected.delete(track.id); return false; }
+    selected.add(track.id); return true;
+  } };
+  let tree = render(currentProps);
+  const first = searchIds(tree)[0];
+  await button(tree, '选用此音乐').props.onClick();
+  tree = render(currentProps);
+  assert.equal(searchIds(tree)[0], first);
+  assert.equal(button(tree, '已选用 · 点击取消').props['aria-pressed'], true);
+  await button(tree, '已选用 · 点击取消').props.onClick();
+  tree = render(currentProps);
+  assert.equal(selected.size, 0); assert.equal(musicUsage.snapshot().history.length, 0);
+  assert.equal(button(tree, '选用此音乐').props['aria-pressed'], false);
+  button(tree, '标记已使用').props.onClick(); tree = render(currentProps);
+  assert.equal(searchIds(tree)[0], first);
+  button(tree, '已标记使用').props.onClick(); tree = render(currentProps);
+  assert.equal(musicUsage.snapshot().history.length, 0);
+  button(tree, '标记已使用').props.onClick(); tree = render(currentProps);
+  button(tree, '随机换一批').props.onClick(); tree = render(currentProps);
+  assert(!searchIds(tree).includes(first));
+});
+
+test('whole recommendation cancel clears usage only after success, including when recommendations become stale', async () => {
+  slots = []; const track = tracks[11]; musicUsage.remember(track);
+  let selected = true, fail = true;
+  const changedInput = { ...input, script: input.script + '\n[EN] MIA: Hi.' };
+  const currentProps = { ...props, input: changedInput, isSelected: item => selected && item.id === track.id,
+    savedRecommendation: { ...changedInput, customKeywords: '旧关键词', value: { analysis: { summary: '', keywords: [] }, matches: [{ id: track.id, reason: '适合', keywords: [] }] } },
+    onUse: () => { if (fail) throw new Error('正在导出'); selected = false; return false; } };
+  let tree = render(currentProps);
+  assert.equal(button(tree, '已选用 · 点击取消').props.disabled, false);
+  await button(tree, '已选用 · 点击取消').props.onClick();
+  assert(musicUsage.snapshot().history.some(item => item.id === track.id));
+  fail = false; tree = render(currentProps);
+  await button(tree, '已选用 · 点击取消').props.onClick();
+  assert(!musicUsage.snapshot().history.some(item => item.id === track.id));
+  tree = render(currentProps); assert.equal(button(tree, '请重新匹配').props.disabled, true);
 });

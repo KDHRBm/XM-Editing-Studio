@@ -1,7 +1,7 @@
 {
   "name": "xiaoma-editing-studio",
   "productName": "XM剪辑台",
-  "version": "1.3.0",
+  "version": "1.3.1",
   "private": true,
   "type": "module",
   "main": "electron/main.mjs",

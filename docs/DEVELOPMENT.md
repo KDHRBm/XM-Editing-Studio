@@ -59,4 +59,4 @@ npm run package
 
 源码来源、原界面工程缺失和第三方许可范围见 [SOURCE-PROVENANCE.md](SOURCE-PROVENANCE.md)。源码的公开与第三方许可是两回事。
 
-公开目录整理后，149 项 JavaScript 回归测试与 9 项 Python 引擎测试全部通过；主界面、水印页面、C# 标点组件与 Python 引擎均构建成功。原 1.3.0 安装包的安装、升级和回退验证见 [VERIFICATION.md](../VERIFICATION.md)。本次源码公开不重新打包安装器、不执行真实剪映任务，不代表所有电脑、模型账号或显卡已实测。
+1.3.1 发布前，198 项 JavaScript 回归测试与 9 项 Python 引擎测试全部通过；主界面和水印页面重新构建，本地组件通过校验及标点工具自检。本次完整安装包的验证见 [VERIFICATION.md](../VERIFICATION.md)。检查不执行真实剪映任务，不代表所有电脑、模型账号或显卡已实测。

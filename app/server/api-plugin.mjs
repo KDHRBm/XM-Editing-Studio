@@ -2,6 +2,8 @@ import { normalizeMusicOptions, buildSunoBody } from '../shared/music-options.mj
 import { getSunoSongs } from './suno-response.mjs';
 import { isGeminiModel, scoreMessages, parseScoreResponse, validateScoreRequest } from '../shared/script-score.mjs';
 import { validateLibraryInput, keywordMessages, parseKeywords, shortlistTracks, matchMessages, parseMatches } from '../shared/library-match.mjs';
+import { analyzeWithWeb } from '../shared/web-script-analysis.mjs';
+import { analyzeBatchMusic } from '../shared/batch-music.mjs';
 import { segmentMessages, parseSegments, segmentCandidates, segmentMatchMessages, parseSegmentMatches } from '../shared/script-segments.mjs';
 
 const MAX_BODY_BYTES = 2 * 1024 * 1024;
@@ -240,7 +242,7 @@ function extractText(protocol, payload) {
   return "";
 }
 
-async function requestProvider(provider, model, messages, timeoutMs = 120_000) {
+async function requestProvider(provider, model, messages, timeoutMs = 120_000, signal) {
   validateProvider(provider, model);
   const { url, headers, body } = buildProviderRequest(provider, model, messages);
   let response;
@@ -249,7 +251,7 @@ async function requestProvider(provider, model, messages, timeoutMs = 120_000) {
       method: "POST",
       headers,
       body: JSON.stringify(body),
-      signal: AbortSignal.timeout(timeoutMs),
+      signal: signal ? AbortSignal.any([signal, AbortSignal.timeout(timeoutMs)]) : AbortSignal.timeout(timeoutMs),
     });
   } catch (error) {
     const message = error?.name === "TimeoutError" || error?.name === "AbortError"
@@ -504,30 +506,38 @@ async function querySunoMusic(provider, model, ids) {
 export async function handleApi(req, res) {
   assertSameOrigin(req);
   if (req.method !== "POST") return json(res, 405, { error: "仅支持 POST 请求。" });
-  const body = await readJson(req, req.url === '/api/script/library-match' ? 5 * 1024 * 1024 : MAX_BODY_BYTES);
+  const body = await readJson(req, ['/api/script/library-match', '/api/script/batch-library-match'].includes(req.url) ? 5 * 1024 * 1024 : MAX_BODY_BYTES);
+
+  if (req.url === '/api/script/batch-library-match') {
+    if (!isGeminiModel(body.provider, body.model)) throw Object.assign(new Error('请选择可用的 Gemini 模型。'), { status: 400 });
+    const abort = new AbortController();
+    const disconnected = () => { if (!res.writableEnded) abort.abort(); };
+    res.on('close', disconnected);
+    try {
+      const result = await analyzeBatchMusic(body, async messages => {
+        abort.signal.throwIfAborted();
+        const result = await requestProvider(body.provider, body.model, messages, 240_000, abort.signal);
+        abort.signal.throwIfAborted();
+        return result.text;
+      });
+      return json(res, 200, result);
+    } finally { res.off('close', disconnected); }
+  }
 
   if (req.url === "/api/script/library-match") {
     if (!isGeminiModel(body.provider, body.model)) throw Object.assign(new Error("请选择 Gemini 模型。"), { status: 400 });
-    const input = validateLibraryInput(body);
-    if (input.segmented) {
-      const planned = await requestProvider(body.provider, body.model, segmentMessages(input, 'library'), 120_000);
-      const candidates = segmentCandidates(input, parseSegments(planned.text, input, 'library'));
-      let segments;
-      if (candidates.some(segment => segment.candidates.length)) {
-        const matched = await requestProvider(body.provider, body.model, segmentMatchMessages(input, candidates), 120_000);
-        segments = parseSegmentMatches(matched.text, candidates);
-      } else segments = candidates.map(({ candidates, ...segment }) => ({ ...segment, matches: [], evaluated: 0 }));
-      return json(res, 200, { segments, matches: [], analysis: { summary: `剧本已分为 ${segments.length} 个情节，各段音乐推荐见下方。`, keywords: [...new Set(segments.flatMap(s => s.keywords))].slice(0, 30) }, total: input.tracks.length, evaluated: candidates.reduce((n, s) => n + s.candidates.length, 0) });
-    }
-    const keywordsResult = await requestProvider(body.provider, body.model, keywordMessages(input), 120_000);
-    const analysis = parseKeywords(keywordsResult.text);
-    const candidates = shortlistTracks(input.tracks, analysis.keywords, input.customKeywords);
-    let matches = [];
-    if (candidates.length) {
-      const matchResult = await requestProvider(body.provider, body.model, matchMessages(input, analysis, candidates), 120_000);
-      matches = parseMatches(matchResult.text, candidates);
-    }
-    return json(res, 200, { analysis, matches, customKeywords: input.customKeywords, total: input.tracks.length, evaluated: candidates.length });
+    const abort = new AbortController();
+    const disconnected = () => { if (!res.writableEnded) abort.abort(); };
+    res.on('close', disconnected);
+    try {
+      const result = await analyzeWithWeb('library-match', body, async messages => {
+        abort.signal.throwIfAborted();
+        const answer = await requestProvider(body.provider, body.model, messages, 120_000, abort.signal);
+        abort.signal.throwIfAborted();
+        return answer.text;
+      });
+      return json(res, 200, result);
+    } finally { res.off('close', disconnected); }
   }
 
   if (req.url === "/api/script/score") {

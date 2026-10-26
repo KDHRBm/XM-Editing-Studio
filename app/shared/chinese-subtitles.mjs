@@ -56,7 +56,7 @@ function chineseRhythm(text) {
   return lines.filter(line => /[\p{L}\p{N}]/u.test(line));
 }
 
-export function extractChineseSubtitles(script) {
+export function extractChineseSubtitles(script, { preservePunctuation = false } = {}) {
   const lines = [];
   for (const [index, raw] of script.split('\n').entries()) {
     let text = raw.trim().replace(/^[-*]\s+/, '');
@@ -71,7 +71,7 @@ export function extractChineseSubtitles(script) {
     const content = text.slice(separator + 1).split(/[△▲]/, 1)[0];
     if (!marked && !/\p{Script=Han}/u.test(speaker + content)) continue;
     for (const dialogue of chineseRhythm(cleanDialogue(content))) {
-      const text = stripChineseSubtitlePunctuation(dialogue);
+      const text = preservePunctuation ? dialogue : stripChineseSubtitlePunctuation(dialogue);
       if (!text) continue;
       lines.push({ id: `line-${lines.length + 1}`, sourceLine: index + 1, language: 'zh', speaker: '', kind: 'dialogue', text });
     }

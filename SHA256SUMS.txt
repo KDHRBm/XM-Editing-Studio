@@ -1,6 +1,4 @@
-e22b1844b46c82a3008db71c5916d34e0ed59dd8c16c447e4306aade4ab80108  XM-Editing-Studio-1.3.0-Windows-x64-Setup.exe
-ca9acd14be447918a9d88d6538641aeedc2218322d9e9dc3e8379f7c0d5fadf6  XM-Editing-Studio-1.3.0-Full-Update.zip
-6c9300d856c57c3d61fe16c2e9cbbf16ba5ca26ebb362b9b52a00cb21c3d5814  CHANGELOG-1.2-to-1.3.md
-32f5c06f8ec8fbe0398914a3d9c91024fec2652f6be7f01b0fbdf1fd3c5f01ec  Installation-Guide-1.3.0.txt
-9bbf20c8bee51b2b05143dae107392b601cc3dfdca6a60b86a4ed4baebe61e58  Update-Guide-1.3.0.txt
-32acfa33031781195ff54b83a5dfc6fc5cd005d94eccf816d1b2f96a276dbdcb  VERIFICATION-1.3.0.md
+9c43c0ad8b661f1297b47875f0081edc625475ff996e2fada728600bf8c96741  XM-Editing-Studio-1.3.1-Windows-x64-Setup.exe
+66a728ca6cde7eebe4cbf58e8e827fad0d7735bfa0b823ee0e0ae2b4d12e50cc  CHANGELOG-1.3.1.md
+6a69256f88d3f9c932901336130c5cfc439a80eab72a77dd3a19bb629a71a91b  Installation-Guide-1.3.1.txt
+2691a45de315d2a3936b48b611885443b4d13c79350d90b82a5077624d73916e  VERIFICATION-1.3.1.md

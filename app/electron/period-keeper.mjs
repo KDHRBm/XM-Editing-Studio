@@ -4,6 +4,7 @@ import { createHash } from 'node:crypto';
 import { createInterface } from 'node:readline';
 import path from 'node:path';
 import { HELPER_SHA256 } from './period-helper-integrity.mjs';
+import { createPeriodControls } from './period-controls.mjs';
 import { createPunctuationClipboard } from './period-clipboard.mjs';
 
 export function createPeriodKeeper(resourcesDirectory, { clipboard } = {}) {
@@ -21,8 +22,8 @@ export function createPeriodKeeper(resourcesDirectory, { clipboard } = {}) {
       if (actual !== HELPER_SHA256) throw new Error('标点组件校验失败，请重新安装XM剪辑台。');
       const processHandle = spawn(executable, ['--parent-pid', String(process.pid)], { windowsHide: true, stdio: ['pipe', 'pipe', 'ignore'] });
       child = processHandle;
-      processHandle.on('error', error => { child = null; guard?.dispose(); failPending(`无法启动标点组件：${error.message}`); });
-      processHandle.on('exit', () => { if (child === processHandle) child = null; guard?.dispose(); failPending('标点组件已退出，请刷新状态后重试。'); });
+      processHandle.on('error', error => { child = null; void guard?.dispose().catch(() => {}); failPending(`无法启动标点组件：${error.message}`); });
+      processHandle.on('exit', () => { if (child === processHandle) child = null; void guard?.dispose().catch(() => {}); failPending('标点组件已退出，请刷新状态后重试。'); });
       const reader = createInterface({ input: processHandle.stdout });
       reader.on('line', line => {
         let result; try { result = JSON.parse(line); } catch { return; }
@@ -56,23 +57,12 @@ export function createPeriodKeeper(resourcesDirectory, { clipboard } = {}) {
     checkedAt = Date.now(); allowed = !['blocked', 'destroy'].includes(data?.status);
     if (!allowed) throw new Error('原项目当前暂停此功能，请稍后再试。');
   }
-  return {
-    async status() { const state = await command('status'); if (!state.enabled) guard?.configure(false); return { ...state, ...guard?.status() }; },
-    async probe() { return { ...await command('probe'), ...guard?.status() }; },
-    async setEnabled(enabled, mode = 'compatible') {
-      if (typeof enabled !== 'boolean' || !['standard', 'compatible'].includes(mode)) throw new Error('无效的标点开关状态。');
-      if (enabled) await checkUpstreamStatus();
-      if (!enabled) guard?.configure(false, mode);
-      const state = await command(enabled ? 'enable' : 'disable');
-      return { ...state, ...guard?.configure(!!state.enabled, mode) };
-    },
-    copy(text) { if (!guard) throw new Error('剪贴板不可用。'); return guard.copy(text); },
-    copyPlain(text) { if (!guard) throw new Error('剪贴板不可用。'); return guard.copyPlain(text); },
-    async dispose() {
-      guard?.dispose();
+  return createPeriodControls({
+    command, guard, checkUpstreamStatus,
+    async shutdown() {
       if (!child) return;
       const processHandle = child;
       try { await command('shutdown'); } finally { processHandle.stdin.end(); }
     },
-  };
+  });
 }

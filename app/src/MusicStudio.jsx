@@ -60,6 +60,10 @@ export function syncScriptMusic(job) {
     return [old ? { ...old, ...item, tracks: mergeTracks(old.tracks, item.tracks) } : item, ...list.filter(j => j.id !== item.id)];
   }, true);
 }
+export function cancelLocalMusicHistory(jobs) {
+  const ids = new Set(jobs.filter(job => job.source === 'library').map(job => `script-${job.id}`));
+  updateJobs(list => list.filter(item => !ids.has(item.id)), true);
+}
 let submissionInFlight = false;
 function setSubmitting(value) { submissionInFlight = value; window.dispatchEvent(new CustomEvent('bos-music-submit')); }
 function resultState(tracks) {

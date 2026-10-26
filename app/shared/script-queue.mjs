@@ -23,7 +23,7 @@ export function restoreJobs(saved) {
 
 // Every paid transition is persisted before the request. Interrupted submissions
 // are never retried automatically, even if a browser reload lost their response.
-export function createScriptQueue({ initial = [], save, request, getProvider, exportMaterials, onComplete = () => {}, onArchive = () => {}, now = Date.now, uuid = () => crypto.randomUUID() }) {
+export function createScriptQueue({ initial = [], save, request, getProvider, exportMaterials, onComplete = () => {}, onArchive = () => {}, onLocalCancelled = () => {}, now = Date.now, uuid = () => crypto.randomUUID() }) {
   let state = { jobs: restoreJobs(initial), running: false, targetIds: null, notice: '' }, busy = false;
   const listeners = new Set();
   const emit = () => listeners.forEach(fn => fn());
@@ -65,7 +65,7 @@ export function createScriptQueue({ initial = [], save, request, getProvider, ex
   return {
     snapshot: () => state,
     subscribe: fn => { listeners.add(fn); return () => listeners.delete(fn); },
-    addLocal(input, track, analysis, reason, directory = '', origin = '') {
+    addLocal(input, track, analysis, reason, directory = '', origin = '', selection) {
       if (state.jobs.length >= 50) throw new Error('最多保留 50 份任务，请移除旧记录后继续。');
       if (!track || !/^[a-f0-9]{64}$/.test(track.id) || typeof track.title !== 'string' || !track.title.trim()) throw new Error('本地音乐信息无效，请刷新音乐库。');
       const base = new URL(origin);
@@ -73,9 +73,19 @@ export function createScriptQueue({ initial = [], save, request, getProvider, ex
       const localTrack = { id: track.id, libraryId: track.libraryId, title: track.title };
       const primary = { id: track.id, title: track.title, audioUrl: `${base.origin}/local-music/${track.id}`, status: 'complete' };
       const job = { ...validateScoreRequest(input), id: uuid(), createdAt: now(), source: 'library', localTrack, analysis: parseKeywords(JSON.stringify(analysis)), matchReason: String(reason || '').slice(0, 500), status: 'complete', primary, tracks: [primary], taskIds: [], exportDirectory: directory };
+      if (selection) job.localSelection = { projectId: selection.projectId, startLine: selection.startLine, endLine: selection.endLine };
       commit([...state.jobs, job]);
       try { onComplete(job); } catch { /* durable queue is available */ }
       return job.id;
+    },
+    cancelLocal(ids) {
+      const selected = state.jobs.filter(job => ids.includes(job.id));
+      if (selected.some(job => job.source !== 'library' || job.archived)) throw new Error('仅可取消当前选用的本地音乐。');
+      if (selected.some(job => job.exportState === 'exporting')) throw new Error('音乐素材正在导出，请等待完成后再取消选用。');
+      if (!selected.length) return;
+      commit(state.jobs.filter(job => !ids.includes(job.id)));
+      try { onLocalCancelled(selected); }
+      catch { stop('已取消选用，但作品历史更新失败；请检查本机存储。'); }
     },
     add(input, gemini, suno, directory = '') {
       if (state.jobs.length >= 50) throw new Error('最多保留 50 份任务，请导出并移除旧任务后继续。');

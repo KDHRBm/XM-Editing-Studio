@@ -80,7 +80,8 @@ function registerLocalFileHandlers() {
   ipcMain.handle('bos:period-status', event => { fromMainWindow(event); return periodKeeper.status(); });
   ipcMain.handle('bos:period-probe', event => { fromMainWindow(event); return periodKeeper.probe(); });
   ipcMain.handle('bos:period-enabled', (event, enabled, mode) => { fromMainWindow(event); return periodKeeper.setEnabled(enabled, mode); });
-  ipcMain.handle('bos:period-copy', (event, text) => { fromMainWindow(event); return periodKeeper.copy(text); });
+  ipcMain.handle('bos:period-batch-enabled', (event, enabled) => { fromMainWindow(event); return periodKeeper.setBatchEnabled(enabled); });
+  ipcMain.handle('bos:period-copy', (event, text, options) => { fromMainWindow(event); return periodKeeper.copy(text, options); });
   ipcMain.handle('bos:jianying-action', (event, action, args, connection) => { fromMainWindow(event); return jianying.run(action, args, connection); });
   ipcMain.handle('bos:quick-launch', (event, action, value) => {
     fromMainWindow(event);

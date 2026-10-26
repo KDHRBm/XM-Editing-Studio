@@ -34,7 +34,7 @@ VIAddVersionKey /LANG=2052 "LegalCopyright" "XM剪辑台"
 !define MUI_UNICON "${APP_ICON}"
 !define MUI_ABORTWARNING
 !define MUI_WELCOMEPAGE_TITLE "欢迎安装XM剪辑台"
-!define MUI_WELCOMEPAGE_TEXT "中文、英文、西语台词整理，Gemini / DeepSeek / 豆包剧本分析与分段配乐、Suno 音乐生成、样片水印与 JianYing-Ai-Pro。$\r$\n$\r$\n版本 ${APP_VERSION}，适用于 Windows 10 / 11 64 位系统。内置运行组件，安装到当前用户，无需管理员权限。$\r$\n$\r$\n安装前请先退出正在运行的 XM剪辑台或小马剪辑台。"
+!define MUI_WELCOMEPAGE_TEXT "多集跑量剪辑流，中文、英文、西语台词整理，Gemini / DeepSeek / 豆包剧本分析与分段配乐、Suno 音乐生成、样片水印与 JianYing-Ai-Pro。$\r$\n$\r$\n版本 ${APP_VERSION}，适用于 Windows 10 / 11 64 位系统。内置运行组件，安装到当前用户，无需管理员权限。$\r$\n$\r$\n安装前请先退出正在运行的 XM剪辑台或小马剪辑台。"
 !insertmacro MUI_PAGE_WELCOME
 !define MUI_PAGE_CUSTOMFUNCTION_LEAVE ValidateDirectory
 !insertmacro MUI_PAGE_DIRECTORY

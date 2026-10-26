@@ -21,9 +21,21 @@ replaceOnce('function A3(){', 'function A3(){const bosGlobalTheme=BOSMusicUpgrad
 replaceOnce('[Nl,_l]=i.useState(!1);i.useEffect', '[Nl,_l]=i.useState(!1);const bosAutomation=BOSMusicUpgrade.useScriptAutomation(x);i.useEffect');
 replaceOnce('d==="providers"&&s.jsxs("section",{className:"provider-stack"', 'd==="providers"&&s.jsx(BOSMusicUpgrade.UsageGuide,{}),d==="providers"&&s.jsxs("section",{className:"provider-stack"');
 replaceOnce('d==="workspace"&&s.jsx(z3,{models:Zl,onNavigate:T})', 'd==="workspace"&&s.jsx(z3,{models:Zl,onNavigate:T,providers:x,automation:bosAutomation})');
-replaceOnce('{id:"workspace",label:"工作空间",sub:"我的创作与灵感",Icon:P8}]', '{id:"workspace",label:"工作空间",sub:"我的创作与灵感",Icon:P8},{id:"watermark",label:"加样片水印",sub:"本地批量处理视频",Icon:Ec},{id:"jianying",label:"JianYing-Ai-Pro",sub:"剪映批量生产工具",Icon:P8},{id:"webai",label:"国内 AI",sub:"DeepSeek · 豆包网页版",Icon:P8}]');
+// Lazy icon wrappers resolve after the upgrade bundle initializes; the baseline
+// navigation array is evaluated earlier than that bundle.
+replaceOnce('const y3=[{id:"providers",label:"模型与连接",sub:"配置供应商与模型",Icon:Ec},{id:"chat",label:"对话",sub:"与 AI 深度交流",Icon:Sc},{id:"music",label:"音乐",sub:"用 AI 模型生成音乐",Icon:K1},{id:"workspace",label:"工作空间",sub:"我的创作与灵感",Icon:P8}];', `const y3=[
+  {id:"batch",label:"跑量剪辑流",sub:"多集字幕与本地配乐",Icon:props=>i.createElement(BOSMusicUpgrade.BatchNavIcon,props)},
+  {id:"workspace",label:"工作空间",sub:"我的创作与灵感",Icon:P8},
+  {id:"music",label:"音乐",sub:"用 AI 模型生成音乐",Icon:K1},
+  {id:"jianying",label:"JianYing-Ai-Pro",sub:"剪映批量生产工具",Icon:props=>i.createElement(BOSMusicUpgrade.JianyingNavIcon,props)},
+  {id:"chat",label:"对话",sub:"与 AI 深度交流",Icon:Sc},
+  {id:"watermark",label:"加样片水印",sub:"本地批量处理视频",Icon:props=>i.createElement(BOSMusicUpgrade.WatermarkNavIcon,props)},
+  {id:"webai",label:"国内 AI",sub:"DeepSeek · 豆包网页版",Icon:props=>i.createElement(BOSMusicUpgrade.WebAiNavIcon,props)},
+  {id:"providers",label:"模型与连接",sub:"配置供应商与模型",Icon:Ec}
+];`);
+replaceOnce('workspace:{eyebrow:"工作空间"', 'batch:{eyebrow:"跑量剪辑流",title:"多集剧本，一起整理。",description:"自动识别集数，批量分析剧情；字幕与本地音乐按集保存。"},workspace:{eyebrow:"工作空间"');
 replaceOnce('workspace:{eyebrow:"工作空间"', 'webai:{eyebrow:"国内 AI",title:"官方网页，直接使用。",description:"内嵌 DeepSeek 与豆包，使用自己的账号登录，无需配置 API。"},jianying:{eyebrow:"JianYing-Ai-Pro",title:"剪映自动化工作台",description:"批量导出、字幕工程与智能命名，复用已配置的 AI 连接。"},watermark:{eyebrow:"加样片水印",title:"让样片，带上你的标记。",description:"选择视频，批量叠加样片水印。处理在本机完成，支持离线使用。"},workspace:{eyebrow:"工作空间"');
-replaceOnce('d==="workspace"&&s.jsx(z3,{models:Zl,onNavigate:T,providers:x,automation:bosAutomation})', 'd==="workspace"&&s.jsx(z3,{models:Zl,onNavigate:T,providers:x,automation:bosAutomation}),s.jsx(BOSMusicUpgrade.WatermarkStudio,{active:d==="watermark"}),s.jsx(BOSMusicUpgrade.JianyingStudio,{active:d==="jianying",providers:x,onNavigate:T}),s.jsx(BOSMusicUpgrade.WebAIStudio,{active:d==="webai",providers:x,automation:bosAutomation,onNavigate:T})');
+replaceOnce('d==="workspace"&&s.jsx(z3,{models:Zl,onNavigate:T,providers:x,automation:bosAutomation})', 'd==="workspace"&&s.jsx(z3,{models:Zl,onNavigate:T,providers:x,automation:bosAutomation}),s.jsx(BOSMusicUpgrade.WatermarkStudio,{active:d==="watermark"}),s.jsx(BOSMusicUpgrade.JianyingStudio,{active:d==="jianying",providers:x,onNavigate:T}),s.jsx(BOSMusicUpgrade.WebAIStudio,{active:d==="webai",providers:x,automation:bosAutomation,onNavigate:T}),s.jsx(BOSMusicUpgrade.BatchAnalysis,{active:d==="batch",providers:x,onNavigate:T})');
 replaceOnce('className:`app-shell ${d==="chat"?"chat-open":""}`', 'className:`app-shell ${d==="chat"?"chat-open":d==="music"?"music-open":d==="webai"?"webai-open":""}`,"data-bos-theme":bosGlobalTheme');
 replaceOnce('function z3({models:d,onNavigate:T})', 'function BOSOriginalWorkspace({models:d,onNavigate:T})');
 replaceOnce('Ys.createRoot(document.getElementById("root"))', 'function z3(props){return i.createElement("section",{className:"bos-workspace"},i.createElement(BOSMusicUpgrade.ScriptAutomation,props),i.createElement(BOSMusicUpgrade.GlobalThemePicker))}\nYs.createRoot(document.getElementById("root"))');
@@ -39,7 +51,7 @@ const railEnd = code.indexOf(',R&&s.jsx(S3', railStart);
 if (railStart < 0 || railEnd < 0) throw new Error('Right sidebar patch location changed.');
 code = code.slice(0, railStart) + 's.jsx(BOSMusicUpgrade.QuickRail,{}),s.jsx(BOSMusicUpgrade.SidebarResizer,{})' + code.slice(railEnd);
 fs.writeFileSync(path.join(root, 'dist/client/assets/music-studio.js'), code);
-const css = [fs.readFileSync(path.join(original, cssName), 'utf8'), fs.readFileSync(path.join(root, 'src/music-studio.css'), 'utf8'), fs.readFileSync(path.join(root, 'src/global-themes.css'), 'utf8'), fs.readFileSync(path.join(root, 'src/script-automation.css'), 'utf8')].join('\n');
+const css = [fs.readFileSync(path.join(original, cssName), 'utf8'), fs.readFileSync(path.join(root, 'src/music-studio.css'), 'utf8'), fs.readFileSync(path.join(root, 'src/global-themes.css'), 'utf8'), fs.readFileSync(path.join(root, 'src/script-automation.css'), 'utf8'), fs.readFileSync(path.join(root, 'src/batch-analysis.css'), 'utf8')].join('\n');
 fs.writeFileSync(path.join(root, 'dist/client/assets/music-studio.css'), css);
 const version = createHash('sha256').update(code).update(css).digest('hex').slice(0, 12);
 let html = fs.readFileSync(path.join(original, 'index.html'), 'utf8').replace(jsName, `music-studio.js?v=${version}`).replace(cssName, `music-studio.css?v=${version}`).replaceAll('黑曜信号台', 'XM剪辑台');

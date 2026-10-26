@@ -2,7 +2,8 @@ import { MusicDragButton } from './MusicDragButton.jsx';
 import { connectScriptQueue } from './ScriptQueueBridge.mjs';
 import { SCRIPT_LIMIT, splitScript, isGeminiModel, isSunoModel } from '../shared/script-score.mjs';
 import { QUEUE_KEY, createScriptQueue } from '../shared/script-queue.mjs';
-import { importScriptScore, syncScriptMusic } from './MusicStudio.jsx';
+import { importScriptScore, syncScriptMusic, cancelLocalMusicHistory } from './MusicStudio.jsx';
+import { findLocalSelections, localSelectionScope } from '../shared/local-music-selection.mjs';
 import { MusicLibrary, clearCurrentLibraryMatch } from './MusicLibrary.jsx';
 import { usePanelCollapsed } from './PanelState.jsx';
 import { useScriptProjects } from './ScriptProjects.jsx';
@@ -37,6 +38,7 @@ function getRuntime() {
     },
     onComplete: syncScriptMusic,
     onArchive: syncScriptMusic,
+    onLocalCancelled: cancelLocalMusicHistory,
   };
   try { runtime = createScriptQueue(options); }
   catch (error) { loadError = error.message; runtime = createScriptQueue({ ...options, initial: [] }); }
@@ -113,10 +115,19 @@ export function ScriptAutomation({ providers, automation, onNavigate }) {
   });
   const copyLines = () => perform(async () => { const result = await copySubtitleText(subtitleLines.map(line => line.text).join('\n')); setMessage(result.clipboardProtected ? `已完整复制 ${result.copiedLines} 行台词，已按原工具保护标点，可粘贴到剪映。` : '已复制字幕台词，使用标准英文标点。'); });
   const useLocalMusic = (track, analysis, reason, lines, segment) => {
+    const selected = findLocalSelections(queue.snapshot().jobs, { projectId: projects.project.id, script: draft.script, lines, segment }, track.id);
+    if (selected.length) {
+      queue.cancelLocal(selected.map(job => job.id));
+      if (selected.some(job => job.id === opened)) setOpened('');
+      setMessage(`已取消选用「${track.title}」，已导出的文件保留。`);
+      return false;
+    }
     if (extraction.error) throw new Error(extraction.error);
-    const id = queue.addLocal({ ...draft, lines, title: segment ? `${draft.title.slice(0, 45)} · ${segment.title}` : draft.title }, track, analysis, reason, localDirectory, window.location.origin);
+    const id = queue.addLocal({ ...draft, lines, title: segment ? `${draft.title.slice(0, 45)} · ${segment.title}` : draft.title }, track, analysis, reason, localDirectory, window.location.origin, localSelectionScope(projects.project.id, segment));
     setOpened(id); setMessage(localDirectory ? '已选用本地音乐，正在准备导出素材。' : '已选用本地音乐。选择素材文件夹后，可从下方任务导出。');
+    return true;
   };
+  const isLocalSelected = (track, segment) => findLocalSelections(automation.jobs, { projectId: projects.project.id, script: draft.script, segment, lines: segment ? subtitleLines.filter(line => line.sourceLine >= segment.startLine && line.sourceLine <= segment.endLine) : subtitleLines }, track.id).length > 0;
   const segmentJob = segment => {
     try { return findSegmentJob(automation.jobs, { ...draft, lines: subtitleLines }, segment, projects.project.id); }
     catch { return null; }
@@ -185,7 +196,7 @@ export function ScriptAutomation({ providers, automation, onNavigate }) {
     </div>
     </div>
     </div>
-    <div><MusicLibrary key={projects.project.id} input={draft} projectId={projects.project.id} savedRecommendation={projects.project.recommendation} onAnalysis={projects.remember} onChange={change} lines={subtitleLines} gemini={libraryGemini} generationAnalyzer={gemini} settings={localSettings} onUse={useLocalMusic} onGenerate={generateSegment} segmentJob={segmentJob} onViewJob={viewSegmentJob} /></div>
+    <div><MusicLibrary key={projects.project.id} input={draft} projectId={projects.project.id} savedRecommendation={projects.project.recommendation} onAnalysis={projects.remember} onChange={change} lines={subtitleLines} gemini={libraryGemini} generationAnalyzer={gemini} settings={localSettings} onUse={useLocalMusic} isSelected={isLocalSelected} onGenerate={generateSegment} segmentJob={segmentJob} onViewJob={viewSegmentJob} /></div>
     <div id="bos-script-queue-body" hidden={collapsed}>
     {(message || notice) && <p role="status" className="bos-script-message">{notice || message}</p>}
     <section className="bos-script-queue" aria-label="剧本配乐任务队列">

@@ -40,7 +40,7 @@ test('keyword schema and candidate validation reject fabricated IDs; local short
   assert.deepEqual(parseKeywords(JSON.stringify(analysis)), analysis);
   assert.throws(() => parseKeywords('{"summary":"ok","keywords":[]}'), /关键词/);
   const tracks = Array.from({ length: 90 }, (_, n) => ({ id: String(n), title: `Dance ${n}` })); tracks[89].title = 'Rain_piano 释然';
-  const selected = shortlistTracks(tracks, ['雨夜', 'rain', 'piano', '释然']); assert.equal(selected.length, 1); assert.equal(selected[0].id, '89');
+  const selected = shortlistTracks(tracks, ['雨夜', 'rain', 'piano', '释然']); assert.ok(selected.length >= 2 && selected.length <= 80); assert.equal(selected[0].id, '89');
   assert.throws(() => parseMatches(JSON.stringify({ matches: [{ id: 'fake', reason: 'ok', keywords: [] }] }), selected), /无效/);
   assert.deepEqual(parseMatches('{"matches":[]}', selected), []);
   const checked = validateLibraryInput({ ...input, tracks: [{ id: 'music-1', title: 'Rain', filename: 'C:/private/music.wav', apiKey: 'secret' }] });
@@ -115,7 +115,7 @@ test('Gemini sees the complete script and only music IDs/titles; matching makes 
       const data = await response.json(); assert.equal(response.status, 200, JSON.stringify(data)); assert.equal(data.matches.length, 2); assert.equal(data.total, 3); assert.deepEqual(data.analysis.keywords, analysis.keywords);
       assert.deepEqual(data.customKeywords, ['温暖', 'piano']);
     }
-    assert.equal(mock.calls.length, 4); assert.ok(mock.calls.every(call => !call.url.includes('/suno/')));
+    assert.equal(mock.calls.length, 6); assert.ok(mock.calls.every(call => !call.url.includes('/suno/')));
     for (const call of mock.calls) { const body = JSON.stringify(call.body); assert.ok(body.includes('场景：雨夜')); assert.ok(body.includes('林夏：')); assert.ok(!body.includes('relativePath')); assert.ok(!body.includes('filename')); assert.ok(!body.includes(music)); }
     for (const call of mock.calls) {
       const userText = call.body.messages?.find(message => message.role === 'user')?.content || call.body.contents?.[0]?.parts?.[0]?.text;

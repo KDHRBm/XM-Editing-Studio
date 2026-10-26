@@ -54,6 +54,6 @@ test('Gemini API returns per-scene recommendations and multiple prompts without 
       const data = await response.json(); assert.equal(response.status, 200, JSON.stringify(data)); assert.equal(data.segments.length, 2);
       if (route === 'score') assert.ok(data.segments.every(s => s.score.instrumental)); else assert.ok(data.segments.every(s => s.matches.length === 1));
     }
-    assert.equal(requests.length, 3); assert.ok(requests.every(r => r.model === 'gemini-test'));
+    assert.equal(requests.length, 4); assert.ok(requests.every(r => r.model === 'gemini-test'));
   } finally { await new Promise(r => server.close(r)); await new Promise(r => mock.close(r)); }
 });

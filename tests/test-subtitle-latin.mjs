@@ -44,12 +44,12 @@ test('standard and compatibility clipboard copies preserve accented letters end 
   for (const mode of ['standard', 'compatible']) {
     let copied = '', poll;
     const guard = createPunctuationClipboard({ clipboard: { readText: () => copied, writeText: value => { copied = value; } }, schedule: fn => { poll = fn; return 1; }, cancel: () => {} });
-    guard.configure(true, mode);
+    await guard.configure(true, mode);
     const result = await guard.copy(text); poll?.();
     assert.equal(result.copyVerified, true); assert.equal(result.copiedLines, 3);
     assert.equal(restoreProtectedPunctuation(copied).replace(/\r\n/g, '\n'), "I'm your fiancée.\nNot your dog!\nJosé, wait...");
     if (mode === 'compatible') assert.match(copied, /fiancée․/);
     else assert.match(copied, /fiancée\./);
-    guard.dispose();
+    await guard.dispose();
   }
 });

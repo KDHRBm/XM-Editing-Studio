@@ -26,11 +26,11 @@ test('English and Spanish retain three-dot ellipses while Chinese removes punctu
     for (const mode of ['standard', 'compatible']) {
       let text = '';
       const guard = createPunctuationClipboard({ clipboard: { readText: () => text, writeText: value => { text = value; } }, schedule: () => 1, cancel: () => {} });
-      guard.configure(true, mode);
+      await guard.configure(true, mode);
       const result = await guard.copy(actual);
       assert.equal(result.copyVerified, true);
-      assert.equal(text, (mode === 'compatible' ? expected.replace(/(?<!\.)\.(?!\.)/g, '․') : expected).replace(/\n/g, '\r\n'));
-      guard.dispose();
+      assert.equal(text, (mode === 'compatible' ? expected.replace(/\./g, '․') : expected).replace(/\n/g, '\r\n'));
+      await guard.dispose();
     }
   }
 });

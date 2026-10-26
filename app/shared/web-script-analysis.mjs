@@ -1,6 +1,8 @@
 import { validateScoreRequest, scoreMessages, parseScoreResponse } from './script-score.mjs';
 import { validateLibraryInput, keywordMessages, parseKeywords, shortlistTracks, matchMessages, parseMatches } from './library-match.mjs';
 import { segmentMessages, parseSegments, segmentCandidates, segmentMatchMessages, parseSegmentMatches } from './script-segments.mjs';
+import { analyzeBatchMusic } from './batch-music.mjs';
+import { needsMusicReview, mergeMusicSelections, musicShortfall } from './music-recommendation-policy.mjs';
 
 async function matchWithRepair(messages, parse, ask, stage) {
   const answer = await ask(messages, stage);
@@ -26,6 +28,7 @@ async function matchWithRepair(messages, parse, ask, stage) {
 
 // Reuse the same validators as the API workflow; a webpage answer is always untrusted data.
 export async function analyzeWithWeb(purpose, body, ask) {
+  if (purpose === 'batch-library-match') return analyzeBatchMusic(body, ask);
   if (purpose === 'score') {
     const input = validateScoreRequest(body);
     if (input.segmented) return { segments: parseSegments(await ask(segmentMessages(input, 'suno'), '分情节编写音乐提示词'), input, 'suno') };
@@ -35,15 +38,29 @@ export async function analyzeWithWeb(purpose, body, ask) {
   const input = validateLibraryInput(body);
   if (input.segmented) {
     const candidates = segmentCandidates(input, parseSegments(await ask(segmentMessages(input, 'library'), '按情节分析剧本'), input, 'library'));
-    const segments = candidates.some(segment => segment.candidates.length)
+    let segments = candidates.some(segment => segment.candidates.length)
       ? await matchWithRepair(segmentMatchMessages(input, candidates), text => parseSegmentMatches(text, candidates), ask, '匹配各情节的本地音乐')
       : candidates.map(({ candidates, ...segment }) => ({ ...segment, matches: [], evaluated: 0 }));
+    const missing = candidates.filter(unit => needsMusicReview(unit,segments.find(segment=>segment.id===unit.id)));
+    if (missing.length) {
+      const messages = segmentMatchMessages(input,missing);
+      messages[0].content += ' 本次仅补充不足5首的情节，逐字使用候选ID，确实不足则用noMatchReason解释。';
+      const supplemented = await matchWithRepair(messages,text=>parseSegmentMatches(text,missing),ask,'补充每段音乐推荐');
+      segments = segments.map(segment=>{const reviewed=supplemented.find(item=>item.id===segment.id);if(!reviewed)return segment;const merged=mergeMusicSelections(segment,reviewed);return {...merged,noMatchReason:musicShortfall(merged,merged.evaluated)};});
+    }
     return { segments, matches: [], analysis: { summary: `剧本已分为 ${segments.length} 个情节，各段音乐推荐见下方。`, keywords: [...new Set(segments.flatMap(s => s.keywords))].slice(0, 30) }, total: input.tracks.length, evaluated: candidates.reduce((n, s) => n + s.candidates.length, 0) };
   }
   const analysis = parseKeywords(await ask(keywordMessages(input), '提取剧本关键词'));
   const candidates = shortlistTracks(input.tracks, analysis.keywords, input.customKeywords);
-  const matches = candidates.length ? await matchWithRepair(matchMessages(input, analysis, candidates), text => parseMatches(text, candidates), ask, '匹配本地音乐标题') : [];
-  return { analysis, matches, customKeywords: input.customKeywords, total: input.tracks.length, evaluated: candidates.length };
+  const parse = text => { const matches = parseMatches(text,candidates);const value=JSON.parse(text.trim().replace(/^```(?:json)?\s*/i,'').replace(/\s*```$/,''));return {matches,noMatchReason:typeof value.noMatchReason==='string'?value.noMatchReason.slice(0,300):''}; };
+  let selection = candidates.length ? await matchWithRepair(matchMessages(input, analysis, candidates), parse, ask, '匹配本地音乐标题') : {matches:[]};
+  if (needsMusicReview({candidates},selection)) {
+    const messages=matchMessages(input,analysis,candidates);
+    messages[0].content += ' 本次补充不足5首的推荐，确实不足则用noMatchReason解释。';
+    const reviewed=await matchWithRepair(messages,parse,ask,'补充音乐推荐');
+    selection=mergeMusicSelections(selection,reviewed);
+  }
+  return { analysis, matches:selection.matches, noMatchReason:musicShortfall(selection,candidates.length), customKeywords: input.customKeywords, total: input.tracks.length, evaluated: candidates.length };
 }
 
 export function webTaskPrompt(messages, token) {
@@ -67,7 +84,7 @@ export function webTaskResult(text, token, manual = false) {
           // Some official web models put the task marker alongside segments inside result.
           // Accept either envelope layout, but every explicit marker must match this task.
           const markers = (wrapped ? [object, payload] : [object]).filter(value => Object.hasOwn(value, 'xmTaskId')).map(value => value.xmTaskId);
-          const knownPayload = ['segments', 'keywords', 'matches', 'structure'].some(key => Object.hasOwn(payload, key));
+          const knownPayload = ['episodes', 'segments', 'keywords', 'matches', 'structure'].some(key => Object.hasOwn(payload, key));
           if ((markers.length > 0 && markers.every(value => value === token) && (wrapped || knownPayload)) || (manual && markers.length === 0 && knownPayload)) {
             const { xmTaskId, ...result } = payload;
             return JSON.stringify(result);

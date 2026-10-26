@@ -107,13 +107,13 @@ test('manual web prompts preserve full script and user options without exporting
 test('web task copy remains complete and valid JSON with subtitle protection enabled', async () => {
   let value = '', tick;
   const guard = createPunctuationClipboard({ clipboard: { readText: () => value, writeText: text => { value = text; } }, schedule: fn => { tick = fn; return 1; }, cancel: () => {} });
-  guard.configure(true, 'compatible');
+  await guard.configure(true, 'compatible');
   const prompt = webAIScriptPrompt({ ...draft, segmented: true }, 'suno');
-  const result = await guard.copyPlain(prompt); tick(); tick();
+  const result = await guard.copyPlain(prompt); await tick(); await tick();
   assert.equal(result.copyVerified, true); assert.equal(value.replace(/\r\n/g, '\n'), prompt); assert.equal(taskData(value).originalScript, draft.script);
   await guard.copy('Subtitles, keep.'); assert.equal(value, 'Subtitles‚ keep․');
   await assert.rejects(guard.copyPlain('Bad\0text'), /格式无效/);
-  guard.dispose();
+  await guard.dispose();
 });
 
 const saved = new Map([['black-obsidian.script-draft.v1', JSON.stringify(draft)]]);
