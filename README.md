@@ -10,9 +10,9 @@
 
 | 文件 | 用途 |
 | --- | --- |
-| `XM剪辑台-1.3.0-Windows-x64-完整安装包.exe` | 新电脑、首次安装 |
-| `XM剪辑台-1.3.0-全量更新包.zip` | 已有旧版直接升级至 1.3.0，无需逐个安装中间版本 |
-| `XM剪辑台-1.2到1.3-更新说明.md` | 详细功能变化与升级说明 |
+| `XM-Editing-Studio-1.3.0-Windows-x64-Setup.exe` | 新电脑、首次安装 |
+| `XM-Editing-Studio-1.3.0-Full-Update.zip` | 已有旧版直接升级至 1.3.0，无需逐个安装中间版本 |
+| `CHANGELOG-1.2-to-1.3.md` | 详细功能变化与升级说明 |
 | `SHA256SUMS.txt` | 下载文件完整性校验 |
 
 系统：Windows 10 / Windows 11，64 位（x64）。内置运行组件，无需另外安装 Node.js 或 Python。GitHub 自动生成的 Source code 压缩包只有本仓库的说明文件；运行软件请下载上表中的安装包或更新包。
