@@ -1,0 +1,17 @@
+import fs from 'node:fs/promises';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { build } from 'vite';
+const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
+process.chdir(root);
+await fs.mkdir('app/dist/client/assets', { recursive: true });
+await fs.cp('app/public', 'app/dist/client', { recursive: true });
+await fs.mkdir('app/build', { recursive: true });
+for (const name of ['app-icon.ico', 'app-icon.png']) await fs.copyFile(`app/assets/${name}`, `app/build/${name}`);
+await import('../app/scripts/build-upgrade.mjs');
+await fs.mkdir('watermarker/public/ffmpeg', { recursive: true });
+await fs.mkdir('watermarker/public/ffmpeg-worker', { recursive: true });
+for (const name of ['ffmpeg-core.js', 'ffmpeg-core.wasm']) await fs.copyFile(`node_modules/@ffmpeg/core/dist/esm/${name}`, `watermarker/public/ffmpeg/${name}`);
+for (const name of ['worker.js', 'const.js', 'errors.js']) await fs.copyFile(`node_modules/@ffmpeg/ffmpeg/dist/esm/${name}`, `watermarker/public/ffmpeg-worker/${name}`);
+await build({ root: path.join(root, 'watermarker'), configFile: false, base: '/watermarker/', worker: { format: 'es' }, build: { outDir: path.join(root, 'app/dist/client/watermarker'), emptyOutDir: true, chunkSizeWarningLimit: 1500 } });
+console.log('Renderer and watermarker built. Native Windows helpers: npm run build:native');

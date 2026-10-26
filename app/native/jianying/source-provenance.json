@@ -1,0 +1,6 @@
+{
+  "source": "User-provided JianYing-AI-Pro 2.1 main.py",
+  "sha256": "9a411111454eabd7e2fc84bf53efb636c243b5b14d58524d659dcbf42b453b2f",
+  "version": "2.1",
+  "integration": "native engine with XM interface; standalone GUI and credential storage replaced"
+}

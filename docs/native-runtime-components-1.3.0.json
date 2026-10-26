@@ -1,0 +1,149 @@
+[
+  {
+    "name": "PyInstaller",
+    "version": "6.16.0",
+    "licenseFiles": [
+      "licenses\\PyInstaller\\pyinstaller-6.16.0.dist-info\\licenses\\COPYING.txt"
+    ]
+  },
+  {
+    "name": "pyautogui",
+    "version": "0.9.54",
+    "licenseFiles": [
+      "licenses\\pyautogui\\pyautogui-0.9.54.dist-info\\licenses\\LICENSE.txt"
+    ]
+  },
+  {
+    "name": "pynput",
+    "version": "1.8.1",
+    "licenseFiles": [
+      "licenses\\pynput\\pynput-1.8.1.dist-info\\COPYING.LGPL"
+    ]
+  },
+  {
+    "name": "Pillow",
+    "version": "11.3.0",
+    "licenseFiles": [
+      "licenses\\Pillow\\pillow-11.3.0.dist-info\\licenses\\LICENSE"
+    ]
+  },
+  {
+    "name": "opencv-python-headless",
+    "version": "4.12.0.88",
+    "licenseFiles": [
+      "licenses\\opencv-python-headless\\cv2\\LICENSE-3RD-PARTY.txt",
+      "licenses\\opencv-python-headless\\cv2\\LICENSE.txt",
+      "licenses\\opencv-python-headless\\cv2\\data\\haarcascade_license_plate_rus_16stages.xml",
+      "licenses\\opencv-python-headless\\opencv_python_headless-4.12.0.88.dist-info\\LICENSE-3RD-PARTY.txt",
+      "licenses\\opencv-python-headless\\opencv_python_headless-4.12.0.88.dist-info\\LICENSE.txt"
+    ]
+  },
+  {
+    "name": "numpy",
+    "version": "2.2.6",
+    "licenseFiles": [
+      "licenses\\numpy\\numpy-2.2.6.dist-info\\LICENSE.txt",
+      "licenses\\numpy\\numpy\\_core\\include\\numpy\\random\\LICENSE.txt",
+      "licenses\\numpy\\numpy\\ma\\LICENSE",
+      "licenses\\numpy\\numpy\\random\\LICENSE.md"
+    ]
+  },
+  {
+    "name": "requests",
+    "version": "2.32.5",
+    "licenseFiles": [
+      "licenses\\requests\\requests-2.32.5.dist-info\\licenses\\LICENSE"
+    ]
+  },
+  {
+    "name": "charset-normalizer",
+    "version": "3.5.2",
+    "licenseFiles": [
+      "licenses\\charset-normalizer\\charset_normalizer-3.5.2.dist-info\\licenses\\LICENSE"
+    ]
+  },
+  {
+    "name": "idna",
+    "version": "3.20",
+    "licenseFiles": [
+      "licenses\\idna\\idna-3.20.dist-info\\licenses\\LICENSE.md"
+    ]
+  },
+  {
+    "name": "urllib3",
+    "version": "2.8.0",
+    "licenseFiles": [
+      "licenses\\urllib3\\urllib3-2.8.0.dist-info\\licenses\\LICENSE.txt"
+    ]
+  },
+  {
+    "name": "certifi",
+    "version": "2026.10.19",
+    "licenseFiles": [
+      "licenses\\certifi\\certifi-2026.10.19.dist-info\\licenses\\LICENSE"
+    ]
+  },
+  {
+    "name": "six",
+    "version": "1.17.0",
+    "licenseFiles": [
+      "licenses\\six\\six-1.17.0.dist-info\\LICENSE"
+    ]
+  },
+  {
+    "name": "pymsgbox",
+    "version": "2.0.1",
+    "licenseFiles": [
+      "licenses\\pymsgbox\\pymsgbox-2.0.1.dist-info\\licenses\\LICENSE.txt"
+    ]
+  },
+  {
+    "name": "pyscreeze",
+    "version": "1.0.1",
+    "licenseFiles": [
+      "licenses\\pyscreeze\\pyscreeze-1.0.1.dist-info\\licenses\\LICENSE.txt"
+    ]
+  },
+  {
+    "name": "pytweening",
+    "version": "1.2.0",
+    "licenseFiles": [
+      "licenses\\pytweening\\pytweening-1.2.0.dist-info\\licenses\\LICENSE.txt"
+    ]
+  },
+  {
+    "name": "mouseinfo",
+    "version": "0.1.3",
+    "licenseFiles": []
+  },
+  {
+    "name": "pyperclip",
+    "version": "1.11.0",
+    "licenseFiles": [
+      "licenses\\pyperclip\\pyperclip-1.11.0.dist-info\\licenses\\LICENSE.txt"
+    ]
+  },
+  {
+    "name": "cryptography",
+    "version": "50.0.2",
+    "licenseFiles": [
+      "licenses\\cryptography\\cryptography-50.0.2.dist-info\\licenses\\LICENSE",
+      "licenses\\cryptography\\cryptography-50.0.2.dist-info\\licenses\\LICENSE.APACHE",
+      "licenses\\cryptography\\cryptography-50.0.2.dist-info\\licenses\\LICENSE.BSD"
+    ]
+  },
+  {
+    "name": "cffi",
+    "version": "2.1.1",
+    "licenseFiles": [
+      "licenses\\cffi\\cffi-2.1.1.dist-info\\licenses\\LICENSE"
+    ]
+  },
+  {
+    "name": "pycparser",
+    "version": "3.11",
+    "licenseFiles": [
+      "licenses\\pycparser\\pycparser-3.11.dist-info\\licenses\\LICENSE"
+    ]
+  }
+]

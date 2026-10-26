@@ -1,0 +1,30 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import path from 'node:path';
+import { mkdtemp, writeFile, readFile, readdir, rename } from 'node:fs/promises';
+import { createMusicDrag } from '../app/electron/music-drag.mjs';
+import { wav } from './script-test-fixtures.mjs';
+test('local music drag exposes the existing original, creates no copies and rejects stale tokens', async () => {
+  const root = await mkdtemp(path.resolve('.generated/tests/test-music-drag-'));
+  const original = path.join(root, '悬疑_钢琴.wav'); await writeFile(original, wav());
+  const service = createMusicDrag({ registryFile: path.join(root, 'registry.json'), resolveLocalTrack: async id => { assert.equal(id, 'a'.repeat(64)); return { filename: original }; } });
+  const prepared = await service.prepare({ libraryId: 'a'.repeat(64) });
+  assert.equal(prepared.ready, true); assert.equal(service.fileForToken(prepared.token), original);
+  assert.deepEqual(await readdir(root), ['悬疑_钢琴.wav']); assert.deepEqual(await readFile(original), wav());
+  await assert.rejects(service.prepare({ libraryId: '../bad' }), /标识/);
+  assert.throws(() => service.fileForToken('untrusted'), /失效/);
+  await rename(original, path.join(root, '移动.wav')); assert.throws(() => service.fileForToken(prepared.token));
+});
+test('remote-only tracks do not download; previously saved generated music is reusable after restart', async () => {
+  const root = await mkdtemp(path.resolve('.generated/tests/test-music-drag-'));
+  const options = { registryFile: path.join(root, 'registry.json'), resolveLocalTrack: async () => { throw new Error('unexpected'); } };
+  const service = createMusicDrag(options), url = 'https://example.invalid/song';
+  const result = await service.prepare({ url }); assert.equal(result.ready, false); assert.deepEqual(await readdir(root), []);
+  const original = path.join(root, '温暖_钢琴.wav'); await writeFile(original, wav()); await service.remember(url, original);
+  const restarted = createMusicDrag(options), prepared = await restarted.prepare({ url });
+  assert.equal(restarted.fileForToken(prepared.token), original);
+  assert.deepEqual((await readdir(root)).sort(), ['registry.json', '温暖_钢琴.wav'].sort());
+  const fake = path.join(root, 'not-audio.mp3'); await writeFile(fake, 'this is a text file with a music extension');
+  await assert.rejects(service.prepare({ filePath: fake }), /不是/);
+  await assert.rejects(service.prepare({ filePath: '../song.wav' }), /音频/);
+});

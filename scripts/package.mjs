@@ -1,0 +1,16 @@
+import fs from 'node:fs/promises';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { packager } from '@electron/packager';
+const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
+process.chdir(root);
+for (const file of ['app/dist/client/index.html', '.generated/native/helpers/PeriodKeeper.exe', 'app/build/jianying/JianYingEngine.exe', 'app/build/jianying/engine.json']) await fs.access(file);
+const stage = path.join(root, '.generated', `package-${Date.now()}`);
+await fs.mkdir(stage, { recursive: true });
+for (const folder of ['electron', 'server', 'shared', 'dist', 'build']) await fs.cp(path.join('app', folder), path.join(stage, folder), { recursive: true });
+const metadata = JSON.parse(await fs.readFile('app/package.json', 'utf8'));
+delete metadata.dependencies;
+await fs.writeFile(path.join(stage, 'package.json'), JSON.stringify(metadata, null, 2));
+await fs.copyFile('app/THIRD_PARTY_NOTICES.txt', path.join(stage, 'THIRD_PARTY_NOTICES.txt'));
+const result = await packager({ dir: stage, out: 'artifacts', name: 'XM剪辑台', executableName: '小马剪辑台', platform: 'win32', arch: 'x64', electronVersion: '44.9.2', icon: 'app/assets/app-icon.ico', appVersion: metadata.version, buildVersion: metadata.version, asar: true, overwrite: false, prune: false, extraResource: ['.generated/native/helpers'] });
+console.log(result.join('\n'));

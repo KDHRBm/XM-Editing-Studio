@@ -1,0 +1,5 @@
+JianYing-AI-Pro 2.1: integrated from the user-provided main.py. No upstream license file was supplied. Standalone UI, credential entry and persistence replaced by XM integrations.
+
+Python and third-party runtime license texts are included below.
+
+mouseinfo 0.1.3: GPLv3+
