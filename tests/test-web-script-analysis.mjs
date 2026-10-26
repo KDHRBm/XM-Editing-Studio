@@ -138,6 +138,55 @@ test('response envelopes reject prior conversations and partial JSON; manual imp
   assert.equal(webTaskResult('{'.repeat(199999), 'current-token'), null);
   const prompt = webTaskPrompt([{ content: 'instruction' }, { content: 'fiancée.' }], 'current-token'); assert.match(prompt, /fiancée/); assert.match(prompt, /current-token/);
 });
+
+test('DeepSeek task marker inside result is accepted without accepting a different or conflicting task', () => {
+  // Synthetic dialogue-free fixture reproduces the envelope returned by the official site.
+  const result = { segments: [{ title: '转折', startLine: 1, endLine: 204, summary: '情绪变化', keywords: ['悬疑'] }] };
+  const nested = { result: { ...result, xmTaskId: 'current-token' } };
+  for (const manual of [false, true]) {
+    assert.equal(webTaskResult(JSON.stringify(nested), 'current-token', manual), JSON.stringify(result));
+    assert.equal(webTaskResult('```json\n' + JSON.stringify(nested) + '\n```', 'current-token', manual), JSON.stringify(result));
+    assert.equal(webTaskResult(JSON.stringify(nested), 'other-token', manual), null);
+    assert.equal(webTaskResult(JSON.stringify(nested).slice(0, -1), 'current-token', manual), null);
+    for (const conflicting of [
+      { xmTaskId: 'wrong', result: nested.result },
+      { xmTaskId: 'current-token', result: { ...result, xmTaskId: 'wrong' } },
+      { xmTaskId: null, result: nested.result },
+    ]) assert.equal(webTaskResult(JSON.stringify(conflicting), 'current-token', manual), null);
+    assert.equal(webTaskResult(JSON.stringify({ xmTaskId: 'current-token', result: nested.result }), 'current-token', manual), JSON.stringify(result));
+  }
+  assert.equal(webTaskResult(JSON.stringify({ result }), 'current-token'), null);
+  assert.equal(webTaskResult(JSON.stringify({ result }), 'current-token', true), JSON.stringify(result));
+  assert.equal(webTaskResult(JSON.stringify({ ...result, xmTaskId: 'current-token' }), 'current-token'), JSON.stringify(result));
+  const prompt = webTaskPrompt([{ content: '只返回分段方案。' }], 'current-token');
+  assert.match(prompt, /"xmTaskId":"current-token","result":/);
+  assert.match(prompt, /两个并列字段/);
+});
+
+test('nested DeepSeek task marker advances from completed segmentation to music matching', async () => {
+  const planned = segments.map(({ score, ...segment }) => segment);
+  let token = 0, time = 0, sends = 0, reads = 0;
+  const stages = [];
+  const host = createWebAnalysis({ uuid: () => `nested-${++token}`, now: () => time, delay: async () => { time += 1500; }, notify: state => { if (state) stages.push(state.stage); }, copy: async () => {}, driver: {
+    visible: () => true,
+    async run(_provider, command) {
+      if (command.command === 'fill') return { state: 'filled' };
+      if (command.command === 'send') { sends++; return { state: 'sent' }; }
+      reads++;
+      const result = token === 1 ? { segments: planned } : { segments: [
+        { id: 'segment-1', matches: [] },
+        { id: 'segment-2', matches: [{ id: 'piano', reason: '适合温暖的情绪转折', keywords: ['温暖'] }] },
+      ] };
+      return { texts: [JSON.stringify({ result: { ...result, xmTaskId: command.token } })], busy: false };
+    },
+  } });
+  const result = await host.run({ id: 'request-nested-123', provider: 'deepseek', purpose: 'library-match', input: { ...input, segmented: true } });
+  assert.equal(sends, 2); assert.equal(token, 2);
+  assert.equal(result.segments[1].matches[0].id, 'piano');
+  assert(stages.includes('匹配各情节的本地音乐'));
+  assert(reads < 12, 'completed response should proceed within a few polling cycles');
+  assert.equal(host.snapshot(), null);
+});
 test('web driver waits for login, sends each step once, accepts only stable current response', async () => {
   let host, time = 0, fills = 0, sends = 0, reads = 0; const events = [];
   host = createWebAnalysis({ now: () => time, delay: async () => { time += 1500; }, uuid: () => 'current-token', notify: state => events.push(state), copy: async () => {}, driver: {

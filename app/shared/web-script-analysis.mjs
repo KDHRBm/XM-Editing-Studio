@@ -47,7 +47,7 @@ export async function analyzeWithWeb(purpose, body, ask) {
 }
 
 export function webTaskPrompt(messages, token) {
-  return messages.map(message => message.content).join('\n\n') + `\n\n本次任务标识：${token}\n回复时将上面要求的 JSON 对象放入顶级 result 字段，并加入顶级 xmTaskId 字段，其字符串值必须为本次任务标识。只返回这一个 JSON 对象，不要复述输入或输出思考过程。`;
+  return messages.map(message => message.content).join('\n\n') + `\n\n本次任务标识：${token}\n回复格式：{"xmTaskId":${JSON.stringify(token)},"result":{这里放入上面要求的完整结果对象}}。xmTaskId 与 result 必须是最外层的两个并列字段，先输出 xmTaskId，再输出 result；不要把 xmTaskId 放入 result 或 segments 中。只返回这一个 JSON 对象，不要复述输入或输出思考过程。`;
 }
 export function webTaskResult(text, token, manual = false) {
   if (typeof text !== 'string' || text.length > 200000) return null;
@@ -62,8 +62,16 @@ export function webTaskResult(text, token, manual = false) {
     else if (char === '}' && --depth === 0) {
         try {
           const object = JSON.parse(text.slice(start, at + 1));
-          if (object.xmTaskId === token && object.result && typeof object.result === 'object' && !Array.isArray(object.result)) return JSON.stringify(object.result);
-          if (manual && !('xmTaskId' in object) && (object.segments || object.keywords || object.matches || object.structure)) return JSON.stringify(object);
+          const wrapped = object.result && typeof object.result === 'object' && !Array.isArray(object.result);
+          const payload = wrapped ? object.result : object;
+          // Some official web models put the task marker alongside segments inside result.
+          // Accept either envelope layout, but every explicit marker must match this task.
+          const markers = (wrapped ? [object, payload] : [object]).filter(value => Object.hasOwn(value, 'xmTaskId')).map(value => value.xmTaskId);
+          const knownPayload = ['segments', 'keywords', 'matches', 'structure'].some(key => Object.hasOwn(payload, key));
+          if ((markers.length > 0 && markers.every(value => value === token) && (wrapped || knownPayload)) || (manual && markers.length === 0 && knownPayload)) {
+            const { xmTaskId, ...result } = payload;
+            return JSON.stringify(result);
+          }
         } catch { /* Not a JSON response. */ }
         start = -1;
     }
