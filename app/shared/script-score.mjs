@@ -1,4 +1,5 @@
 import { extractSubtitles } from './english-subtitles.mjs';
+import { stripChineseSubtitlePunctuation } from './chinese-subtitles.mjs';
 import { normalizeSubtitlePunctuation } from './period-text.mjs';
 import { normalizeMusicOptions, MUSIC_LIMITS } from './music-options.mjs';
 
@@ -25,7 +26,9 @@ export function validateLines(lines) {
   if (!Array.isArray(lines) || lines.length > LINE_LIMIT) fail('台词列表无效，请重新整理剧本。');
   const result = lines.map((line, index) => {
     if (!line || typeof line.text !== 'string' || line.text.length > SCRIPT_LIMIT) fail('台词内容格式无效。');
-    return { id: `line-${index + 1}`, sourceLine: Number(line.sourceLine) || index + 1, language: ['es', 'zh'].includes(line.language) ? line.language : 'en', speaker: String(line.speaker || '').slice(0, 60), kind: ['dialogue', 'narration', 'scene'].includes(line.kind) ? line.kind : 'narration', text: normalizeSubtitlePunctuation(line.text).trim() };
+    const language = ['es', 'zh'].includes(line.language) ? line.language : 'en';
+    const normalized = normalizeSubtitlePunctuation(line.text).trim();
+    return { id: `line-${index + 1}`, sourceLine: Number(line.sourceLine) || index + 1, language, speaker: String(line.speaker || '').slice(0, 60), kind: ['dialogue', 'narration', 'scene'].includes(line.kind) ? line.kind : 'narration', text: language === 'zh' ? stripChineseSubtitlePunctuation(normalized) : normalized };
   }).filter(line => line.text);
   if (result.reduce((total, line) => total + line.text.length + line.speaker.length, 0) > SCRIPT_LIMIT * 2) fail('台词总长度无效，请精简后重试。');
   return result;

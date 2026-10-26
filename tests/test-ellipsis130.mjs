@@ -12,11 +12,11 @@ test('ellipsis variants normalize to three ASCII dots without changing decimals 
   }
 });
 
-test('English, Spanish and Chinese retain three-dot ellipses in extraction, exports and both copy modes', async () => {
+test('English and Spanish retain three-dot ellipses while Chinese removes punctuation', async () => {
   for (const [script, language, expected] of [
     ['[EN] JACK: Wait… Come back.', 'en', 'Wait...\nCome back.'],
     ['[ES] JOSÉ: Espera…… Vuelve.', 'es', 'Espera...\nVuelve.'],
-    ['小明：等等……回来。', 'zh', '等等...\n回来.'],
+    ['小明：等等……回来。', 'zh', '等等\n回来'],
   ]) {
     const lines = splitScript(script, language);
     const actual = lines.map(line => line.text).join('\n');

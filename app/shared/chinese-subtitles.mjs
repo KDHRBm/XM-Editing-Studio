@@ -22,6 +22,15 @@ function cleanDialogue(text) {
     .replace(/\s+/g, ' ').trim();
 }
 
+// 中文字幕只交给剪映做配音/字幕识别时，不保留任何标点。
+// 在断句之后调用，避免先删掉句号、问号导致相邻句子黏在一起。
+export function stripChineseSubtitlePunctuation(text = '') {
+  return String(text)
+    .replace(/[\p{P}]/gu, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
 function chineseRhythm(text) {
   // Chinese sentences have no spaces between them. Preserve decimals and ellipses.
   const sentences = []; let start = 0;
@@ -62,7 +71,9 @@ export function extractChineseSubtitles(script) {
     const content = text.slice(separator + 1).split(/[△▲]/, 1)[0];
     if (!marked && !/\p{Script=Han}/u.test(speaker + content)) continue;
     for (const dialogue of chineseRhythm(cleanDialogue(content))) {
-      lines.push({ id: `line-${lines.length + 1}`, sourceLine: index + 1, language: 'zh', speaker: '', kind: 'dialogue', text: dialogue });
+      const text = stripChineseSubtitlePunctuation(dialogue);
+      if (!text) continue;
+      lines.push({ id: `line-${lines.length + 1}`, sourceLine: index + 1, language: 'zh', speaker: '', kind: 'dialogue', text });
     }
   }
   return lines;

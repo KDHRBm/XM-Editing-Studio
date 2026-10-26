@@ -1,4 +1,5 @@
 import { validateScoreRequest, parseScoreResponse } from './script-score.mjs';
+import { stripChineseSubtitlePunctuation } from './chinese-subtitles.mjs';
 import { mergeTracks, isComplete, isFailed, safeMediaUrl } from './music-options.mjs';
 import { parseKeywords } from './library-match.mjs';
 import { parseSegments } from './script-segments.mjs';
@@ -14,8 +15,9 @@ export function restoreJobs(saved) {
     if (!job || typeof job.id !== 'string' || !Array.isArray(job.tracks) || !Array.isArray(job.taskIds)) throw new Error('配乐任务缓存格式无效。');
     if (job.status === 'submitting') return { ...job, status: 'uncertain', error: '上次提交被中断。请先在服务商记录核对任务，填写任务 ID 后恢复查询。' };
     if (job.status === 'planning') return { ...job, status: 'queued' };
-    if (job.exportState === 'exporting') return { ...job, exportState: 'error', exportError: '上次导出被中断，可重新导出素材。' };
-    return job;
+    const lines = Array.isArray(job.lines) ? job.lines.map(line => line?.language === 'zh' && typeof line.text === 'string' ? { ...line, text: stripChineseSubtitlePunctuation(line.text) } : line) : job.lines;
+    if (job.exportState === 'exporting') return { ...job, ...(lines ? { lines } : {}), exportState: 'error', exportError: '上次导出被中断，可重新导出素材。' };
+    return { ...job, ...(lines ? { lines } : {}) };
   });
 }
 
