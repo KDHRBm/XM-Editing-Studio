@@ -46,11 +46,24 @@ export function matchMessages(input, analysis, candidates) {
 }
 export function parseMatches(text, candidates) {
   const data = parseJson(text);
-  if (!data || !Array.isArray(data.matches) || data.matches.length > 8) fail('Gemini 返回的音乐匹配结果格式无效。');
+  if (!data || !Array.isArray(data.matches) || data.matches.length > 32) fail('Gemini 返回的音乐匹配结果格式无效，需要 matches 数组，每段最多8首。');
   const allowed = new Set(candidates.map(track => track.id)), seen = new Set();
-  return data.matches.map(match => {
-    if (!match || !allowed.has(match.id) || seen.has(match.id) || typeof match.reason !== 'string' || !match.reason.trim() || match.reason.length > 500 || !Array.isArray(match.keywords) || match.keywords.length > 20 || match.keywords.some(k => typeof k !== 'string' || k.length > 60)) fail('Gemini 返回了无效的音乐 ID 或匹配理由，请重新分析。');
-    seen.add(match.id);
-    return { id: match.id, reason: match.reason.trim(), keywords: match.keywords };
-  });
+  const matches = [];
+  for (const [at, match] of data.matches.entries()) {
+    const label = `Gemini 返回的第${at + 1}首音乐`;
+    const id = typeof match?.id === 'string' ? match.id.trim() : '';
+    // Only harmless formatting differences are normalized. Never guess an ID from a title.
+    if (!allowed.has(id)) fail(`${label} ID 无效，必须使用当前候选列表中的完整 ID。`);
+    if (seen.has(id)) continue;
+    if (typeof match.reason !== 'string' || !match.reason.trim() || match.reason.length > 500) fail(`${label}匹配理由无效，需要1–500字符的文字说明。`);
+    // Keywords are display metadata; omitted tags do not invalidate a real recommendation.
+    let keywords = match.keywords ?? [];
+    if (typeof keywords === 'string') keywords = keywords.split(/[,，、;；\n]+/);
+    if (!Array.isArray(keywords) || keywords.length > 20 || keywords.some(k => typeof k !== 'string' || k.length > 60)) fail(`${label}关键词格式无效，需要最多20个词，每个词最多60字符。`);
+    keywords = [...new Set(keywords.map(k => k.trim()).filter(Boolean))];
+    seen.add(id);
+    matches.push({ id, reason: match.reason.trim(), keywords });
+  }
+  if (matches.length > 8) fail('Gemini 返回的音乐匹配结果过多，每段最多8首不同音乐。');
+  return matches;
 }

@@ -26,8 +26,100 @@ test('web analysis supports whole/segmented recommendations and validates candid
   assert.equal(segmented.segments[1].matches[0].id, 'piano'); assert.equal(segmented.segments[0].matches.length, 0);
   let calls = 0;
   await assert.rejects(analyzeWithWeb('library-match', input, async () => JSON.stringify(++calls === 1 ? analysis : { matches: [{ id: 'fabricated', reason: 'invalid', keywords: [] }] })), /ID/);
+  assert.equal(calls, 3, 'only one correction request after the initial analysis and match');
   calls = 0; const empty = await analyzeWithWeb('library-match', { ...input, tracks: [] }, async () => { calls++; return JSON.stringify(analysis); });
   assert.equal(calls, 1); assert.equal(empty.matches.length, 0);
+});
+
+test('whole-script match repairs a malformed answer once using the same analysis and candidate IDs', async () => {
+  const requests = [];
+  const result = await analyzeWithWeb('library-match', input, async (messages, stage) => {
+    requests.push({ messages, stage });
+    if (requests.length === 1) return JSON.stringify(analysis);
+    if (requests.length === 2) return '{broken';
+    const context = JSON.parse(messages[1].content);
+    assert.equal(context.originalScript, undefined);
+    assert.deepEqual(context.analysis, analysis);
+    assert.deepEqual(context.musicTitles, input.tracks);
+    assert.match(context.validationError, /JSON/);
+    assert.equal(context.previousResult, '{broken');
+    return JSON.stringify({ matches: [{ id: 'piano', reason: '温暖重逢', keywords: ['温暖'] }] });
+  });
+  assert.equal(requests.length, 3);
+  assert.equal(requests[2].stage, '修正音乐推荐格式（1/1）');
+  assert.equal(result.matches[0].id, 'piano');
+});
+
+test('segmented repair keeps the original story plan and enforces each segment candidate list in a large library', async () => {
+  const tracks = Array.from({ length: 1425 }, (_, n) => ({ id: `other-${n}`, title: '喜剧尤克里里' }));
+  tracks.push({ id: 'tense_873bd1', title: '紧张鼓点' }, { id: 'warm_84a2c9', title: '温暖钢琴' });
+  const requests = [];
+  const result = await analyzeWithWeb('library-match', { ...input, segmented: true, tracks }, async (messages, stage) => {
+    const context = JSON.parse(messages[1].content); requests.push({ context, stage });
+    if (requests.length === 1) return JSON.stringify({ segments });
+    if (requests.length === 2) return JSON.stringify({ segments: [
+      { id: 'segment-1', matches: [{ id: 'warm_84a2c9', reason: '错用了其他情节候选', keywords: [] }] },
+      { id: 'segment-2', matches: [{ id: 'warm_84a2c9', reason: '适合重逢', keywords: ['温暖'] }] },
+    ] });
+    assert.match(context.validationError, /第1段（segment-1）.*ID 无效/);
+    assert.deepEqual(context.segments, requests[1].context.segments);
+    assert.equal(context.originalScript, undefined);
+    return JSON.stringify({ segments: context.segments.map(s => ({ id: s.id, matches: s.musicTitles.map(t => ({ id: t.id, reason: s.summary })) })) });
+  });
+  assert.equal(requests.length, 3);
+  assert.equal(result.total, 1427); assert.equal(result.evaluated, 2);
+  assert.deepEqual(result.segments.map(s => s.matches[0].id), ['tense_873bd1', 'warm_84a2c9']);
+  assert.deepEqual(result.segments.map(s => [s.startLine, s.endLine]), [[1, 2], [3, 4]]);
+});
+
+test('format normalization avoids another web request; request failures are not treated as malformed answers', async () => {
+  let calls = 0;
+  const result = await analyzeWithWeb('library-match', input, async () => JSON.stringify(++calls === 1 ? analysis : { matches: [
+    { id: ' piano ', reason: '温暖', keywords: '钢琴，温暖' }, { id: 'piano', reason: '重复' },
+  ] }));
+  assert.equal(calls, 2); assert.equal(result.matches.length, 1);
+  for (const message of ['官网访问频繁', '网页分析已中断', '网页分析等待超时']) {
+    calls = 0;
+    await assert.rejects(analyzeWithWeb('library-match', input, async () => {
+      if (++calls === 1) return JSON.stringify(analysis);
+      throw new Error(message);
+    }), new RegExp(message));
+    assert.equal(calls, 2);
+    calls = 0;
+    await assert.rejects(analyzeWithWeb('library-match', input, async () => {
+      if (++calls === 1) return JSON.stringify(analysis);
+      if (calls === 2) return JSON.stringify({ matches: [{ id: 'invented', reason: '错误' }] });
+      throw new Error(message);
+    }), new RegExp(message));
+    assert.equal(calls, 3);
+  }
+});
+
+test('web host gives the correction its own task token and submits each completed step exactly once', async () => {
+  let token = 0, sends = 0, time = 0;
+  const events = [], tokens = [];
+  const host = createWebAnalysis({ uuid: () => `token-${++token}`, now: () => time, delay: async () => { time += 1500; }, notify: state => events.push(state), copy: async () => {}, driver: {
+    visible: () => true,
+    async run(_provider, command) {
+      if (command.command === 'fill') { tokens.push(command.token); return { state: 'filled' }; }
+      if (command.command === 'send') { sends++; return { state: 'sent' }; }
+      const result = token === 1 ? analysis : { matches: [{ id: token === 2 ? 'invented' : 'piano', reason: '适合重逢' }] };
+      return { texts: [JSON.stringify({ xmTaskId: command.token, result })], busy: false };
+    },
+  } });
+  const result = await host.run({ id: 'request-repair-123', provider: 'deepseek', purpose: 'library-match', input });
+  assert.deepEqual(tokens, ['token-1', 'token-2', 'token-3']);
+  assert.equal(sends, 3); assert.equal(result.matches[0].id, 'piano');
+  assert(events.some(e => e?.stage === '修正音乐推荐格式（1/1）'));
+  assert.equal(host.snapshot(), null);
+});
+
+test('renderer displays the provider failure without the Electron IPC prefix', async () => {
+  const previous = globalThis.blackObsidian;
+  globalThis.blackObsidian = { analyzeWebScript: async () => { throw new Error("Error invoking remote method 'bos:web-analysis-start': Error: DeepSeek 返回的第1首音乐 ID 无效。"); } };
+  try {
+    await assert.rejects(requestScriptAnalysis('library-match', { ...input, provider: WEB_ANALYZERS[0].provider }), error => error.message === 'DeepSeek 返回的第1首音乐 ID 无效。');
+  } finally { globalThis.blackObsidian = previous; }
 });
 test('web Suno planning yields validated independent segment prompts without a music request', async () => {
   const whole = await analyzeWithWeb('score', input, async () => JSON.stringify(score)); assert.equal(whole.score.style, score.style);

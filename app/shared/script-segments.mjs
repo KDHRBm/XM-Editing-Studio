@@ -30,10 +30,15 @@ export function segmentMatchMessages(input, segments) {
 }
 export function parseSegmentMatches(text, segments) {
   const data = json(text);
-  if (!Array.isArray(data?.segments) || data.segments.length !== segments.length || new Set(data.segments.map(s => s?.id)).size !== segments.length) fail('分段推荐缺失或重复，请重新分析。');
-  return segments.map(({ candidates, ...segment }) => {
-    const value = data.segments.find(s => s?.id === segment.id);
+  const segmentId = value => typeof value?.id === 'string' ? value.id.trim() : '';
+  if (!Array.isArray(data?.segments) || data.segments.length !== segments.length || new Set(data.segments.map(segmentId)).size !== segments.length) fail('分段推荐缺失或重复，每个情节 ID 必须恰好返回一次。');
+  return segments.map(({ candidates, ...segment }, at) => {
+    const value = data.segments.find(s => segmentId(s) === segment.id);
     if (!value) fail('Gemini 返回未知情节标识。');
-    return { ...segment, matches: parseMatches(JSON.stringify(value), candidates), evaluated: candidates.length };
+    try { return { ...segment, matches: parseMatches(JSON.stringify(value), candidates), evaluated: candidates.length }; }
+    catch (error) {
+      if (error.status !== 400) throw error;
+      fail(`第${at + 1}段（${segment.id}）：${error.message}`);
+    }
   });
 }

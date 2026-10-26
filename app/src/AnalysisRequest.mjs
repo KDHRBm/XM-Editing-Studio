@@ -17,5 +17,12 @@ export async function requestScriptAnalysis(purpose, body, signal) {
   try {
     const { provider, model, ...input } = body;
     return await api.analyzeWebScript({ id, provider: web.provider.webId, purpose, input });
+  } catch (error) {
+    // Electron adds an IPC implementation prefix; display the actual provider failure.
+    const message = error?.message;
+    if (typeof message === 'string' && /^Error invoking remote method ['"]bos:web-analysis-start['"]:\s*(?:Error:\s*)?/.test(message)) {
+      throw new Error(message.replace(/^Error invoking remote method ['"]bos:web-analysis-start['"]:\s*(?:Error:\s*)?/, ''));
+    }
+    throw error;
   } finally { signal?.removeEventListener('abort', cancel); }
 }

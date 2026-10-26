@@ -21,7 +21,12 @@ test('each scene validates its own candidate IDs and missing sections are reject
   const segments = parseSegments(JSON.stringify(raw), input, 'library').map((s, at) => ({ ...s, candidates: [{ id: `track${at}`, title: s.title }] }));
   const matched = { segments: segments.map((s, at) => ({ id: s.id, matches: [{ id: `track${at}`, reason: s.summary, keywords: s.keywords }] })) };
   assert.equal(parseSegmentMatches(JSON.stringify(matched), segments)[1].matches[0].id, 'track1');
+  matched.segments[0].id = ' segment-1\n';
+  assert.equal(parseSegmentMatches(JSON.stringify(matched), segments)[0].id, 'segment-1');
   matched.segments[0].matches[0].id = 'track1'; assert.throws(() => parseSegmentMatches(JSON.stringify(matched), segments), /ID/);
+  assert.throws(() => parseSegmentMatches(JSON.stringify(matched), segments), /第1段（segment-1）/);
+  matched.segments[0].id = ' segment-2 ';
+  assert.throws(() => parseSegmentMatches(JSON.stringify(matched), segments), /缺失或重复/);
 });
 test('one planning request atomically expands to ready tasks; restart/clear never duplicates paid submissions', async () => {
   const config = { providerId: 'p', baseUrl: 'http://mock', protocol: 'suno', model: 'suno-test' }; let num = 0, saved, submits = 0, plans = 0;

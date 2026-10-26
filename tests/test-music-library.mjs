@@ -53,6 +53,32 @@ test('library scans recursive audio only, deduplicates roots, persists and refre
   const restored = createMusicLibrary({ settingsFile: path.join(root, 'settings.json') }); assert.equal((await restored.init()).tracks.length, 4);
   assert.equal((await library.disconnect(catalog.directories[0].id)).tracks.length, 0); assert.equal((await readdir(music)).length, 5);
 });
+
+test('music matches normalize whitespace, duplicate recommendations and optional keyword metadata', () => {
+  const candidates = [{ id: 'piano_1', title: '温暖钢琴' }, { id: 'drums-2', title: '紧张鼓点' }];
+  const parse = matches => parseMatches(JSON.stringify({ matches }), candidates);
+  assert.deepEqual(parse([
+    { id: ' piano_1\n', reason: ' 适合温暖重逢。 ', keywords: '温暖，钢琴, 温暖；' },
+    { id: 'piano_1', reason: '重复推荐' },
+    { id: 'drums-2', reason: '适合追逐' },
+  ]), [
+    { id: 'piano_1', reason: '适合温暖重逢。', keywords: ['温暖', '钢琴'] },
+    { id: 'drums-2', reason: '适合追逐', keywords: [] },
+  ]);
+  assert.equal(parse(Array.from({ length: 10 }, () => ({ id: 'piano_1', reason: '温暖' }))).length, 1);
+  assert.deepEqual(parse([{ id: 'piano_1', reason: '温暖', keywords: null }])[0].keywords, []);
+  for (const id of ['温暖钢琴', 'piano', 'PIANO_1', '../piano_1', 1, null]) {
+    assert.throws(() => parse([{ id, reason: '温暖' }]), /ID 无效/);
+  }
+  for (const reason of ['', '  ', null, {}, 'x'.repeat(501)]) {
+    assert.throws(() => parse([{ id: 'piano_1', reason }]), /匹配理由无效/);
+  }
+  for (const keywords of [{ warm: true }, [null], [1], ['x'.repeat(61)], Array(21).fill('warm')]) {
+    assert.throws(() => parse([{ id: 'piano_1', reason: '温暖', keywords }]), /关键词格式无效/);
+  }
+  const many = Array.from({ length: 9 }, (_, at) => ({ id: String(at), title: '钢琴', reason: '温暖' }));
+  assert.throws(() => parseMatches(JSON.stringify({ matches: many }), many), /最多8首/);
+});
 test('library resolves only indexed unchanged audio and skips directory junctions', async () => {
   const { root, music, library, catalog } = await fixture(); const track = catalog.tracks[0];
   await assert.rejects(library.resolve('../settings.json'), /移除/);
