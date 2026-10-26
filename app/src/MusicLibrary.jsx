@@ -25,7 +25,7 @@ export function clearCurrentLibraryMatch(projectId, draft) {
   publish({ ...(cancel ? { busy: false } : {}), ...(sameRecord ? { record: null } : {}), error: '' });
 }
 
-export function MusicLibrary({ input, projectId, savedRecommendation, onAnalysis, onChange, lines, gemini, settings, onUse, onGenerate, segmentJob, onViewJob }) {
+export function MusicLibrary({ input, projectId, savedRecommendation, onAnalysis, onChange, lines, gemini, generationAnalyzer = gemini, settings, onUse, onGenerate, segmentJob, onViewJob }) {
   const analyzerName = analysisName(gemini);
   const [catalog, setCatalog] = i.useState(emptyCatalog);
   const [scanning, setScanning] = i.useState(false);
@@ -90,7 +90,7 @@ export function MusicLibrary({ input, projectId, savedRecommendation, onAnalysis
     setAnalysisError(''); setAnalysisNotice(''); publish({ busy: true, error: '', analyzer: analyzerName });
     const request = { projectId, controller: new AbortController() };
     activeRequest = request;
-    const captured = { script: input.script, title: input.title, hint: input.hint, customKeywords: keywordText, segmented: !!input.segmented, segmentCount: Number(input.segmentCount || 3), analyzer: analyzerName };
+    const captured = { script: input.script, title: input.title, hint: input.hint, customKeywords: keywordText, segmented: !!input.segmented, segmentCount: Number(input.segmentCount || 3), analyzer: analyzerName, libraryGeminiKey: gemini.key || input.libraryGeminiKey || '' };
     try {
       const value = await requestScriptAnalysis('library-match', { ...captured, provider: gemini.provider, model: gemini.model, tracks: excludeUsedMusic(catalog.tracks, musicUsage.snapshot().history).map(({ id, title }) => ({ id, title })) }, webAnalyzer(gemini) ? request.controller.signal : AbortSignal.any([request.controller.signal, AbortSignal.timeout(255000)]));
       if (activeRequest !== request) return;
@@ -179,7 +179,7 @@ export function MusicLibrary({ input, projectId, savedRecommendation, onAnalysis
       {record.revision !== catalog.revision && <p className="bos-script-warning">音乐库已有更新；新增标题需要重新匹配。现存的推荐仍可试听和选用。</p>}
       <div className="bos-script-section-title"><h4>{result.segments ? "各情节音乐推荐" : "适合这份剧本的音乐"}</h4><small>检索 {result.total} 首 · {analysisName(record.analyzer)} 评估 {result.evaluated} 首候选</small></div>
       {!result.segments && !available.length && <p className="bos-library-empty">{result.total ? '暂无适合的可用音乐。可以添加标题含场景、情绪或风格关键词的音乐后刷新重试，或切换到 Suno 生成配乐。' : '关键词已提取。连接音乐文件夹后，再次匹配即可列出候选。'}</p>}
-      {result.segments && <SegmentRecommendations segments={result.segments} tracks={catalog.tracks} current={current} lines={lines} onUse={useAndRemember} onError={setAnalysisError} onGenerate={onGenerate} segmentJob={segmentJob} onViewJob={onViewJob} onMarkUsed={track => markUsed(track, 'analysis')} usedIds={usage.history.map(track => track.id)} analyzer={gemini} />}
+      {result.segments && <SegmentRecommendations segments={result.segments} tracks={catalog.tracks} current={current} lines={lines} onUse={useAndRemember} onError={setAnalysisError} onGenerate={onGenerate} segmentJob={segmentJob} onViewJob={onViewJob} onMarkUsed={track => markUsed(track, 'analysis')} usedIds={usage.history.map(track => track.id)} analyzer={generationAnalyzer} />}
       {matchPages.visible.map((item, index) => <article className="bos-library-match" key={item.id}><div className="bos-library-match-title"><span>{String((matchPages.page - 1) * 5 + index + 1).padStart(2, '0')}</span><div><h4>{item.track.title}</h4><small>{item.track.relativePath}</small></div><button type="button" disabled={!item.available || !current} onClick={() => useTrack(item)}>{!item.available ? '需连接音乐库' : !current ? '请重新匹配' : '选用此音乐'}</button></div><p>{item.reason}</p><div className="bos-library-keywords">{item.keywords.map((word, idx) => <span key={`${word}-${idx}`}>{word}</span>)}</div>{item.available && <audio controls preload="none" src={`/local-music/${item.id}`} aria-label={`试听 ${item.track.title}`} />}{item.available && <div className="bos-library-use-tools"><MusicDragButton libraryId={item.id} /><button type="button" disabled={usage.history.some(track => track.id === item.id)} onClick={() => markUsed(item.track, 'analysis')}>{usage.history.some(track => track.id === item.id) ? '已标记使用' : '标记已使用'}</button></div>}</article>)}
       {available.length > 5 && <Pagination {...matchPages} label="推荐音乐页码" />}
       <p className="bos-script-footnote">推荐依据音乐标题语义，选用前可试听确认。音乐超过 80 首时，先用中英文关键词筛选最多 80 首候选交给 {analyzerName}；文件名越清晰，越容易匹配。</p>

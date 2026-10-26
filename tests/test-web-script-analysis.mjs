@@ -301,6 +301,8 @@ test('workspace selector includes built-in websites and updates step, guide and 
   assert.match(textOf(picker), /DeepSeek 官方网页版 · 无需配置/); assert.match(textOf(picker), /豆包 官方网页版 · 无需配置/);
   for (const model of [WEB_ANALYZERS[0], WEB_ANALYZERS[1], { key: 'g::gemini-3.7-flash-thinking-high', model: 'gemini-3.7-flash-thinking-high' }]) {
     picker.props.onChange({ target: { value: model.key } }); tree = render(); const name = analysisName(model);
+    let settings = nodes(tree).find(n => n.props.settings)?.props.settings;
+    nodes(settings).find(n => n.props['aria-label'] === '本地匹配分析模型').props.onChange({ target: { value: model.key } }); tree = render();
     assert.match(textOf(tree), /AI 分析剧本/);
     assert.match(textOf(picker), /gemini-3\.7-flash-thinking-high/);
     assert.doesNotMatch(textOf(tree).replace(textOf(picker), ''), /gemini-3\.7-flash-thinking-high/);

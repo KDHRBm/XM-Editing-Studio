@@ -1,4 +1,4 @@
-import { PROJECT_LIMIT, newProject, rememberProject, scriptName, clearCurrentProject } from '../shared/script-projects.mjs';
+import { PROJECT_LIMIT, newProject, rememberProject, scriptName, clearCurrentProject, independentAnalysisModels } from '../shared/script-projects.mjs';
 import { sameLibraryRequest } from '../shared/library-search.mjs';
 const KEY = 'xiaoma.script-projects.v1';
 const listeners = new Set();
@@ -10,7 +10,7 @@ if (!Array.isArray(state?.projects) || !state.projects.length) {
 }
 state = { ...state, projects: state.projects.slice(0, PROJECT_LIMIT), history: (state.history || []).slice(0, 5), storageError: '' };
 // Retire the removed requirements field for future requests; keep historical results intact.
-for (const key of ['projects', 'history']) state[key] = state[key].map(project => ({ ...project, draft: { ...project.draft, hint: '' } }));
+for (const key of ['projects', 'history']) state[key] = state[key].map(project => ({ ...project, draft: { ...independentAnalysisModels(project.draft), hint: '' } }));
 function publish(next) {
   state = { ...next, storageError: '' };
   try { localStorage.setItem(KEY, JSON.stringify(state)); } catch { state.storageError = '剧本保存失败，请复制备份当前文本并释放存储空间。'; }

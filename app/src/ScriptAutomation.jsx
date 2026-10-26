@@ -76,6 +76,8 @@ export function ScriptAutomation({ providers, automation, onNavigate }) {
   const geminis = [...models.filter(m => isGeminiModel(m.provider, m.model)), ...WEB_ANALYZERS];
   const sunos = models.filter(m => isSunoModel(m.provider, m.model));
   const gemini = geminis.find(m => m.key === draft.geminiKey) || geminis[0];
+  const libraryGemini = geminis.find(m => m.key === draft.libraryGeminiKey) || geminis[0];
+  const libraryAnalyzerName = analysisName(libraryGemini);
   const analyzerName = analysisName(gemini);
   const stages = ['提取字幕', 'AI 分析剧本', '选择或生成音乐', '剪映素材'];
   const suno = sunos.find(m => m.key === draft.sunoKey) || sunos[0];
@@ -139,12 +141,12 @@ export function ScriptAutomation({ providers, automation, onNavigate }) {
   const localSettings = <div className="bos-local-match-settings">
     <div className="bos-script-section-title"><h4>本地音乐匹配</h4><button type="button" onClick={() => onNavigate('providers')}>管理连接 ↗</button></div>
     <div className="bos-local-match-grid">
-      <div>{selectModel('本地匹配分析模型', geminis, gemini, 'geminiKey')}{webAnalyzer(gemini) && <button type="button" onClick={() => openWebAnalyzer(gemini)}>打开 {analyzerName} 登录</button>}</div>
+      <div>{selectModel('本地匹配分析模型', geminis, libraryGemini, 'libraryGeminiKey')}{webAnalyzer(libraryGemini) && <button type="button" onClick={() => openWebAnalyzer(libraryGemini)}>打开 {libraryAnalyzerName} 登录</button>}</div>
       <label><span>匹配方式</span><select aria-label="本地音乐匹配方式" value={draft.segmented ? 'segments' : 'whole'} onChange={event => change({ segmented: event.target.value === 'segments' })}><option value="whole">整篇剧本统一配乐</option><option value="segments">按情节分段配乐</option></select></label>
       {draft.segmented && <label><span>最多情节段数</span><select aria-label="本地匹配最多情节段数" value={draft.segmentCount || 3} onChange={event => change({ segmentCount: Number(event.target.value) })}>{[2,3,4,5,6].map(count => <option value={count} key={count}>{count} 段</option>)}</select></label>}
       <label><span>剪映素材文件夹</span><div className="bos-script-folder"><input aria-label="剪映素材文件夹" readOnly value={localDirectory} placeholder="选择后，选用音乐自动导出素材" /><button type="button" onClick={() => chooseDirectory(true)}>选择</button></div><small>每份剧本独立保存音频、字幕台词和配乐说明。</small></label>
     </div>
-    <p className="bos-script-footnote">{analyzerName} {draft.segmented ? '按场景、事件和情绪转折划分情节，各段分别匹配本地音乐。' : '读取完整剧本，推荐适合整篇故事的本地音乐。'}模型和分段方式与当前剧本同步；缺少合适音乐时，可按段使用右侧配置的 Suno 模型生成。</p>
+    <p className="bos-script-footnote">{libraryAnalyzerName} {draft.segmented ? '按场景、事件和情绪转折划分情节，各段分别匹配本地音乐。' : '读取完整剧本，推荐适合整篇故事的本地音乐。'}本地匹配模型独立保存，切换不会改变生成配乐的分析模型。缺少合适音乐时，使用右侧的 {analyzerName} 与 Suno 为该段生成配乐。</p>
   </div>;
 
   return <section className="bos-script" aria-labelledby="bos-script-title">
@@ -183,7 +185,7 @@ export function ScriptAutomation({ providers, automation, onNavigate }) {
     </div>
     </div>
     </div>
-    <div><MusicLibrary key={projects.project.id} input={draft} projectId={projects.project.id} savedRecommendation={projects.project.recommendation} onAnalysis={projects.remember} onChange={change} lines={subtitleLines} gemini={gemini} settings={localSettings} onUse={useLocalMusic} onGenerate={generateSegment} segmentJob={segmentJob} onViewJob={viewSegmentJob} /></div>
+    <div><MusicLibrary key={projects.project.id} input={draft} projectId={projects.project.id} savedRecommendation={projects.project.recommendation} onAnalysis={projects.remember} onChange={change} lines={subtitleLines} gemini={libraryGemini} generationAnalyzer={gemini} settings={localSettings} onUse={useLocalMusic} onGenerate={generateSegment} segmentJob={segmentJob} onViewJob={viewSegmentJob} /></div>
     <div id="bos-script-queue-body" hidden={collapsed}>
     {(message || notice) && <p role="status" className="bos-script-message">{notice || message}</p>}
     <section className="bos-script-queue" aria-label="剧本配乐任务队列">

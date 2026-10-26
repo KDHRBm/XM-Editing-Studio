@@ -6,7 +6,11 @@ export function scriptName(script = '') {
   return first.replace(/^\[EN\]\s*/i, '').trim().slice(0, 34);
 }
 export function newProject(draft = {}) {
-  return { id: crypto.randomUUID(), draft: { script: '', customKeywords: '', durationSeconds: 90, geminiKey: '', sunoKey: '', sourceMode: 'library', subtitleLanguage: 'auto', segmented: false, segmentCount: 3, ...draft, hint: '', title: scriptName(draft.script) }, recommendation: null };
+  return { id: crypto.randomUUID(), draft: { script: '', customKeywords: '', durationSeconds: 90, geminiKey: '', sunoKey: '', sourceMode: 'library', subtitleLanguage: 'auto', segmented: false, segmentCount: 3, ...independentAnalysisModels(draft), hint: '', title: scriptName(draft.script) }, recommendation: null };
+}
+export function independentAnalysisModels(draft = {}) {
+  // Copy the old shared selection once, before either selector can change it.
+  return { ...draft, libraryGeminiKey: typeof draft.libraryGeminiKey === 'string' ? draft.libraryGeminiKey : draft.geminiKey || '' };
 }
 export function clearCurrentProject(state) {
   const current = state.projects.find(project => project.id === state.activeId) || state.projects[0];
