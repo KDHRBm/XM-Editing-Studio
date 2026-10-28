@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createServer } from 'node:http';
 import { createDesktopServer } from '../app/server/desktop-server.mjs';
-import { parseSegments, segmentCandidates, parseSegmentMatches } from '../app/shared/script-segments.mjs';
+import { parseSegments, planSegments, segmentCandidates, parseSegmentMatches } from '../app/shared/script-segments.mjs';
 import { sameLibraryRequest } from '../app/shared/library-search.mjs';
 import { createScriptQueue } from '../app/shared/script-queue.mjs';
 import { splitScript } from '../app/shared/script-score.mjs';
@@ -16,6 +16,24 @@ test('segmentation validates full contiguous story coverage and distinct music s
   }
   const invalid = structuredClone(raw); invalid.segments[0].score.style = 'a'.repeat(1001); assert.throws(() => parseSegments(JSON.stringify(invalid), input, 'suno'), /1000/);
   assert.equal(sameLibraryRequest(input, { ...input, segmented: false }), false); assert.equal(sameLibraryRequest(input, { ...input, segmentCount: 6 }), false);
+});
+test('segmentation accepts a complete JSON block with prose or trailing commas, but rejects truncated plans', () => {
+  const answer = JSON.stringify(raw).replace(/}\]}/, '},]}');
+  assert.equal(parseSegments(`方案如下：\n\`\`\`json\n${answer}\n\`\`\``, input, 'suno').length, 2);
+  assert.equal(parseSegments(`说明中的未闭合花括号 {\n\`\`\`json\n${answer}\n\`\`\``, input, 'suno').length, 2);
+  assert.throws(() => parseSegments(JSON.stringify(raw).slice(0, -2), input, 'suno'), /有效 JSON/);
+  assert.throws(() => parseSegments(JSON.stringify({ segments: raw.segments.slice(0, 1) }), input, 'suno'), /连续情节/);
+});
+test('segmented planning repairs one invalid or truncated response without submitting music', async () => {
+  const asks = [];
+  const result = await planSegments(input, 'suno', async (messages, stage) => {
+    asks.push({ messages, stage });
+    return asks.length === 1 ? { text: '{"segments":[', finishReason: 'MAX_TOKENS' } : { text: JSON.stringify(raw) };
+  });
+  assert.equal(result.length, 2);
+  assert.equal(asks.length, 2);
+  assert.match(asks[1].messages[1].content, /上次回答被模型截断/);
+  await assert.rejects(() => planSegments(input, 'suno', async () => '{"segments":['), /自动纠正后仍无效.*未提交 Suno/);
 });
 test('each scene validates its own candidate IDs and missing sections are rejected', () => {
   const segments = parseSegments(JSON.stringify(raw), input, 'library').map((s, at) => ({ ...s, candidates: [{ id: `track${at}`, title: s.title }] }));
@@ -55,5 +73,27 @@ test('Gemini API returns per-scene recommendations and multiple prompts without 
       if (route === 'score') assert.ok(data.segments.every(s => s.score.instrumental)); else assert.ok(data.segments.every(s => s.matches.length === 1));
     }
     assert.equal(requests.length, 4); assert.ok(requests.every(r => r.model === 'gemini-test'));
+  } finally { await new Promise(r => server.close(r)); await new Promise(r => mock.close(r)); }
+});
+test('Gemini segmented API retries a truncated plan with JSON output enabled', async () => {
+  const requests = [];
+  const mock = createServer(async (req, res) => {
+    const chunks = []; for await (const chunk of req) chunks.push(chunk);
+    requests.push(JSON.parse(Buffer.concat(chunks)));
+    const candidate = requests.length === 1
+      ? { content: { parts: [{ text: '{"segments":[' }] }, finishReason: 'MAX_TOKENS' }
+      : { content: { parts: [{ text: JSON.stringify(raw) }] }, finishReason: 'STOP' };
+    res.setHeader('content-type', 'application/json'); res.end(JSON.stringify({ candidates: [candidate] }));
+  });
+  await new Promise(resolve => mock.listen(0, '127.0.0.1', resolve));
+  const server = await createDesktopServer({ port: 0, clientDirectory: 'app/dist/client' });
+  try {
+    const provider = { protocol: 'gemini', baseUrl: `http://127.0.0.1:${mock.address().port}/v1beta`, apiKey: 'test' };
+    const response = await fetch(`http://127.0.0.1:${server.address().port}/api/script/score`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ ...input, provider, model: 'gemini-test' }) });
+    const data = await response.json();
+    assert.equal(response.status, 200, JSON.stringify(data));
+    assert.equal(data.segments.length, 2);
+    assert.equal(requests.length, 2);
+    assert.ok(requests.every(request => request.generationConfig.responseMimeType === 'application/json'));
   } finally { await new Promise(r => server.close(r)); await new Promise(r => mock.close(r)); }
 });

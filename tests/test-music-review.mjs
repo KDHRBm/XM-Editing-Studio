@@ -94,8 +94,33 @@ test('batch protection enables native keeper before copying all commas, periods 
 
 test('unsupported native punctuation rules are visible; protected clipboard still remains complete',async()=>{
   const f=controlsFixture();f.engine='unsupported';
+  await f.controls.setBatchEnabled(true);
   const result=await f.controls.copy('All, words... remain.',{protect:true});
   assert.match(result.warning,/尚未确认生效/);assert.equal(result.copyVerified,true);
   assert.equal(restoreProtectedPunctuation(f.text),'All, words... remain.');
   await f.controls.copy('Plain, text.',{protect:false});assert.equal(f.text,'Plain, text.');
+});
+
+test('one click copies before a slow native scan finishes; concurrent enable requests share one scan', async () => {
+  let text = '', release, started, commands = 0;
+  const entered = new Promise(resolve => { started = resolve; });
+  const guard = createPunctuationClipboard({ clipboard: { readText: async () => text, writeText: async value => { text = value; } }, schedule: () => 1, cancel: () => {} });
+  const controls = createPeriodControls({ guard, checkUpstreamStatus: async () => {}, command: async () => { commands++; started(); await new Promise(resolve => { release = resolve; }); return { enabled: true, engine: 'active' }; }, shutdown: async () => {} });
+  const preparing = controls.setBatchEnabled(true); await entered;
+  const result = await Promise.race([controls.copy('First, line.\nLast line...', { protect: true }), new Promise((_, reject) => { const timer=setTimeout(()=>reject(new Error('copy blocked on native scan')),500);timer.unref(); })]);
+  assert.equal(result.copyVerified,true);assert.equal(result.copiedLines,2);
+  assert.match(result.warning,/后台准备/);assert.equal(commands,1);
+  assert.equal(text,'First‚ line․\r\nLast line․․․');
+  release();await preparing;assert.equal(text,'First‚ line․\r\nLast line․․․');
+  await controls.copy('Second, copy.',{protect:true});assert.equal(commands,1,'copy does not rescan an enabled native engine');
+  assert.equal(text,'Second‚ copy․');await controls.dispose();
+});
+
+test('failed native initialization cannot suppress a verified protected copy',async()=>{
+  let text='';
+  const guard=createPunctuationClipboard({clipboard:{readText:async()=>text,writeText:async value=>{text=value;}}});
+  const controls=createPeriodControls({guard,checkUpstreamStatus:async()=>{throw new Error('offline');},command:async()=>{throw new Error('must not reach');},shutdown:async()=>{}});
+  const result=await controls.copy('Complete, words.',{protect:true});
+  assert.equal(result.copyVerified,true);assert.equal(text,'Complete‚ words․');
+  await controls.dispose();
 });

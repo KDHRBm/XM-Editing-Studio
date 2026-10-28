@@ -4,7 +4,7 @@ import { isGeminiModel, scoreMessages, parseScoreResponse, validateScoreRequest 
 import { validateLibraryInput, keywordMessages, parseKeywords, shortlistTracks, matchMessages, parseMatches } from '../shared/library-match.mjs';
 import { analyzeWithWeb } from '../shared/web-script-analysis.mjs';
 import { analyzeBatchMusic } from '../shared/batch-music.mjs';
-import { segmentMessages, parseSegments, segmentCandidates, segmentMatchMessages, parseSegmentMatches } from '../shared/script-segments.mjs';
+import { segmentMessages, parseSegments, planSegments, segmentCandidates, segmentMatchMessages, parseSegmentMatches } from '../shared/script-segments.mjs';
 
 const MAX_BODY_BYTES = 2 * 1024 * 1024;
 
@@ -188,7 +188,7 @@ async function requestSunoModelTest(provider, model) {
   await readUpstreamResponse(response, provider.apiKey, "Suno 异步接口测试失败");
 }
 
-function buildProviderRequest(provider, model, messages) {
+function buildProviderRequest(provider, model, messages, structured = false) {
   const protocol = provider.protocol || "openai";
   const url = endpointUrl(
     provider.baseUrl,
@@ -220,6 +220,7 @@ function buildProviderRequest(provider, model, messages) {
         parts: [{ text: item.content }],
       })),
       ...(system ? { systemInstruction: { parts: [{ text: system }] } } : {}),
+      ...(structured ? { generationConfig: { responseMimeType: 'application/json', maxOutputTokens: 16384 } } : {}),
     };
   } else {
     headers.Authorization = `Bearer ${provider.apiKey}`;
@@ -242,9 +243,9 @@ function extractText(protocol, payload) {
   return "";
 }
 
-async function requestProvider(provider, model, messages, timeoutMs = 120_000, signal) {
+async function requestProvider(provider, model, messages, timeoutMs = 120_000, signal, structured = false) {
   validateProvider(provider, model);
-  const { url, headers, body } = buildProviderRequest(provider, model, messages);
+  const { url, headers, body } = buildProviderRequest(provider, model, messages, structured);
   let response;
   try {
     response = await fetch(url, {
@@ -271,7 +272,7 @@ async function requestProvider(provider, model, messages, timeoutMs = 120_000, s
     if (provider.apiKey) detail = String(detail).replaceAll(provider.apiKey, "••••••••");
     throw Object.assign(new Error(`连接失败（${response.status}）：${String(detail).slice(0, 400)}`), { status: 502 });
   }
-  return { payload, text: extractText(provider.protocol || "openai", payload) };
+  return { payload, text: extractText(provider.protocol || "openai", payload), finishReason: payload?.candidates?.[0]?.finishReason || payload?.choices?.[0]?.finish_reason || payload?.stop_reason || '' };
 }
 
 function asTrack(song) {
@@ -544,8 +545,13 @@ export async function handleApi(req, res) {
     if (!isGeminiModel(body.provider, body.model)) throw Object.assign(new Error("请选择 Gemini 模型及 Gemini 或 OpenAI 兼容连接。"), { status: 400 });
     const input = validateScoreRequest(body);
     if (input.segmented) {
-      const result = await requestProvider(body.provider, body.model, segmentMessages(input, 'suno'), 120_000);
-      return json(res, 200, { segments: parseSegments(result.text, input, 'suno') });
+      const abort = new AbortController();
+      const disconnected = () => { if (!res.writableEnded) abort.abort(); };
+      res.on('close', disconnected);
+      try {
+        const segments = await planSegments(input, 'suno', messages => requestProvider(body.provider, body.model, messages, 120_000, abort.signal, true));
+        return json(res, 200, { segments });
+      } finally { res.off('close', disconnected); }
     }
     const result = await requestProvider(body.provider, body.model, scoreMessages(input), 120_000);
     return json(res, 200, { score: parseScoreResponse(result.text, input.durationSeconds) });

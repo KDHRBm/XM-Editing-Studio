@@ -16,7 +16,7 @@ function harness(options = {}) {
 test('mixed English and Spanish extraction preserves accents, punctuation, order and language filter', () => {
   const script = `[EN] JACK: Mr. Harris... wait.\n[ES] JOSÉ: ¿Dónde está el niño? ¡Qué vergüenza!\n[ZH] 他在哪里？\n▲ SALA: direction\n[ES-MX] MARÍA: Sr. Pérez, son las 10:30. Cuesta 3.5 euros...\n[FR] JO: Bonjour.\n[ES] ÁLVARO (VO): (susurra) Mañana iré.\nSpanish: LUCÍA: Sí, después.\n普通中文。`;
   const lines = splitScript(script);
-  assert.deepEqual(lines.map(l => l.text), ['Mr Harris...', 'wait.', '¿Dónde está el niño?', '¡Qué vergüenza!', 'Sr. Pérez, son las 10:30.', 'Cuesta 3.5 euros...', 'Mañana iré.', 'Sí, después.']);
+  assert.deepEqual(lines.map(l => l.text), ['Mr. Harris...', 'wait.', '¿Dónde está el niño?', '¡Qué vergüenza!', 'Sr. Pérez, son las 10:30.', 'Cuesta 3.5 euros...', 'Mañana iré.', 'Sí, después.']);
   assert.equal(splitScript(script, 'en').length, 2); assert.equal(splitScript(script, 'es').length, 6);
   assert.ok(splitScript(script, 'es').every(l => l.language === 'es'));
   assert.deepEqual(splitScript('JOSÉ: Esta línea no está marcada.'), []);

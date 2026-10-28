@@ -3,6 +3,8 @@ import { normalizeSubtitlePunctuation } from './period-text.mjs';
 import { extractChineseSubtitles } from './chinese-subtitles.mjs';
 const marker = /^(?:\[(EN|ES(?:[-_](?:ES|MX|LA|419))?|ESP|SPA|SPANISH|ESPAÑOL|西语|西班牙语)\]|【(EN|ES|ESP|SPA|SPANISH|ESPAÑOL|西语|西班牙语)】|\[(EN|ES|ESP|SPA)\s+|(?:西语|西班牙语|Español|Spanish)\s*[:：])/i;
 const direction = /^(?:[△▲]|(?:VO|V\.O\.|OS|O\.S\.|SFX|ACTION|SCENE|NOTE|INT\.|EXT\.)\s*[:：])/i;
+const titleEnding = /\b(?:Mr|Mrs|Ms|Mx|Dr|Prof|Sr|Jr)\.$/i;
+const spanishTitleEnding = /\b(?:Sr|Sra|Srta|Dr|Dra|Ud|Uds|Prof|Profa)\.$/i;
 
 function dialogueAfterSpeaker(text) {
   // Remove the complete label before stripping Chinese, including bilingual names.
@@ -29,7 +31,6 @@ export function normalizeEnglish(text, language = 'en') {
     .replace(/[，、]/g, ',').replace(/[。…]/g, '.')
     .replace(/！/g, '!').replace(/？/g, '?').replace(/：/g, ':').replace(/；/g, ';')
     .replace(/[—–]/g, ' - ').replace(/\.(?:\s*\.)+/g, '...')
-    .replace(language === 'es' ? /\b(Mr|Mrs|Ms)\.(?=\s+\p{L})/gu : /\b(Mr|Mrs|Ms|Dr|Prof|Sr|Jr)\.(?=\s+\p{Script=Latin})/gu, '$1')
     .replace(/\b(?:V\.?O\.?|O\.?S\.?)\s*:\s*/gi, '')
     // English loanwords and names can contain accented Latin letters (fiancée, José).
     // Normalize punctuation without deleting those letters or their combining marks.
@@ -37,13 +38,16 @@ export function normalizeEnglish(text, language = 'en') {
     .replace(/\s+([,.!?;:])/g, '$1')
     // Ellipses use three ASCII dots; other repeated sentence punctuation stays normalized.
     .replace(/\.{2,}/g, '...').replace(/[!?]+/g, run => run[0])
-    .replace(/^[;:\s-]+|[;:\s-]+$/g, '').trim();
+    // Leading/trailing dashes can mark interrupted dialogue ("You -").
+    .replace(/^[;:\s]+|[;:\s]+$/g, '').trim();
 }
 
 function sentenceParts(text, language) {
   const result = []; let start = 0;
   for (let at = 0; at < text.length; at++) {
     if (!/[.!?]/.test(text[at])) continue;
+    // Retain title dots without treating them as sentence boundaries.
+    if (text[at] === '.' && (titleEnding.test(text.slice(0, at + 1)) || language === 'es' && spanishTitleEnding.test(text.slice(0, at + 1)))) continue;
     if (text[at] === '.' && (/\d/.test(text[at - 1] || '') && /\d/.test(text[at + 1] || '') || /\b(?:St|vs|etc|[A-Z])\.$/.test(text.slice(0, at + 1)))) continue;
     if (language === 'es' && text[at] === '.' && /\b(?:Sr|Sra|Srta|Dr|Dra|Ud|Uds|Srta|Prof|Profa|etc)\.$/i.test(text.slice(0, at + 1))) continue;
     let end = at + 1;
@@ -65,6 +69,7 @@ export function rhythmLines(text, language = 'en') {
         const at = match.index;
         if (at < 25 || at > 76) continue;
         const before = sentence.slice(0, at), after = sentence.slice(at).trimStart();
+        if (titleEnding.test(before) || language === 'es' && spanishTitleEnding.test(before)) continue;
         const conjunction = language === 'es' ? /^(?:pero|porque|aunque|mientras|antes de|después de|hasta que|cuando|donde|si|para que|sin embargo|entonces|y|o)\b/i : /^(?:but|because|although|while|unless|before|after|until|when|where|if|so that|even if|and then|and|or|yet)\b/i;
         const pause = /[,;:]$/.test(before) || conjunction.test(after);
         candidates.push({ at, score: Math.abs(at - 54) - (pause ? 26 : 0) });
@@ -82,7 +87,10 @@ export function extractSubtitles(script, selectedLanguage = 'auto') {
   if (selectedLanguage === 'zh') return extractChineseSubtitles(script);
   const utterances = []; let current = null;
   for (const [index, raw] of script.split('\n').entries()) {
-    let text = raw.trim().replace(/^[-*]\s+/, '');
+    let text = raw.trim();
+    const unlisted = text.replace(/^[-*]\s+/, '');
+    // A list prefix before [EN]/[ES] is formatting; a dialogue continuation's dash is text.
+    if (marker.test(unlisted)) text = unlisted;
     const marked = text.match(marker);
     if (marked) {
       const language = (marked[1] || marked[2] || marked[3] || 'ES').toUpperCase() === 'EN' ? 'en' : 'es';

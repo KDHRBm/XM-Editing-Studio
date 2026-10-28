@@ -5,16 +5,16 @@ import { newProject, rememberProject } from '../app/shared/script-projects.mjs';
 import { normalizeSubtitlePunctuation } from '../app/shared/period-text.mjs';
 test('strict EN extraction removes roles, directions, Chinese and normalizes titles and punctuation', () => {
   const text = `第3集\n▲ JACK leaves.\nJACK: This must not be extracted.\n[EN] JACK (VO): （低声）“Mr. Harris… wait...”\n[EN] MIA: Ms. Foster, Ms. Wynn and Dr. Green are here！\nVO: An unrelated thought.\n[EN] JACK: (whispering) It's 10:30. I paid 3.5 dollars.`;
-  assert.deepEqual(splitScript(text).map(r => r.text), ['"Mr Harris...', 'wait..."', 'Ms Foster, Ms Wynn and Dr Green are here!', "It's 10:30.", 'I paid 3.5 dollars.']);
+  assert.deepEqual(splitScript(text).map(r => r.text), ['"Mr. Harris...', 'wait..."', 'Ms. Foster, Ms. Wynn and Dr. Green are here!', "It's 10:30.", 'I paid 3.5 dollars.']);
 });
 test('subtitle ellipses keep three dots through extraction, copying and material exports', () => {
   const lines = splitScript('[EN] DAISY: Daddy... when are you coming back...').map(row => row.text);
   assert.deepEqual(lines, ['Daddy...', 'when are you coming back...']);
   assert.equal(normalizeSubtitlePunctuation(lines.join('\n')), 'Daddy...\nwhen are you coming back...');
-  assert.deepEqual(splitScript('[EN] MIA: ... Please… wait. . . I know......\n[EN] JACK: Mr. Harris paid 3.5 dollars. Really?!').map(row => row.text), ['... Please...', 'wait...', 'I know...', 'Mr Harris paid 3.5 dollars.', 'Really?']);
+  assert.deepEqual(splitScript('[EN] MIA: ... Please… wait. . . I know......\n[EN] JACK: Mr. Harris paid 3.5 dollars. Really?!').map(row => row.text), ['... Please...', 'wait...', 'I know...', 'Mr. Harris paid 3.5 dollars.', 'Really?']);
   assert.deepEqual(splitScript('[EN] MIA: Wait...please.').map(row => row.text), ['Wait...please.']);
   assert.deepEqual(splitScript('[EN] MIA: Wait... 等等。\n[EN] JACK: I know. 我知道。').map(row => row.text), ['Wait...', 'I know.']);
-  assert.deepEqual(splitScript('[EN] DAISY: Daddy․․․ when are you coming back﹒\n[EN] MIA: Hello‚ Mr․ Harris.').map(row => row.text), ['Daddy...', 'when are you coming back.', 'Hello, Mr Harris.']);
+  assert.deepEqual(splitScript('[EN] DAISY: Daddy․․․ when are you coming back﹒\n[EN] MIA: Hello‚ Mr․ Harris.').map(row => row.text), ['Daddy...', 'when are you coming back.', 'Hello, Mr. Harris.']);
   const texts = materialTexts({ script:'original', lines:[{kind:'dialogue',text:'Daddy․․․'},{kind:'dialogue',text:'Come back․'}], source:'library', localTrack:{title:'fixture'}, analysis:{summary:'fixture',keywords:[]} });
   assert.equal(texts['逐行台词.txt'], 'Daddy...\nCome back.');
   assert.doesNotMatch(texts['台词清单.csv'], /[․﹒‚﹐…]/);

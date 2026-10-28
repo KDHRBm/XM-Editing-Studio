@@ -3,3 +3,28 @@
 .bos-batch-segment-settings{display:flex;gap:16px;align-items:center;flex-wrap:wrap;margin-bottom:14px}.bos-batch-segment-settings label{min-width:180px}.bos-batch-segment-settings small{flex:1;min-width:200px}.bos-batch-music-section{margin-top:24px;padding-top:18px;border-top:1px solid var(--ui-border)}
 
 .bos-batch-task-actions{justify-content:flex-start;flex-wrap:wrap;margin-bottom:18px}.bos-batch-tasks>.bos-script-section-title>.bos-panel-toggle{flex-shrink:0}
+
+/* Keep navigation in the modal top layer, outside the scrolling episode panel. */
+.bos-batch-dialog{width:min(1052px,calc(100vw - 16px));max-height:92vh;border:0;border-radius:0;background:transparent;box-shadow:none;overflow:visible}
+.bos-batch-dialog[open]{display:block}
+.bos-batch-dialog-panel{display:flex;flex-direction:column;max-height:88vh;margin:0 56px;overflow:hidden;border:1px solid var(--ui-border);border-radius:var(--ui-radius,20px);background:var(--ui-surface);box-shadow:0 24px 100px #0006}
+.bos-batch-dialog-heading,.bos-batch-dialog-tabs,.bos-batch-dialog-footer{flex-shrink:0}
+.bos-batch-dialog-body{min-height:0;flex:1}
+.bos-batch-dialog.bos-script button.bos-batch-episode-nav{display:grid;place-items:center;position:absolute;top:50%;translate:0 -50%;transform:none;width:48px;height:72px;padding:0;border-radius:16px;background:transparent;border:0;color:var(--ui-text);box-shadow:none;outline:none;line-height:1;transition:none;touch-action:manipulation;user-select:none}
+/* Animate only the surface; the hit target must not move or shrink under the pointer. */
+.bos-batch-dialog.bos-script button.bos-batch-episode-nav:active:not(:disabled){transform:none}
+.bos-batch-episode-surface{display:grid;place-items:center;width:42px;height:64px;border:1px solid var(--ui-border);border-radius:inherit;background:var(--ui-surface);box-shadow:var(--ui-shadow);pointer-events:none;transform:scale(1);transition:transform 160ms cubic-bezier(.2,.7,.2,1),background-color 160ms,border-color 160ms,color 160ms}
+.bos-batch-episode-nav svg{display:block;flex:none}
+.bos-batch-episode-prev{left:0}.bos-batch-episode-next{right:0}
+.bos-batch-episode-nav:hover:not(:disabled) .bos-batch-episode-surface{transform:scale(1.05);background:var(--ui-soft);border-color:var(--ui-accent);color:var(--ui-accent)}
+.bos-batch-episode-nav:active:not(:disabled) .bos-batch-episode-surface{transform:scale(.94);transition-duration:80ms}
+.bos-batch-episode-nav:focus-visible .bos-batch-episode-surface{outline:2px solid var(--ui-accent);outline-offset:4px}
+.bos-batch-dialog .bos-batch-episode-nav:disabled{opacity:.3;cursor:default}
+.bos-batch-dialog-footer{display:block}
+.bos-batch-dialog-analysis{display:flex;align-items:end;gap:12px;flex-wrap:wrap}
+.bos-batch-dialog-analysis label{margin:0;min-width:130px;flex:1}
+.bos-batch-dialog-analysis label:nth-child(2){min-width:100px;flex:0 1 120px}
+.bos-batch-dialog-analysis button{margin:0;min-height:39px}
+.bos-batch-dialog-footer-meta{display:flex;align-items:center;justify-content:space-between;gap:14px;margin-top:12px}
+@media(max-width:640px){.bos-batch-dialog{padding-bottom:52px}.bos-batch-dialog-panel{margin:0;max-height:calc(92vh - 52px)}.bos-batch-dialog.bos-script button.bos-batch-episode-nav{top:auto;bottom:0;translate:none;height:48px;width:72px;border-radius:12px}.bos-batch-episode-surface{width:64px;height:40px}.bos-batch-dialog-analysis label{min-width:110px}.bos-batch-dialog-analysis button{flex:1}.bos-batch-dialog-footer-meta small{max-width:75%;overflow-wrap:anywhere}}
+@media(prefers-reduced-motion:reduce){.bos-batch-episode-nav .bos-batch-episode-surface,.bos-batch-episode-nav:is(:hover,:active):not(:disabled) .bos-batch-episode-surface{transition:none;transform:none}}

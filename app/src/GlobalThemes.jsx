@@ -22,7 +22,7 @@ function readTheme() {
     const legacy = JSON.parse(localStorage.getItem(LEGACY_KEY));
     if (validTheme(legacy?.theme)) return legacy.theme;
   } catch { /* Fall back when storage is unavailable or damaged. */ }
-  return 'obsidian';
+  return 'graphite';
 }
 let currentTheme = readTheme();
 const subscribers = new Set();
@@ -42,7 +42,10 @@ function subscribe(callback) {
 }
 export function useGlobalTheme() {
   const theme = i.useSyncExternalStore(subscribe, () => currentTheme);
-  i.useLayoutEffect(() => { document.documentElement.dataset.bosTheme = theme; }, [theme]);
+  i.useLayoutEffect(() => {
+    document.documentElement.dataset.bosTheme = theme;
+    void globalThis.blackObsidian?.setTitlebarTheme?.(theme).catch(() => {});
+  }, [theme]);
   return theme;
 }
 function selectTheme(theme) {

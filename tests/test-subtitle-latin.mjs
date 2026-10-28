@@ -18,7 +18,7 @@ test('English loanwords and names keep Latin letters, including decomposed accen
   for (const text of [sentence, sentence.normalize('NFD')]) assert.deepEqual(splitScript('[EN] ELLA: ' + text).map(line => line.text), [sentence]);
   assert.equal(normalizeEnglish('My fiancée is naïve about résumés and the façade.'), 'My fiancée is naïve about résumés and the façade.');
   assert.equal(normalizeEnglish('Łukasz, François, Ægir and Weiß.'), 'Łukasz, François, Ægir and Weiß.');
-  assert.deepEqual(splitScript('[EN] ELLA: Mr. Émile, Dr. Åsa and Ms. Özlem are here.').map(line => line.text), ['Mr Émile, Dr Åsa and Ms Özlem are here.']);
+  assert.deepEqual(splitScript('[EN] ELLA: Mr. Émile, Dr. Åsa and Ms. Özlem are here.').map(line => line.text), ['Mr. Émile, Dr. Åsa and Ms. Özlem are here.']);
 });
 
 test('Latin support retains filtering, standard punctuation, ellipses and Spanish behavior', () => {

@@ -17,4 +17,14 @@ try {
     if ($LASTEXITCODE -ne 0) { throw 'Python engine compilation failed. Install scripts/requirements-native.txt first.' }
     & $Python scripts/stage-native.py
     if ($LASTEXITCODE -ne 0) { throw 'Native engine staging failed.' }
+    $watermarkDir = Join-Path $repoRoot 'app/build/watermark'
+    New-Item -ItemType Directory -Path $watermarkDir -Force | Out-Null
+    $watermarkExe = Join-Path $watermarkDir 'WatermarkEngine.exe'
+    & $compiler /nologo /utf8output /codepage:65001 /target:exe /platform:x64 /optimize+ `
+        /r:System.Web.Extensions.dll /r:System.Drawing.dll `
+        ('/out:' + $watermarkExe) (Join-Path $repoRoot 'app/native/WatermarkEngine.cs')
+    if ($LASTEXITCODE -ne 0 -or -not (Test-Path -LiteralPath $watermarkExe)) { throw 'Watermark engine compilation failed.' }
+    $watermarkHash = (Get-FileHash -LiteralPath $watermarkExe -Algorithm SHA256).Hash.ToLowerInvariant()
+    [IO.File]::WriteAllText((Join-Path $watermarkDir 'engine.json'), "{`"sha256`":`"$watermarkHash`"}", (New-Object Text.UTF8Encoding $false))
+    Copy-Item -LiteralPath (Join-Path $repoRoot 'watermarker/public/watermark.png') -Destination (Join-Path $watermarkDir 'watermark.png') -Force
 } finally { Pop-Location }

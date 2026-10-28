@@ -73,11 +73,33 @@ test('sixth page exposes four separately collapsible panels and reuses existing 
   const optionsToggle = nodes(exportPanel, node => node.props['aria-controls'] === 'bos-jy-export-options-body')[0];
   assert.equal(optionsToggle.props['aria-expanded'], true);
 });
+test('four top stage cards select their own Jianying section and persist the choice', () => {
+  globalThis.document = { querySelector: () => null };
+  const tree = ui.JianyingStudio({ active: true, providers: [], onNavigate: () => {} });
+  const tabs = nodes(tree, node => node.type === 'button' && node.props.role === 'tab' && node.props.className?.includes('bos-stage-tab'));
+  assert.equal(tabs.length, 4);
+  for (const [index, stage] of ['export', 'subtitles', 'rename', 'watermark'].entries()) {
+    assert.match(textOf(tabs[index]), new RegExp(['批量导出', '字幕工程', '批量改名', '样片水印'][index]));
+    tabs[index].props.onClick();
+    assert.equal(saved.get('xm.jianying.stage'), stage);
+  }
+});
 test('workspace removes music requirements and SRT restoration while preserving direct-copy fallback', () => {
   globalThis.window = { location: { origin: 'http://127.0.0.1:37651' } };
   const tree = ui.ScriptAutomation({ providers: [], automation: { queue: {}, jobs: [], running: false }, onNavigate: () => {} });
   assert.doesNotMatch(textOf(tree), /配乐要求|选择 SRT|下载标点还原/);
   assert.match(textOf(tree), /原工具方式/); assert.match(textOf(tree), /复制到剪映/);
+});
+test('draft scanning offers DeepSeek without API while the rename model stays Gemini', () => {
+  saved.set('xm.jianying.scan-model', 'webai:deepseek::DeepSeek');
+  const tree = ui.JianyingStudio({ active: true, providers: [], onNavigate: () => {} });
+  const select = nodes(tree, node => node.type === 'select' && node.props['aria-label'] === '草稿扫描模型')[0];
+  assert.equal(select.props.value, 'webai:deepseek::DeepSeek');
+  assert.match(textOf(select), /DeepSeek.*无需 API/);
+  assert.match(textOf(tree), /复用.*登录账号/);
+  const settings = nodes(tree, node => node.props.id === 'jy-settings')[0];
+  assert.doesNotMatch(textOf(settings), /DeepSeek/);
+  saved.delete('xm.jianying.scan-model');
 });
 test('right rail displays eight-folder capacity and an accessible resize handle', () => {
   const rail = ui.QuickRail(); assert.match(textOf(rail), /0 \/ 8/); assert.match(textOf(rail), /自动隐藏/);

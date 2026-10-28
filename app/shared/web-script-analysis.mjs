@@ -1,6 +1,6 @@
 import { validateScoreRequest, scoreMessages, parseScoreResponse } from './script-score.mjs';
 import { validateLibraryInput, keywordMessages, parseKeywords, shortlistTracks, matchMessages, parseMatches } from './library-match.mjs';
-import { segmentMessages, parseSegments, segmentCandidates, segmentMatchMessages, parseSegmentMatches } from './script-segments.mjs';
+import { segmentMessages, parseSegments, planSegments, segmentCandidates, segmentMatchMessages, parseSegmentMatches } from './script-segments.mjs';
 import { analyzeBatchMusic } from './batch-music.mjs';
 import { needsMusicReview, mergeMusicSelections, musicShortfall } from './music-recommendation-policy.mjs';
 
@@ -31,7 +31,7 @@ export async function analyzeWithWeb(purpose, body, ask) {
   if (purpose === 'batch-library-match') return analyzeBatchMusic(body, ask);
   if (purpose === 'score') {
     const input = validateScoreRequest(body);
-    if (input.segmented) return { segments: parseSegments(await ask(segmentMessages(input, 'suno'), '分情节编写音乐提示词'), input, 'suno') };
+    if (input.segmented) return { segments: await planSegments(input, 'suno', ask) };
     return { score: parseScoreResponse(await ask(scoreMessages(input), '编写音乐提示词'), input.durationSeconds) };
   }
   if (purpose !== 'library-match') throw new Error('未知剧本分析任务。');
@@ -66,32 +66,92 @@ export async function analyzeWithWeb(purpose, body, ask) {
 export function webTaskPrompt(messages, token) {
   return messages.map(message => message.content).join('\n\n') + `\n\n本次任务标识：${token}\n回复格式：{"xmTaskId":${JSON.stringify(token)},"result":{这里放入上面要求的完整结果对象}}。xmTaskId 与 result 必须是最外层的两个并列字段，先输出 xmTaskId，再输出 result；不要把 xmTaskId 放入 result 或 segments 中。只返回这一个 JSON 对象，不要复述输入或输出思考过程。`;
 }
-export function webTaskResult(text, token, manual = false) {
-  if (typeof text !== 'string' || text.length > 200000) return null;
-  // Parse complete objects only, ignoring braces inside quoted strings and partial streams.
-  let start = -1, depth = 0, quoted = false, escaped = false;
-  for (let at = 0; at < text.length; at++) {
-    const char = text[at];
-    if (start < 0) { if (char !== '{') continue; start = at; depth = 1; continue; }
+function extractTaskPayload(object, token, manual, payloadKeys) {
+  if (!object || typeof object !== 'object' || Array.isArray(object)) return null;
+  // Check every explicit marker before unwrapping, including nested episode/segment markers.
+  // A matching child must never override a conflicting outer task or another episode's task.
+  const pending = [object]; let markers = 0;
+  while (pending.length) {
+    const scope = pending.pop();
+    if (Object.hasOwn(scope, 'xmTaskId')) {
+      if (typeof scope.xmTaskId !== 'string' || scope.xmTaskId.trim() !== token) return null;
+      markers++;
+    }
+    for (const value of Object.values(scope)) if (value && typeof value === 'object') pending.push(value);
+  }
+  let payload = object, wrapped = false;
+  while (payload.result && typeof payload.result === 'object') { wrapped = true; payload = payload.result; }
+  if (Array.isArray(payload)) {
+    if (!payload.length || !payload.every(item => item && typeof item === 'object' && !Array.isArray(item))) return null;
+    // Infer only unambiguous arrays; all actual fields are still checked by the workflow validators.
+    if (payload.every(item => Object.hasOwn(item, 'startLine') && Object.hasOwn(item, 'endLine'))) payload = { segments: payload };
+    else if (payload.every(item => Object.hasOwn(item, 'id') && Object.hasOwn(item, 'reason'))) payload = { matches: payload };
+    else if (payload.every(item => Object.hasOwn(item, 'id') && Object.hasOwn(item, 'summary') && Array.isArray(item.keywords))) payload = { episodes: payload };
+    else return null;
+  }
+  const knownPayload = payloadKeys.some(key => Object.hasOwn(payload, key));
+  if (!((markers && (wrapped || knownPayload)) || (manual && !markers && knownPayload))) return null;
+  return JSON.stringify(payload, (key, value) => key === 'xmTaskId' ? undefined : value);
+}
+
+function parseWebJson(raw) {
+  try { return JSON.parse(raw); } catch { /* Repair trailing commas outside strings only. */ }
+  let quoted = false, escaped = false, repaired = '';
+  for (let at = 0; at < raw.length; at++) {
+    const char = raw[at];
+    if (quoted) {
+      if (escaped) escaped = false;
+      else if (char === '\\') escaped = true;
+      else if (char === '"') quoted = false;
+    } else if (char === '"') quoted = true;
+    else if (char === ',') {
+      let next = at + 1;
+      while (/\s/.test(raw[next] || '') && next < raw.length) next++;
+      if (raw[next] === '}' || raw[next] === ']') continue;
+    }
+    repaired += char;
+  }
+  try { return JSON.parse(repaired); } catch { return null; }
+}
+
+function jsonRegions(source) {
+  const regions = [], stack = [];
+  let start = -1, quoted = false, escaped = false;
+  for (let at = 0; at < source.length; at++) {
+    const char = source[at];
+    if (start < 0) {
+      // Prose before the JSON can contain unmatched quotes. They are not JSON strings.
+      if (char !== '{' && char !== '[') continue;
+      start = at; stack.push(char); quoted = escaped = false; continue;
+    }
     if (quoted) { if (escaped) escaped = false; else if (char === '\\') escaped = true; else if (char === '"') quoted = false; continue; }
     if (char === '"') quoted = true;
-    else if (char === '{') depth++;
-    else if (char === '}' && --depth === 0) {
-        try {
-          const object = JSON.parse(text.slice(start, at + 1));
-          const wrapped = object.result && typeof object.result === 'object' && !Array.isArray(object.result);
-          const payload = wrapped ? object.result : object;
-          // Some official web models put the task marker alongside segments inside result.
-          // Accept either envelope layout, but every explicit marker must match this task.
-          const markers = (wrapped ? [object, payload] : [object]).filter(value => Object.hasOwn(value, 'xmTaskId')).map(value => value.xmTaskId);
-          const knownPayload = ['episodes', 'segments', 'keywords', 'matches', 'structure'].some(key => Object.hasOwn(payload, key));
-          if ((markers.length > 0 && markers.every(value => value === token) && (wrapped || knownPayload)) || (manual && markers.length === 0 && knownPayload)) {
-            const { xmTaskId, ...result } = payload;
-            return JSON.stringify(result);
-          }
-        } catch { /* Not a JSON response. */ }
-        start = -1;
+    else if (char === '{' || char === '[') stack.push(char);
+    else if (char === '}' || char === ']') {
+      const opening = stack.pop();
+      if ((opening === '{' && char !== '}') || (opening === '[' && char !== ']')) stack.length = 0;
+      if (!stack.length) { regions.push({ start, end: at + 1, complete: true }); start = -1; }
     }
   }
-  return null;
+  if (start >= 0) regions.push({ start, end: source.length, complete: false });
+  return regions;
+}
+
+export function webTaskResult(text, token, manual = false, payloadKeys = ['episodes', 'segments', 'keywords', 'matches', 'structure']) {
+  if (typeof text !== 'string' || text.length > 200000) return null;
+  const regions = jsonRegions(text).map(region => ({ ...region, object: region.complete ? parseWebJson(text.slice(region.start, region.end)) : null }));
+  const candidates = regions.filter(region => region.object);
+  // Fenced answers can follow unmatched braces in reasoning prose. Do not parse a fence
+  // embedded inside a valid envelope or an unfinished JSON response as a separate result.
+  for (const block of text.matchAll(/```(?:json)?\s*([\s\S]*?)```/gi)) {
+    const enclosed = regions.some(region => region.start < block.index && region.end >= block.index + block[0].length && (region.object || /^(?:\{\s*"|\[\s*[\[{"])/.test(text.slice(region.start, region.end))));
+    if (enclosed) continue;
+    for (const region of jsonRegions(block[1])) if (region.complete) candidates.push({ start: block.index + region.start, object: parseWebJson(block[1].slice(region.start, region.end)) });
+  }
+  let matched = null;
+  for (const candidate of candidates.sort((a, b) => a.start - b.start)) {
+    try { matched = extractTaskPayload(candidate.object, token, manual, payloadKeys) || matched; }
+    catch { /* Excessively nested or malformed results are not accepted. */ }
+  }
+  return matched;
 }

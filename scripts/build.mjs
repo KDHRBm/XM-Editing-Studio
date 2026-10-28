@@ -6,6 +6,7 @@ const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 process.chdir(root);
 await fs.mkdir('app/dist/client/assets', { recursive: true });
 await fs.cp('app/public', 'app/dist/client', { recursive: true });
+await fs.copyFile('watermarker/public/watermark.png', 'app/dist/client/watermark.png');
 await fs.mkdir('app/build', { recursive: true });
 for (const name of ['app-icon.ico', 'app-icon.png']) await fs.copyFile(`app/assets/${name}`, `app/build/${name}`);
 await import('../app/scripts/build-upgrade.mjs');

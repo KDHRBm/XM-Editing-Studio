@@ -1,0 +1,21 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self'; connect-src 'none'; base-uri 'none'; form-action 'none'">
+  <title>XM剪辑台 · 任务进度</title>
+  <link rel="stylesheet" href="card.css">
+  <script src="card.js" defer></script>
+</head>
+<body>
+  <section class="card" aria-label="任务进度">
+    <header><span class="brand">XM<span id="operation">AI 扫描草稿</span></span><button id="dismiss" class="close" aria-label="隐藏进度卡">×</button></header>
+    <div class="heading"><span id="icon" class="spinner" aria-hidden="true"></span><h1 id="title">正在准备扫描</h1></div>
+    <p id="message" role="status" aria-live="polite">请切回剪映首页</p>
+    <div id="progress" class="progress" role="progressbar" aria-label="扫描进行中"><span></span></div>
+    <footer><span id="elapsed">已用时 00:00</span><div><button id="stop">中断扫描</button><button id="open" class="primary">返回工作台</button></div></footer>
+    <p id="shortcut" hidden>按 <kbd>F10</kbd> 结束运行</p>
+  </section>
+</body>
+</html>

@@ -26,6 +26,40 @@ function fixture() {
   return { host, win, views, attached, opened, Contents };
 }
 const layout = provider => ({ provider, visible: true, bounds: { x: 270, y: 300, width: 800, height: 500 } });
+
+test('Enter fallback sends one full key sequence only on the visible official page', async () => {
+  const f = fixture(); f.host.layout(layout('deepseek'));
+  const contents = f.views[0].webContents, events = [];
+  let focused = false; f.win.focus = () => { focused = true; };
+  contents.getURL = () => 'https://chat.deepseek.com/';
+  contents.executeJavaScript = async () => ({ state: 'enter' });
+  contents.focus = () => {};
+  contents.sendInputEvent = event => events.push(event);
+  assert.equal((await f.host.run('deepseek', { command: 'send' })).state, 'sent');
+  assert.equal(focused, true);
+  assert.deepEqual(events, [{ type: 'keyDown', keyCode: 'Enter' }, { type: 'char', keyCode: '\r' }, { type: 'keyUp', keyCode: 'Enter' }]);
+  contents.executeJavaScript = async () => ({ state: 'sent' });
+  await f.host.run('deepseek', { command: 'send' }); assert.equal(events.length, 3);
+  f.host.layout({ visible: false });
+  await assert.rejects(f.host.run('deepseek', { command: 'send' }), /登录/);
+  assert.equal(events.length, 3); f.host.dispose();
+});
+
+test('cancelled or switched pages cannot receive a delayed Enter fallback', async () => {
+  const f = fixture(); f.host.layout(layout('deepseek'));
+  const contents = f.views[0].webContents, events = [];
+  contents.getURL = () => 'https://chat.deepseek.com/';
+  contents.focus = () => {}; contents.sendInputEvent = event => events.push(event);
+  let finish;
+  contents.executeJavaScript = () => new Promise(resolve => { finish = resolve; });
+  const controller = new AbortController();
+  const pending = f.host.run('deepseek', { command: 'send' }, controller.signal);
+  controller.abort(); finish({ state: 'enter' });
+  await assert.rejects(pending); assert.equal(events.length, 0);
+  const second = f.host.run('deepseek', { command: 'send' });
+  f.host.layout(layout('doubao')); finish({ state: 'enter' });
+  await assert.rejects(second, /网页已切换/); assert.equal(events.length, 0); f.host.dispose();
+});
 test('only known providers and HTTPS pages are allowed; lookalike domains are not official', () => {
   assert.equal(WEB_AI_PROVIDERS.length, 2);
   assert.throws(() => webAIProvider('https://example.com'), /请选择/);
@@ -89,6 +123,20 @@ test('load failures are visible, reload can recover, and external opens use fixe
   wc.emit('did-stop-loading'); assert.equal(f.host.action('deepseek', 'status').loading, false);
   wc.emit('did-navigate', {}, 'https://accounts.example.com/login'); assert.equal(f.host.action('deepseek', 'status').official, false);
   f.win.destroyed = true; f.host.dispose();
+});
+
+test('screenshot analysis runs on the already attached DeepSeek view and pauses on the login page', async () => {
+  const f = fixture(); f.host.layout(layout('deepseek'));
+  const contents = f.views[0].webContents, scripts = [];
+  contents.getURL = () => 'https://chat.deepseek.com/a/chat/existing';
+  contents.executeJavaScript = async source => { scripts.push(source); return { state: 'uploaded' }; };
+  const result = await f.host.run('deepseek', { command: 'prepare-image', prompt: 'question', image: 'YWJj', filename: 'xm-drafts-test.jpg' });
+  assert.equal(result.state, 'uploaded'); assert.equal(f.views.length, 1);
+  assert.deepEqual(contents.loaded, ['https://chat.deepseek.com/']);
+  assert.equal(f.views[0].options.webPreferences.backgroundThrottling, false);
+  contents.getURL = () => 'about:blank';
+  assert.equal((await f.host.run('deepseek', { command: 'prepare-image' })).state, 'login');
+  assert.equal(scripts.length, 1); f.host.dispose();
 });
 
 const draft = { script: '△ 雨夜追逐\n[EN] JACK: Run, now...\n△ 第二天重逢\n[ES] MIA: Hola, señor.', customKeywords: '悬疑,钢琴', durationSeconds: 60, segmentCount: 3, geminiKey: 'do-not-export', sunoKey: 'do-not-export', apiKey: 'do-not-export' };
@@ -190,4 +238,26 @@ test('an older initial snapshot cannot close a newly started analysis overlay', 
     cleanup?.(); assert.equal(removed, true); assert.equal(listeners.size, 0);
     if (originalWindow === undefined) delete globalThis.window; else globalThis.window = originalWindow;
   }
+});
+
+test('a draft scan opens the shared page overlay with F10 cancellation and manual recovery', async () => {
+  const originalWindow = globalThis.window;
+  let receive;
+  const actions = [];
+  globalThis.window = { addEventListener() {}, removeEventListener() {} };
+  globalThis.blackObsidian = { layoutWebAI: async () => {}, webAIAction: async () => {},
+    onWebAnalysisTask: callback => { receive = callback; return () => {}; }, getWebAnalysisTask: async () => null,
+    webAnalysisAction: async (...args) => actions.push(args),
+  };
+  let cleanup;
+  try {
+    slots = []; render(false); cleanup = effects[1]();
+    receive({ id: 'scan-task', token: 'image-one', provider: 'deepseek', kind: 'draft-scan', stage: '草稿截图识别', message: '提示词已完整填入' });
+    const tree = render(false);
+    assert.equal(tree.props.hidden, false); assert.match(textOf(tree), /DeepSeek · 草稿截图识别/);
+    assert.ok(nodes(tree).some(node => node.props['aria-label'] === 'DeepSeek 网页显示区域'));
+    assert.equal(button(tree, '豆包').props.disabled, true);
+    await button(tree, '中断扫描 · F10').props.onClick(); assert.deepEqual(actions[0].slice(0, 2), ['scan-task', 'cancel']);
+    assert.ok(button(tree, '复制当前任务')); assert.ok(button(tree, '导入结果并继续'));
+  } finally { cleanup?.(); globalThis.window = originalWindow; }
 });

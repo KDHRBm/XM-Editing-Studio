@@ -27,7 +27,7 @@ export function createWebAIHost({ View, getWindow, shell }) {
     const provider = webAIProvider(id);
     if (!entries.has(id)) {
       const partition = `persist:xm-official-ai-${id}`;
-      const view = new View({ webPreferences: { partition, nodeIntegration: false, contextIsolation: true, sandbox: true, webSecurity: true, devTools: false, backgroundThrottling: true } });
+      const view = new View({ webPreferences: { partition, nodeIntegration: false, contextIsolation: true, sandbox: true, webSecurity: true, devTools: false, backgroundThrottling: false } });
       const value = { view, provider, loading: true, error: '', url: provider.url };
       entries.set(id, value);
       restrict(view.webContents, partition);
@@ -47,13 +47,23 @@ export function createWebAIHost({ View, getWindow, shell }) {
   const snapshot = value => ({ provider: value.provider.id, loading: value.loading, error: value.error, official: isWebAIPage(value.provider.id, value.url), url: value.url });
   return {
     visible(id) { return !!attached && attached.provider.id === id; },
-    async run(id, input) {
+    async run(id, input, signal) {
+      signal?.throwIfAborted();
       const value = entry(id), contents = value.view.webContents;
-      if (attached !== value || new URL(contents.getURL()).hostname !== value.provider.host) throw new Error('请在内嵌官方页面完成登录。');
+      if (attached !== value) throw new Error('请在内嵌官方页面完成登录。');
+      if (!isWebAIPage(id, contents.getURL())) return { state: 'login', message: '请在内嵌官方页面完成登录。' };
       const result = await contents.executeJavaScript(webAIPageScript({ ...input, host: value.provider.host }), true);
       if (input.command === 'send' && result.state === 'enter') {
+        signal?.throwIfAborted();
+        if (attached !== value || !isWebAIPage(id, contents.getURL())) throw new Error('网页已切换，请返回 DeepSeek 后重新扫描。');
+        const win = getWindow();
+        if (!win || win.isDestroyed()) throw new Error('主工作台已关闭。');
+        // Electron requires the owning window to be focused for synthetic keys.
+        if (win.isMinimized?.()) win.restore();
+        win.focus?.();
         contents.focus();
         contents.sendInputEvent({ type: 'keyDown', keyCode: 'Enter' });
+        contents.sendInputEvent({ type: 'char', keyCode: '\r' });
         contents.sendInputEvent({ type: 'keyUp', keyCode: 'Enter' });
         return { state: 'sent' };
       }

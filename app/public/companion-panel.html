@@ -1,0 +1,189 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>大肥鱼</title>
+  <style>
+    * { box-sizing: border-box; }
+    html, body { width: 100%; height: 100%; margin: 0; overflow: hidden; font: 12px "Microsoft YaHei UI", system-ui, sans-serif; }
+    [hidden] { display: none !important; }
+    body { --bg: #191a1c; --surface: #26282c; --raised: #303236; --line: #484b50; --text: #f4f4f4; --muted: #b9bcc1; --accent: #e8e8e8; --on-accent: #1a1a1a; background: var(--bg); color: var(--text); }
+    body[data-palette="original"] { --bg: #eaf5fd; --surface: #fafdff; --raised: #d6ecfa; --line: #a8cde9; --text: #194269; --muted: #51799b; --accent: #2483c5; --on-accent: #fff; }
+    .panel { height: 100%; padding: 14px; display: flex; flex-direction: column; gap: 10px; }
+    header { display: flex; align-items: center; gap: 8px; padding-bottom: 9px; border-bottom: 1px solid var(--line); }
+    header strong { flex: 1; font-size: 14px; }
+    button { border: 1px solid var(--line); border-radius: 6px; padding: 7px 8px; background: var(--raised); color: var(--text); font: inherit; cursor: pointer; transition: transform .16s, background .16s, border-color .16s; }
+    button:hover:not(:disabled) { transform: scale(1.03); border-color: var(--accent); }
+    button:active:not(:disabled) { transform: scale(.96); }
+    button:disabled { opacity: .45; cursor: not-allowed; }
+    button:focus-visible, input:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+    .close { border: 0; background: transparent; padding: 3px 8px; font-size: 17px; }
+    .tabs { display: grid; grid-template-columns: 1fr 1fr; gap: 4px; padding: 3px; border: 1px solid var(--line); border-radius: 7px; }
+    .tabs button { border: 0; background: transparent; font-weight: 600; }
+    .tabs button[aria-selected="true"] { background: var(--accent); color: var(--on-accent); }
+    main { flex: 1; min-height: 0; overflow-y: auto; scrollbar-width: thin; }
+    .page { display: grid; gap: 10px; }
+    .page[hidden] { display: none; }
+    .status { padding: 8px 10px; background: var(--surface); border: 1px solid var(--line); border-radius: 7px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .section { display: grid; gap: 8px; padding: 10px; border: 1px solid var(--line); border-radius: 7px; background: var(--surface); }
+    .section-title { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+    .section-title strong { font-size: 12px; }
+    .section small, .hint { color: var(--muted); }
+    .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 7px; }
+    .primary { background: var(--accent); color: var(--on-accent); border-color: var(--accent); }
+    .danger { color: #f4a5a5; }
+    [data-palette="original"] .danger { color: #a72e39; }
+    .progress { height: 5px; overflow: hidden; border-radius: 3px; background: var(--raised); }
+    .progress > span { display: block; height: 100%; width: 0; background: var(--accent); transition: width .2s ease; }
+    .job { display: flex; gap: 5px; align-items: center; color: var(--muted); }
+    .job span { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .job button { padding: 3px 6px; font-size: 10px; }
+    .choice { display: grid; grid-auto-flow: column; grid-auto-columns: 1fr; gap: 5px; }
+    .choice button[aria-pressed="true"] { background: var(--accent); color: var(--on-accent); border-color: var(--accent); }
+    .setting-row { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+    .setting-row > span { color: var(--muted); }
+    .setting-row > button { min-width: 62px; }
+    .slider { display: grid; gap: 5px; }
+    .slider > div { display: flex; justify-content: space-between; }
+    input[type="range"] { width: 100%; accent-color: var(--accent); }
+    .notice { min-height: 18px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--muted); }
+    footer { display: grid; grid-template-columns: 1fr 1fr; gap: 7px; }
+    @media (prefers-reduced-motion: reduce) { button, .progress > span { transition: none; } }
+  </style>
+</head>
+<body data-palette="original">
+  <div class="panel">
+    <header><strong>大肥鱼</strong><button class="close" id="close" title="收起面板" aria-label="收起面板">×</button></header>
+    <div class="tabs" role="tablist" aria-label="桌宠功能页">
+      <button id="xm-tab" role="tab" aria-controls="xm-page" aria-selected="true">剪辑台</button>
+      <button id="pet-tab" role="tab" aria-controls="pet-page" aria-selected="false">大肥鱼</button>
+    </div>
+    <main>
+      <div class="page" id="xm-page" role="tabpanel" aria-labelledby="xm-tab">
+        <div class="status" id="status">正在读取状态…</div>
+        <div class="section" id="modal" hidden>
+          <strong id="modal-title">确认操作</strong><small id="modal-message"></small>
+          <div class="grid"><button id="modal-no">取消</button><button id="modal-yes" class="primary">确认</button></div>
+        </div>
+        <div class="section">
+          <div class="section-title"><strong>剪映自动化</strong><small id="queue">0 个待导出</small></div>
+          <div class="grid"><button id="scan">AI 扫描草稿</button><button id="export" class="primary">批量导出</button><button id="extract">提取字幕</button><button id="stop" class="danger">中断任务 · F10</button></div>
+        </div>
+        <div class="section">
+          <div class="section-title"><strong>样片水印</strong><small id="watermark">暂无任务</small></div>
+          <div class="progress"><span id="watermark-progress"></span></div>
+          <div id="jobs"></div>
+          <div class="grid"><button id="add">添加视频</button><button id="watermark-run">开始处理</button></div>
+        </div>
+        <div class="section"><div class="setting-row"><strong>标点守护</strong><button id="period">开启</button></div></div>
+      </div>
+      <div class="page" id="pet-page" role="tabpanel" aria-labelledby="pet-tab" hidden>
+        <div class="section">
+          <strong>外观配色</strong>
+          <div class="choice" id="palette-choice"><button data-value="mono">黑白</button><button data-value="original">原版蓝白</button></div>
+          <strong>桌宠大小</strong>
+          <div class="choice" id="size-choice"><button data-value="small">小</button><button data-value="normal">中</button><button data-value="large">大</button></div>
+        </div>
+        <div class="section">
+          <div class="setting-row"><strong>待机动作</strong><button id="motion">开启</button></div>
+          <div class="setting-row"><strong>桌面漫游</strong><button id="roam">开启</button></div>
+          <div class="slider"><div><strong>动作间隔</strong><span id="interval-value">30 秒</span></div><input id="interval" type="range" min="10" max="90" step="5" aria-label="动作间隔"></div>
+          <button id="react">互动一下</button>
+        </div>
+        <div class="section">
+          <div class="setting-row"><strong>点击音效</strong><button id="sound">开启</button></div>
+          <div class="slider"><div><strong>音量</strong><span id="volume-value">40%</span></div><input id="volume" type="range" min="0" max="100" step="5" aria-label="音量"></div>
+          <div class="setting-row"><strong>跟随剪映窗口</strong><button id="dock">开启</button></div>
+        </div>
+      </div>
+    </main>
+    <div class="notice" id="notice" role="status"></div>
+    <footer><button id="launch">启动剪映</button><button id="workspace" class="primary">打开工作台</button></footer>
+  </div>
+  <script>
+    const api = window.blackObsidian;
+    const $ = id => document.getElementById(id);
+    let current = {}, page = 'xm', noticeTimer;
+    function note(text) {
+      $('notice').textContent = text;
+      clearTimeout(noticeTimer);
+      noticeTimer = setTimeout(() => { $('notice').textContent = ''; }, 4000);
+    }
+    async function act(action, value) {
+      try {
+        const result = await api?.companionAction?.(action, value);
+        if (result?.error) note(result.error);
+        if (result) render(result);
+      } catch (error) { note(error.message || '操作失败'); }
+    }
+    function selectPage(next) {
+      page = next;
+      for (const name of ['xm', 'pet']) {
+        $(name + '-page').hidden = name !== page;
+        $(name + '-tab').setAttribute('aria-selected', String(name === page));
+      }
+    }
+    function render(state) {
+      current = state;
+      const jy = state.jianying || {}, wm = state.watermark || {}, settings = state.settings || {};
+      document.body.dataset.palette = settings.palette || 'original';
+      $('status').textContent = jy.lastLog || jy.status || '就绪';
+      $('queue').textContent = (jy.queueCount || 0) + ' 个待导出';
+      $('scan').disabled = jy.busy || !jy.ready;
+      $('export').disabled = jy.busy || !jy.ready || !jy.queueCount;
+      $('extract').disabled = jy.busy || !jy.ready;
+      $('modal').hidden = !jy.modal;
+      if (jy.modal) { $('modal-title').textContent = jy.modal.title || '确认操作'; $('modal-message').textContent = jy.modal.message || ''; }
+      $('watermark').textContent = wm.running ? '处理中 ' + wm.progress + '%' : '已添加 ' + (wm.jobs?.length || 0) + ' 个视频';
+      $('watermark-progress').style.width = (wm.progress || 0) + '%';
+      $('watermark-run').textContent = wm.running ? '停止处理' : '开始处理';
+      $('watermark-run').disabled = !wm.running && !(wm.jobs || []).some(job => !['done', 'processing'].includes(job.status));
+      $('period').textContent = state.periodEnabled ? '已开启' : '开启';
+      $('jobs').replaceChildren();
+      for (const job of (wm.jobs || []).slice(-3)) {
+        const row = document.createElement('div'); row.className = 'job';
+        const name = document.createElement('span'); name.textContent = job.fileName || job.inputPath || '视频';
+        const status = document.createElement('small'); status.textContent = job.status === 'processing' ? (job.progress || 0) + '%' : ({ done: '完成', error: '失败', cancelled: '取消' }[job.status] || '排队');
+        row.append(name, status);
+        if (job.status === 'done' && job.outputPath) {
+          const open = document.createElement('button'); open.textContent = '定位'; open.title = '定位到成片'; open.onclick = () => act('wm-open', job.outputPath); row.append(open);
+        }
+        $('jobs').append(row);
+      }
+      for (const button of $('palette-choice').querySelectorAll('button')) button.setAttribute('aria-pressed', String(button.dataset.value === settings.palette));
+      for (const button of $('size-choice').querySelectorAll('button')) button.setAttribute('aria-pressed', String(button.dataset.value === settings.size));
+      for (const key of ['motion', 'roam', 'sound']) $(key).textContent = settings[key] ? '已开启' : '开启';
+      $('dock').textContent = state.autoDock ? '已开启' : '开启';
+      $('interval').value = settings.idleInterval ?? 30;
+      $('interval-value').textContent = $('interval').value + ' 秒';
+      $('volume').value = settings.volume ?? 40;
+      $('volume-value').textContent = $('volume').value + '%';
+    }
+    $('xm-tab').onclick = () => selectPage('xm');
+    $('pet-tab').onclick = () => selectPage('pet');
+    $('close').onclick = () => act('panel', false);
+    $('scan').onclick = () => act('jy-scan');
+    $('export').onclick = () => act('jy-export');
+    $('extract').onclick = () => act('jy-extract');
+    $('stop').onclick = () => act('jy-stop');
+    $('modal-yes').onclick = () => current.jianying?.modal && act('jy-modal', { id: current.jianying.modal.id, confirmed: true });
+    $('modal-no').onclick = () => current.jianying?.modal && act('jy-modal', { id: current.jianying.modal.id, confirmed: false });
+    $('add').onclick = () => act('wm-add');
+    $('watermark-run').onclick = () => act(current.watermark?.running ? 'wm-cancel' : 'wm-start');
+    $('period').onclick = () => act('toggle-period');
+    $('launch').onclick = () => act('launch-jy');
+    $('workspace').onclick = () => act('navigate', 'jianying');
+    $('dock').onclick = () => act('toggle-dock');
+    $('react').onclick = () => act('react');
+    for (const button of $('palette-choice').querySelectorAll('button')) button.onclick = () => act('update-settings', { palette: button.dataset.value });
+    for (const button of $('size-choice').querySelectorAll('button')) button.onclick = () => act('update-settings', { size: button.dataset.value });
+    for (const key of ['motion', 'roam', 'sound']) $(key).onclick = () => act('update-settings', { [key]: !current.settings?.[key] });
+    for (const key of ['volume', 'interval']) $(key).onchange = () => act('update-settings', { [key === 'interval' ? 'idleInterval' : key]: Number($(key).value) });
+    $('volume').oninput = () => { $('volume-value').textContent = $('volume').value + '%'; };
+    $('interval').oninput = () => { $('interval-value').textContent = $('interval').value + ' 秒'; };
+    api?.onCompanionState?.(render);
+    act('sync');
+  </script>
+</body>
+</html>

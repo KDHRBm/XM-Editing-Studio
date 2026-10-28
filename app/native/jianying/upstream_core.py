@@ -463,10 +463,19 @@ class JianyingDraftIO:
         read = self._virtual(object_pointer, 3, (ctypes.c_void_p, ctypes.c_void_p))
         read(object_pointer, ctypes.addressof(result))
         result_code = ctypes.c_uint32.from_buffer(result, 72).value
-        detail = _msvc_output_string(_MsvcString.from_buffer(result, 40)).decode('utf-8', errors='replace')
-        raw = _msvc_output_string(_MsvcString.from_buffer(result, 8))
         if result_code:
-            raise RuntimeError(f'剪映草稿解密失败({result_code}): {detail}')
+            detail = _msvc_output_string(_MsvcString.from_buffer(result, 40)).decode('utf-8', errors='replace')
+            if result_code == 6:
+                # Error 6 is also returned when newer Jianying builds reject the
+                # external host. It does not establish that the draft is corrupt.
+                raise RuntimeError(
+                    f'剪映接口无法读取加密草稿（错误 6，接口版本 {self.dll_path.parent.name}）。'
+                    '新版剪映可能限制外部程序解密，也可能是草稿密钥不兼容；'
+                    '不能据此判断草稿损坏。请在剪映中打开草稿并使用其字幕导出功能。'
+                    f'详情: {detail or draft_path}'
+                )
+            raise RuntimeError(f'剪映草稿解密失败({result_code}，接口版本 {self.dll_path.parent.name}): {detail}')
+        raw = _msvc_output_string(_MsvcString.from_buffer(result, 8))
         try:
             data = json.loads(raw.decode('utf-8-sig'))
         except (UnicodeDecodeError, json.JSONDecodeError) as exc:
@@ -1415,6 +1424,9 @@ class App:
             self._restore_coordinate_badge()
             return True
 
+    def _coordinate_recording_position(self):
+        return pyautogui.position()
+
     def _on_key(self, key):
         if key == keyboard.Key.f10:
             self._stop('F10')
@@ -1425,7 +1437,7 @@ class App:
                     if not self.rec_state or self._recording_coords is None:
                         return
                     current_state = self.rec_state
-                    x, y = pyautogui.position()
+                    x, y = self._coordinate_recording_position()
                     if current_state == 'popup_close' and self.export_mode == 'wait_close':
                         self._show_toast('请按 F9', '等待完成关闭模式需继续录制关闭按钮和关闭草稿坐标', C_WARN)
                         return
@@ -2042,8 +2054,11 @@ class App:
                     continue
             if self._subtitle_tracks(data):
                 subtitle_jsons.append((path, data, storage))
-        if not subtitle_jsons and load_errors:
-            raise RuntimeError('；'.join(load_errors))
+        if load_errors:
+            # All copies must be readable before changing fonts or visibility.
+            # Otherwise a readable root could be changed while a failed timeline
+            # stays unchanged and later overwrites the user's subtitle edits.
+            raise RuntimeError('草稿副本未全部读取成功，已跳过该草稿，未修改字幕轨道。' + '；'.join(load_errors))
         return (subtitle_jsons, encoded_drafts)
 
     def _subtitle_lines(self, data):

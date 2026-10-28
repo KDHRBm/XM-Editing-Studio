@@ -29,16 +29,20 @@ replaceOnce('const y3=[{id:"providers",label:"模型与连接",sub:"配置供应
   {id:"music",label:"音乐",sub:"用 AI 模型生成音乐",Icon:K1},
   {id:"jianying",label:"JianYing-Ai-Pro",sub:"剪映批量生产工具",Icon:props=>i.createElement(BOSMusicUpgrade.JianyingNavIcon,props)},
   {id:"chat",label:"对话",sub:"与 AI 深度交流",Icon:Sc},
-  {id:"watermark",label:"加样片水印",sub:"本地批量处理视频",Icon:props=>i.createElement(BOSMusicUpgrade.WatermarkNavIcon,props)},
   {id:"webai",label:"国内 AI",sub:"DeepSeek · 豆包网页版",Icon:props=>i.createElement(BOSMusicUpgrade.WebAiNavIcon,props)},
   {id:"providers",label:"模型与连接",sub:"配置供应商与模型",Icon:Ec}
 ];`);
 replaceOnce('workspace:{eyebrow:"工作空间"', 'batch:{eyebrow:"跑量剪辑流",title:"多集剧本，一起整理。",description:"自动识别集数，批量分析剧情；字幕与本地音乐按集保存。"},workspace:{eyebrow:"工作空间"');
 replaceOnce('workspace:{eyebrow:"工作空间"', 'webai:{eyebrow:"国内 AI",title:"官方网页，直接使用。",description:"内嵌 DeepSeek 与豆包，使用自己的账号登录，无需配置 API。"},jianying:{eyebrow:"JianYing-Ai-Pro",title:"剪映自动化工作台",description:"批量导出、字幕工程与智能命名，复用已配置的 AI 连接。"},watermark:{eyebrow:"加样片水印",title:"让样片，带上你的标记。",description:"选择视频，批量叠加样片水印。处理在本机完成，支持离线使用。"},workspace:{eyebrow:"工作空间"');
-replaceOnce('d==="workspace"&&s.jsx(z3,{models:Zl,onNavigate:T,providers:x,automation:bosAutomation})', 'd==="workspace"&&s.jsx(z3,{models:Zl,onNavigate:T,providers:x,automation:bosAutomation}),s.jsx(BOSMusicUpgrade.WatermarkStudio,{active:d==="watermark"}),s.jsx(BOSMusicUpgrade.JianyingStudio,{active:d==="jianying",providers:x,onNavigate:T}),s.jsx(BOSMusicUpgrade.WebAIStudio,{active:d==="webai",providers:x,automation:bosAutomation,onNavigate:T}),s.jsx(BOSMusicUpgrade.BatchAnalysis,{active:d==="batch",providers:x,onNavigate:T})');
+replaceOnce('d==="workspace"&&s.jsx(z3,{models:Zl,onNavigate:T,providers:x,automation:bosAutomation})', 'd==="workspace"&&s.jsx(z3,{models:Zl,onNavigate:T,providers:x,automation:bosAutomation}),s.jsx(BOSMusicUpgrade.JianyingStudio,{active:d==="jianying"||d==="watermark",providers:x,onNavigate:T}),s.jsx(BOSMusicUpgrade.WebAIStudio,{active:d==="webai",providers:x,automation:bosAutomation,onNavigate:T}),s.jsx(BOSMusicUpgrade.BatchAnalysis,{active:d==="batch",providers:x,onNavigate:T})');
 replaceOnce('className:`app-shell ${d==="chat"?"chat-open":""}`', 'className:`app-shell ${d==="chat"?"chat-open":d==="music"?"music-open":d==="webai"?"webai-open":""}`,"data-bos-theme":bosGlobalTheme');
+replaceOnce('children:[s.jsxs("aside",{className:"sidebar"', 'children:[s.jsx(BOSMusicUpgrade.TitleBar,{onNavigate:T}),s.jsxs("aside",{className:"sidebar"');
 replaceOnce('function z3({models:d,onNavigate:T})', 'function BOSOriginalWorkspace({models:d,onNavigate:T})');
 replaceOnce('Ys.createRoot(document.getElementById("root"))', 'function z3(props){return i.createElement("section",{className:"bos-workspace"},i.createElement(BOSMusicUpgrade.ScriptAutomation,props),i.createElement(BOSMusicUpgrade.GlobalThemePicker))}\nYs.createRoot(document.getElementById("root"))');
+const legacyWorkspaceStart = code.indexOf('function BOSOriginalWorkspace(');
+const legacyWorkspaceEnd = code.indexOf('function z3(props)', legacyWorkspaceStart);
+if (legacyWorkspaceStart < 0 || legacyWorkspaceEnd < 0) throw new Error('Legacy workspace removal location changed.');
+code = code.slice(0, legacyWorkspaceStart) + code.slice(legacyWorkspaceEnd);
 replaceOnce('最近使用的模型、对话和音乐创作都在这里继续。', '从剧本到配乐，管理批量创作与剪映素材，也可在这里切换全局主题。');
 code = code.replace('if(!w.preview)throw new Error', 'if(!w.preview&&!w.ok)throw new Error');
 code = code.replace('title:"让灵感发出声音",description:"选择已接入的音乐生成模型，描述你想听到的场景与情绪，直接通过中转站发起创作。"', 'title:"让灵感，自成旋律。",description:"从一种风格，到一首完整的作品。定制声音的质感，编排音乐的起承转合。"');
@@ -51,7 +55,7 @@ const railEnd = code.indexOf(',R&&s.jsx(S3', railStart);
 if (railStart < 0 || railEnd < 0) throw new Error('Right sidebar patch location changed.');
 code = code.slice(0, railStart) + 's.jsx(BOSMusicUpgrade.QuickRail,{}),s.jsx(BOSMusicUpgrade.SidebarResizer,{})' + code.slice(railEnd);
 fs.writeFileSync(path.join(root, 'dist/client/assets/music-studio.js'), code);
-const css = [fs.readFileSync(path.join(original, cssName), 'utf8'), fs.readFileSync(path.join(root, 'src/music-studio.css'), 'utf8'), fs.readFileSync(path.join(root, 'src/global-themes.css'), 'utf8'), fs.readFileSync(path.join(root, 'src/script-automation.css'), 'utf8'), fs.readFileSync(path.join(root, 'src/batch-analysis.css'), 'utf8')].join('\n');
+const css = [fs.readFileSync(path.join(original, cssName), 'utf8'), fs.readFileSync(path.join(root, 'src/music-studio.css'), 'utf8'), fs.readFileSync(path.join(root, 'src/global-themes.css'), 'utf8'), fs.readFileSync(path.join(root, 'src/script-automation.css'), 'utf8'), fs.readFileSync(path.join(root, 'src/batch-analysis.css'), 'utf8'), fs.readFileSync(path.join(root, 'src/watermark-studio.css'), 'utf8'), fs.readFileSync(path.join(root, 'src/release-140.css'), 'utf8')].join('\n');
 fs.writeFileSync(path.join(root, 'dist/client/assets/music-studio.css'), css);
 const version = createHash('sha256').update(code).update(css).digest('hex').slice(0, 12);
 let html = fs.readFileSync(path.join(original, 'index.html'), 'utf8').replace(jsName, `music-studio.js?v=${version}`).replace(cssName, `music-studio.css?v=${version}`).replaceAll('黑曜信号台', 'XM剪辑台');
