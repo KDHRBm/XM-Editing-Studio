@@ -1,10 +1,10 @@
 import { BrowserWindow, screen } from 'electron';
 import { createCompanionSettingsStore, DEFAULT_COMPANION_SETTINGS } from './companion-settings.mjs';
 
-const ORB = { width: 140, height: 146 };
+const ORB = { width: 188, height: 210 };
 const PANEL = { width: 330, height: 472 };
-export function createCompanionDock({ preloadPath, baseUrl, settingsFile, getJianyingState, getWatermarkState, getPeriodStatus, onAction }) {
-  let orb, panel, visible = false, panelOpen = false, autoDock = true, timer, moveTimer, lastRoam = Date.now(), reactionId = 0;
+export function createCompanionDock({ preloadPath, baseUrl, settingsFile, getJianyingState, getWatermarkState, getPeriodStatus, onAction, onState = () => {} }) {
+  let orb, panel, visible = false, panelOpen = false, autoDock = true, timer, moveTimer, lastRoam = Date.now(), reactionId = 0, motionId = 0;
   let settings = { ...DEFAULT_COMPANION_SETTINGS };
   const settingsStore = createCompanionSettingsStore(settingsFile);
   async function loadSettings() {
@@ -16,6 +16,8 @@ export function createCompanionDock({ preloadPath, baseUrl, settingsFile, getJia
   function moveTo(targetX, targetY, duration = 360) {
     if (!alive(orb)) return;
     stopMotion();
+    motionId += 1;
+    void broadcast();
     const [startX, startY] = orb.getPosition();
     const start = Date.now();
     moveTimer = setInterval(() => {
@@ -62,7 +64,7 @@ export function createCompanionDock({ preloadPath, baseUrl, settingsFile, getJia
     const [jy, wm, period] = await Promise.all([
       getJianyingState().catch(() => null), getWatermarkState().catch(() => null), getPeriodStatus().catch(() => null),
     ]);
-    return { visible, panelOpen, autoDock, settings, reactionId,
+    return { visible, panelOpen, autoDock, settings, reactionId, motionId,
       jianying: { ready: Boolean(jy?.ready), busy: Boolean(jy?.busy || jy?.exporting || jy?.recording), status: jy?.status || '引擎准备中', queueCount: jy?.queue?.length || 0, modal: jy?.modal || null, lastLog: jy?.logs?.at(-1) || '' },
       jianyingWindow: jy?.jianyingWindow || null,
       watermark: { running: Boolean(wm?.running), progress: wm?.overallProgress || 0,
@@ -73,6 +75,7 @@ export function createCompanionDock({ preloadPath, baseUrl, settingsFile, getJia
   async function broadcast() {
     const state = await snapshot();
     for (const window of [orb, panel]) if (alive(window)) window.webContents.send('bos:companion-state', state);
+    onState(state);
     return state;
   }
 
@@ -109,7 +112,7 @@ export function createCompanionDock({ preloadPath, baseUrl, settingsFile, getJia
     timer = null;
     if (alive(panel)) panel.hide();
     if (alive(orb)) orb.hide();
-    return snapshot();
+    return broadcast();
   }
   async function handleAction(action, value) {
     if (action === 'sync') return broadcast();
@@ -141,5 +144,5 @@ export function createCompanionDock({ preloadPath, baseUrl, settingsFile, getJia
     timer = null;
     for (const window of [panel, orb]) if (alive(window)) window.destroy();
   }
-  return { show, hide, handleAction, dispose, isSender: sender => [orb, panel].some(window => alive(window) && window.webContents === sender) };
+  return { show, hide, handleAction, dispose, isVisible: () => visible, getName: () => settings.name, isSender: sender => [orb, panel].some(window => alive(window) && window.webContents === sender) };
 }

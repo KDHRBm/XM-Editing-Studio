@@ -74,6 +74,7 @@ export function ScriptAutomation({ providers, automation, onNavigate }) {
   const [recovery, setRecovery] = i.useState({});
   const [confirm, setConfirm] = i.useState('');
   const [opened, setOpened] = i.useState('');
+  const [viewMode, setViewMode] = i.useState('script');
   const models = providers.flatMap(provider => (provider.models || []).map(model => ({ key: `${provider.id}::${model}`, providerId: provider.id, protocol: provider.protocol, baseUrl: provider.baseUrl, provider, model })));
   const geminis = [...models.filter(m => isGeminiModel(m.provider, m.model)), ...WEB_ANALYZERS];
   const sunos = models.filter(m => isSunoModel(m.provider, m.model));
@@ -135,6 +136,7 @@ export function ScriptAutomation({ providers, automation, onNavigate }) {
   const viewSegmentJob = job => {
     if (job.archived) { onNavigate('music'); return; }
     setOpened(job.id);
+    setViewMode('queue');
     if (collapsed) toggleCollapsed();
     setTimeout(() => document.getElementById('bos-script-queue-body')?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 0);
   };
@@ -157,15 +159,23 @@ export function ScriptAutomation({ providers, automation, onNavigate }) {
       {draft.segmented && <label><span>最多情节段数</span><select aria-label="本地匹配最多情节段数" value={draft.segmentCount || 3} onChange={event => change({ segmentCount: Number(event.target.value) })}>{[2,3,4,5,6].map(count => <option value={count} key={count}>{count} 段</option>)}</select></label>}
       <label><span>剪映素材文件夹</span><div className="bos-script-folder"><input aria-label="剪映素材文件夹" readOnly value={localDirectory} placeholder="选择后，选用音乐自动导出素材" /><button type="button" onClick={() => chooseDirectory(true)}>选择</button></div><small>每份剧本独立保存音频、字幕台词和配乐说明。</small></label>
     </div>
-    <p className="bos-script-footnote">{libraryAnalyzerName} {draft.segmented ? '按场景、事件和情绪转折划分情节，各段分别匹配本地音乐。' : '读取完整剧本，推荐适合整篇故事的本地音乐。'}本地匹配模型独立保存，切换不会改变生成配乐的分析模型。缺少合适音乐时，使用右侧的 {analyzerName} 与 Suno 为该段生成配乐。</p>
+    <p className="bos-script-footnote">{libraryAnalyzerName} {draft.segmented ? '按场景、事件和情绪转折划分情节，各段分别匹配本地音乐。' : '读取完整剧本，推荐适合整篇故事的本地音乐。'}本地匹配模型独立保存，切换不会改变生成配乐的分析模型。缺少合适音乐时，使用“字幕与生成”中的 {analyzerName} 与 Suno 为该段生成配乐。</p>
   </div>;
 
   return <section className="bos-script" aria-labelledby="bos-script-title">
-    <div className="bos-script-group">
-    <header className="bos-script-heading"><div><span className="bos-script-eyebrow">SCRIPT TO SOUND</span><h2 id="bos-script-title">让剧本，自带配乐。</h2><p>提取字幕，用完整故事匹配本地音乐，也可通过 Suno 创作配乐。</p></div><div className="bos-panel-heading-actions"><span className="bos-script-badge">{running ? '配乐队列运行中' : '字幕台词 · 本地音乐'}</span><button type="button" className="bos-panel-toggle" onClick={clearCurrent} disabled={!draft.script && !draft.hint && !draft.customKeywords && !projects.project.recommendation && !jobs.length} title="清空当前内容和配乐任务列表，作品历史保留在音乐页；已提交音乐继续查询">清空当前内容</button><button type="button" className="bos-panel-toggle" aria-expanded={!collapsed} aria-controls="bos-script-body bos-script-queue-body" onClick={toggleCollapsed}>{collapsed ? '展开剧本配乐' : '收起剧本配乐'} <span aria-hidden="true">{collapsed ? '⌄' : '⌃'}</span></button></div></header>
+    <nav className="bos-top-stage-bar bos-workspace-stage-bar" role="tablist" aria-label="工作区分项">
+      {[
+        { id: 'script', number: '01', title: '字幕与生成', detail: '剧本字幕与 Suno 配乐' },
+        { id: 'library', number: '02', title: '本地曲库', detail: '曲库索引与剧情匹配' },
+        { id: 'queue', number: '03', title: `任务队列 (${jobs.length})`, detail: `已完成 ${complete} / ${jobs.length}` },
+      ].map(item => <button key={item.id} type="button" role="tab" className={'bos-stage-tab' + (viewMode === item.id ? ' is-active' : '')} aria-selected={viewMode === item.id} onClick={() => setViewMode(item.id)}><span className="bos-stage-num">{item.number}</span><span className="bos-stage-text"><strong>{item.title}</strong><small>{item.detail}</small></span></button>)}
+    </nav>
+    {(error || queue.loadError || projects.storageError) && <div className="bos-script-alert" role="alert">{error || queue.loadError || projects.storageError}</div>}
+    {(message || notice) && <p role="status" className="bos-script-message">{notice || message}</p>}
+    <div className="bos-script-group" hidden={viewMode !== 'script'}>
+    <header className="bos-script-heading"><div><span className="bos-script-eyebrow">SCRIPT TO SOUND</span><h2 id="bos-script-title">让剧本，自带配乐。</h2><p>提取字幕，用完整故事匹配本地音乐，也可通过 Suno 创作配乐。</p></div><div className="bos-panel-heading-actions"><span className="bos-script-badge">{running ? '配乐队列运行中' : '字幕台词 · 本地音乐'}</span><button type="button" className="bos-panel-toggle" onClick={clearCurrent} disabled={!draft.script && !draft.hint && !draft.customKeywords && !projects.project.recommendation && !jobs.length} title="清空当前内容和配乐任务列表，作品历史保留在音乐页；已提交音乐继续查询">清空当前内容</button><button type="button" className="bos-panel-toggle" aria-expanded={!collapsed} aria-controls="bos-script-body" onClick={toggleCollapsed}>{collapsed ? '展开剧本配乐' : '收起剧本配乐'} <span aria-hidden="true">{collapsed ? '⌄' : '⌃'}</span></button></div></header>
     <div id="bos-script-body" hidden={collapsed}>
     <ol className="bos-script-steps">{stages.map((stage, index) => <li key={stage}><b>{String(index + 1).padStart(2, '0')}</b><span>{stage}</span></li>)}</ol>
-    {(error || queue.loadError || projects.storageError) && <div className="bos-script-alert" role="alert">{error || queue.loadError || projects.storageError}</div>}
     <div className="bos-project-bar"><div className="bos-project-tabs" role="tablist" aria-label="选择剧本">{projects.projects.map((p, index) => <div className="bos-project-tab" key={p.id}><button type="button" role="tab" aria-selected={p.id === projects.project.id} title={p.draft.title} onClick={() => projects.select(p.id)}>剧本 {index + 1}{p.recommendation && <span aria-label="已有推荐"> ·</span>}</button><button type="button" className="bos-project-close" aria-label={`关闭剧本 ${index + 1}`} title="关闭并存入历史" onClick={() => projects.close(p.id)}>×</button></div>)}</div><div className="bos-project-tools"><button type="button" onClick={() => perform(projects.add)}>＋ 新建剧本</button><label><span className="bos-visually-hidden">历史剧本</span><select aria-label="历史剧本" value="" onChange={e => perform(() => projects.restore(e.target.value))}><option value="">历史剧本 · {projects.history.length} / 5</option>{projects.history.map(p => <option key={p.id} value={p.id}>{p.draft.title} · {p.recommendation ? '查看历史推荐' : '查看原文'}</option>)}</select></label><button type="button" disabled={!projects.history.length} title="清空历史剧本和历史推荐，保留当前打开的剧本及生成任务" onClick={() => perform(() => { projects.clearHistory(); setMessage("历史剧本及其推荐已清空。"); })}>清空历史</button></div></div>
     <div className="bos-script-layout">
       <div className="bos-script-panel">
@@ -196,9 +206,8 @@ export function ScriptAutomation({ providers, automation, onNavigate }) {
     </div>
     </div>
     </div>
-    <div><MusicLibrary key={projects.project.id} input={draft} projectId={projects.project.id} savedRecommendation={projects.project.recommendation} onAnalysis={projects.remember} onChange={change} lines={subtitleLines} gemini={libraryGemini} generationAnalyzer={gemini} settings={localSettings} onUse={useLocalMusic} isSelected={isLocalSelected} onGenerate={generateSegment} segmentJob={segmentJob} onViewJob={viewSegmentJob} /></div>
-    <div id="bos-script-queue-body" hidden={collapsed}>
-    {(message || notice) && <p role="status" className="bos-script-message">{notice || message}</p>}
+    <div hidden={viewMode !== 'library'}><MusicLibrary key={projects.project.id} input={draft} projectId={projects.project.id} savedRecommendation={projects.project.recommendation} onAnalysis={projects.remember} onChange={change} lines={subtitleLines} gemini={libraryGemini} generationAnalyzer={gemini} settings={localSettings} onUse={useLocalMusic} isSelected={isLocalSelected} onGenerate={generateSegment} segmentJob={segmentJob} onViewJob={viewSegmentJob} /></div>
+    <div id="bos-script-queue-body" hidden={viewMode !== 'queue'}>
     <section className="bos-script-queue" aria-label="剧本配乐任务队列">
       <div className="bos-script-queue-heading"><div><span className="bos-script-eyebrow">PRODUCTION QUEUE</span><h3>配乐任务 <small>{complete} / {jobs.length} 已完成</small></h3></div><div className="bos-script-actions"><button type="button" disabled={!jobs.length} onClick={() => perform(queue.clear)}>清空任务</button>{running ? <button type="button" onClick={queue.pause}>暂停后续提交</button> : <button type="button" className="bos-script-primary" disabled={!jobs.some(j => ['queued', 'ready'].includes(j.status)) || !!queue.loadError} onClick={() => perform(queue.start)}>开始队列</button>}<span>{running ? '按顺序处理' : '等待开始'}</span></div></div>
       {!jobs.length && <div className="bos-script-empty"><span>♫</span><strong>你的第一段故事，等待配乐。</strong><p>加入剧本后，提示词、生成进度和剪映素材会集中显示在这里。</p></div>}

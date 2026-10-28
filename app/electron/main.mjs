@@ -1,4 +1,4 @@
-import { app, BrowserWindow, WebContentsView, dialog, ipcMain, shell, nativeImage, clipboard, screen, Notification } from "electron";
+import { app, BrowserWindow, WebContentsView, dialog, ipcMain, shell, nativeImage, clipboard, screen, Notification, Tray, Menu } from "electron";
 import { appendFileSync, mkdirSync } from "node:fs";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
@@ -21,6 +21,7 @@ import { webAIScriptPrompt } from '../shared/web-ai-prompts.mjs';
 import { createWebAnalysis } from './web-ai-analysis.mjs';
 import { createAutoUpdater } from './auto-updater.mjs';
 import { createCompanionDock } from './companion-dock.mjs';
+import { createDesktopTray } from './desktop-tray.mjs';
 
 const APP_HOST = "127.0.0.1";
 const titlebarColors = {
@@ -243,18 +244,20 @@ let localServer;
 let mainWindow;
 let autoUpdater;
 let companionDock;
+let desktopTray;
+let quitting = false;
 
 if (!hasSingleInstance) {
   app.quit();
 } else {
   app.on("second-instance", () => {
-    if (!mainWindow) return;
-    if (mainWindow.isMinimized()) mainWindow.restore();
-    mainWindow.focus();
+    void createMainWindow().catch(error => logStartup(error.message));
   });
 
   const createMainWindow = async () => {
     if (mainWindow) {
+      if (mainWindow.isMinimized()) mainWindow.restore();
+      mainWindow.show();
       mainWindow.focus();
       return;
     }
@@ -283,10 +286,16 @@ if (!hasSingleInstance) {
       if (url.startsWith("https://") || url.startsWith("http://")) void shell.openExternal(url);
       return { action: "deny" };
     });
-    mainWindow.on('close', () => webAI.layout({ visible: false }));
+    mainWindow.on('close', event => {
+      webAI.layout({ visible: false });
+      if (!quitting && companionDock?.isVisible()) {
+        event.preventDefault();
+        mainWindow.hide();
+      }
+    });
     mainWindow.webContents.on('render-process-gone', () => webAI.layout({ visible: false }));
     mainWindow.webContents.on('did-start-navigation', (_event, _url, inPlace, mainFrame) => { if (mainFrame && !inPlace) webAI.layout({ visible: false }); });
-    mainWindow.on("closed", () => { mainWindow = null; scanProgress?.dispose(); scanProgress = null; });
+    mainWindow.on("closed", () => { mainWindow = null; if (!quitting) app.quit(); });
     await mainWindow.loadURL(`http://${APP_HOST}:${APP_PORT}/`);
   };
 
@@ -310,10 +319,10 @@ if (!hasSingleInstance) {
       getJianyingState: () => jianying.run('status'),
       getWatermarkState: () => watermarkHost.getState(),
       getPeriodStatus: () => periodKeeper.status(),
+      onState: state => { if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('bos:companion-state', state); },
       onAction: async (action, value) => {
         if (action === 'navigate') {
-          if (mainWindow?.isMinimized()) mainWindow.restore();
-          mainWindow?.show(); mainWindow?.focus();
+          await createMainWindow();
           if (value) mainWindow?.webContents.send('bos:tray-navigate', value);
         } else if (action === 'jy-scan') {
           const connection = jianying.lastConnection();
@@ -342,11 +351,20 @@ if (!hasSingleInstance) {
         } else throw new Error('未知的桌宠操作。');
       },
     });
+    desktopTray = createDesktopTray({ Tray, Menu,
+      icon: path.join(app.getAppPath(), 'build', 'app-icon.ico'),
+      openMain: createMainWindow,
+      togglePet: () => companionDock.handleAction('toggle'),
+      isPetVisible: () => companionDock.isVisible(),
+      getPetName: () => companionDock.getName(),
+      quit: () => app.quit(),
+      onError: error => logStartup(`tray error: ${error.message}`),
+    });
     await createMainWindow();
     logStartup("main window loaded");
     setTimeout(() => { void autoUpdater.check(); }, 1800);
     app.on("activate", () => {
-      if (BrowserWindow.getAllWindows().length === 0) void createMainWindow();
+      void createMainWindow();
     });
   }).catch((error) => {
     logStartup(`launch error: ${error?.stack || error?.message || error}`);
@@ -356,11 +374,13 @@ if (!hasSingleInstance) {
 
   let toolsStopped = false;
   app.on("before-quit", event => {
+    quitting = true;
     if (!toolsStopped) {
       event.preventDefault();
       toolsStopped = true;
       scanProgress?.dispose(); scanProgress = null;
       companionDock?.dispose();
+      desktopTray?.dispose();
       void Promise.allSettled([webAnalysis.dispose(), periodKeeper.dispose(), watermarkBrowser.dispose(), watermarkHost.dispose(), jianying.dispose(), webAI.dispose()]).finally(() => app.quit());
       return;
     }

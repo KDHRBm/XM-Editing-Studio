@@ -2,6 +2,7 @@ import { mkdir, readFile, rename, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 
 export const DEFAULT_COMPANION_SETTINGS = {
+  name: '大肥鱼', showName: true,
   palette: 'original', size: 'normal', motion: true, roam: false,
   sound: false, volume: 40, idleInterval: 30,
 };
@@ -9,7 +10,9 @@ export const DEFAULT_COMPANION_SETTINGS = {
 export function normalizeCompanionSettings(value = {}) {
   const input = value && typeof value === 'object' ? value : {};
   return {
-    palette: ['mono', 'original'].includes(input.palette) ? input.palette : DEFAULT_COMPANION_SETTINGS.palette,
+    name: typeof input.name === 'string' ? [...input.name.replace(/[\p{Cc}\p{Cf}]/gu, '').trim()].slice(0, 20).join('') || DEFAULT_COMPANION_SETTINGS.name : DEFAULT_COMPANION_SETTINGS.name,
+    showName: typeof input.showName === 'boolean' ? input.showName : DEFAULT_COMPANION_SETTINGS.showName,
+    palette: 'original',
     size: ['small', 'normal', 'large'].includes(input.size) ? input.size : DEFAULT_COMPANION_SETTINGS.size,
     motion: typeof input.motion === 'boolean' ? input.motion : DEFAULT_COMPANION_SETTINGS.motion,
     roam: typeof input.roam === 'boolean' ? input.roam : DEFAULT_COMPANION_SETTINGS.roam,

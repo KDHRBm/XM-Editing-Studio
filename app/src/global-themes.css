@@ -99,9 +99,9 @@
 .app-shell[data-bos-theme] {background:var(--ui-background);color:var(--ui-text)}
 .app-shell[data-bos-theme] .main-column {background:transparent}
 .app-shell[data-bos-theme] .sidebar {background:var(--ui-sidebar);border-color:var(--ui-border);backdrop-filter:var(--ui-backdrop)}
-.app-shell[data-bos-theme] .nav-item {color:var(--ui-muted);border-radius:var(--ui-control);min-height:64px}
-.app-shell[data-bos-theme] .nav-item:hover {background:var(--ui-raised);color:var(--ui-text);border-color:var(--ui-border)}
-.app-shell[data-bos-theme] .nav-item.active {background:var(--ui-soft);color:var(--ui-accent);border-color:color-mix(in srgb,var(--ui-accent) 35%,var(--ui-border));box-shadow:inset 3px 0 0 var(--ui-accent)}
+.app-shell[data-bos-theme] .nav-item {color:var(--ui-muted);border-radius:var(--ui-control);min-height:64px;transition:transform 200ms cubic-bezier(.22,1,.36,1),background-color 180ms,border-color 180ms,color 180ms}
+.app-shell[data-bos-theme] .nav-item:hover {background:var(--ui-raised);color:var(--ui-text);border-color:var(--ui-border);transform:translateX(3px)}
+.app-shell[data-bos-theme] .nav-item.active {background:var(--ui-soft);color:var(--ui-accent);border-color:color-mix(in srgb,var(--ui-accent) 35%,var(--ui-border));box-shadow:inset 3px 0 0 var(--ui-accent),0 6px 18px color-mix(in srgb,var(--ui-accent) 10%,transparent)}
 .app-shell[data-bos-theme] :is(.nav-copy small,.nav-item.active .nav-copy small,.brand-kicker,.sidebar-foot,.sidebar-foot .muted,.local-mode,.page-description,.eyebrow) {color:var(--ui-muted)}
 .app-shell[data-bos-theme] :is(.brand-name,.page-header h1,.empty-state strong,.chat-empty h2,.message-content p,.workspace-section-heading,.recent-row,.dialog h2) {color:var(--ui-text)}
 .app-shell[data-bos-theme] :is(.brand-mark,.text-action,.add-provider strong,.add-provider-icon,.toast svg,.reveal-button:hover) {color:var(--ui-accent)}

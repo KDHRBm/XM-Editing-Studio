@@ -47,6 +47,7 @@
     .slider { display: grid; gap: 5px; }
     .slider > div { display: flex; justify-content: space-between; }
     input[type="range"] { width: 100%; accent-color: var(--accent); }
+    .name-input { min-width: 0; flex: 1; width: 100%; padding: 7px; border-radius: 6px; border: 1px solid var(--line); color: var(--text); background: var(--raised); font: inherit; }
     .notice { min-height: 18px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--muted); }
     footer { display: grid; grid-template-columns: 1fr 1fr; gap: 7px; }
     @media (prefers-reduced-motion: reduce) { button, .progress > span { transition: none; } }
@@ -54,7 +55,7 @@
 </head>
 <body data-palette="original">
   <div class="panel">
-    <header><strong>大肥鱼</strong><button class="close" id="close" title="收起面板" aria-label="收起面板">×</button></header>
+    <header><strong id="pet-title">大肥鱼</strong><button class="close" id="close" title="收起面板" aria-label="收起面板">×</button></header>
     <div class="tabs" role="tablist" aria-label="桌宠功能页">
       <button id="xm-tab" role="tab" aria-controls="xm-page" aria-selected="true">剪辑台</button>
       <button id="pet-tab" role="tab" aria-controls="pet-page" aria-selected="false">大肥鱼</button>
@@ -80,8 +81,11 @@
       </div>
       <div class="page" id="pet-page" role="tabpanel" aria-labelledby="pet-tab" hidden>
         <div class="section">
-          <strong>外观配色</strong>
-          <div class="choice" id="palette-choice"><button data-value="mono">黑白</button><button data-value="original">原版蓝白</button></div>
+          <label for="pet-name"><strong>桌宠名字</strong></label>
+          <form id="name-form" class="setting-row"><input class="name-input" id="pet-name" maxlength="40" autocomplete="off" placeholder="大肥鱼"><button type="submit">保存</button></form>
+          <div class="setting-row"><strong>显示名字</strong><button id="showName">已开启</button></div>
+        </div>
+        <div class="section">
           <strong>桌宠大小</strong>
           <div class="choice" id="size-choice"><button data-value="small">小</button><button data-value="normal">中</button><button data-value="large">大</button></div>
         </div>
@@ -90,6 +94,7 @@
           <div class="setting-row"><strong>桌面漫游</strong><button id="roam">开启</button></div>
           <div class="slider"><div><strong>动作间隔</strong><span id="interval-value">30 秒</span></div><input id="interval" type="range" min="10" max="90" step="5" aria-label="动作间隔"></div>
           <button id="react">互动一下</button>
+          <small class="hint">角色「溟月」：画师上善无形；动画来自 PC2005-cloud/dsh-pet，经 MerZlin/dsh-pet-indesktop 整理。仅限个人非商业使用。</small>
         </div>
         <div class="section">
           <div class="setting-row"><strong>点击音效</strong><button id="sound">开启</button></div>
@@ -127,6 +132,12 @@
     function render(state) {
       current = state;
       const jy = state.jianying || {}, wm = state.watermark || {}, settings = state.settings || {};
+      const name = settings.name || '大肥鱼';
+      $('pet-title').textContent = name;
+      $('pet-tab').textContent = name;
+      document.title = name;
+      if (!$('pet-name').dataset.dirty && document.activeElement !== $('pet-name')) $('pet-name').value = name;
+      $('showName').textContent = settings.showName !== false ? '已开启' : '已隐藏';
       document.body.dataset.palette = settings.palette || 'original';
       $('status').textContent = jy.lastLog || jy.status || '就绪';
       $('queue').textContent = (jy.queueCount || 0) + ' 个待导出';
@@ -151,7 +162,6 @@
         }
         $('jobs').append(row);
       }
-      for (const button of $('palette-choice').querySelectorAll('button')) button.setAttribute('aria-pressed', String(button.dataset.value === settings.palette));
       for (const button of $('size-choice').querySelectorAll('button')) button.setAttribute('aria-pressed', String(button.dataset.value === settings.size));
       for (const key of ['motion', 'roam', 'sound']) $(key).textContent = settings[key] ? '已开启' : '开启';
       $('dock').textContent = state.autoDock ? '已开启' : '开启';
@@ -176,7 +186,14 @@
     $('workspace').onclick = () => act('navigate', 'jianying');
     $('dock').onclick = () => act('toggle-dock');
     $('react').onclick = () => act('react');
-    for (const button of $('palette-choice').querySelectorAll('button')) button.onclick = () => act('update-settings', { palette: button.dataset.value });
+    $('pet-name').oninput = () => { $('pet-name').dataset.dirty = 'true'; };
+    $('name-form').onsubmit = async event => {
+      event.preventDefault();
+      await act('update-settings', { name: $('pet-name').value });
+      delete $('pet-name').dataset.dirty;
+      $('pet-name').value = current.settings?.name || '大肥鱼';
+    };
+    $('showName').onclick = () => act('update-settings', { showName: current.settings?.showName === false });
     for (const button of $('size-choice').querySelectorAll('button')) button.onclick = () => act('update-settings', { size: button.dataset.value });
     for (const key of ['motion', 'roam', 'sound']) $(key).onclick = () => act('update-settings', { [key]: !current.settings?.[key] });
     for (const key of ['volume', 'interval']) $(key).onchange = () => act('update-settings', { [key === 'interval' ? 'idleInterval' : key]: Number($(key).value) });

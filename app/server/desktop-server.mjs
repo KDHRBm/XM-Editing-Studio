@@ -18,6 +18,7 @@ const contentTypes = {
   ".woff": "font/woff",
   ".woff2": "font/woff2",
   ".wasm": "application/wasm",
+  ".webm": "video/webm",
 };
 
 function sendError(res, status, message) {
@@ -55,12 +56,41 @@ export async function serveStatic(req, res, clientDirectory) {
     filename = path.join(root, "index.html");
   }
 
-  res.statusCode = 200;
+  let fileInfo;
+  try { fileInfo = await stat(filename); }
+  catch { return sendError(res, 404, "找不到此文件。"); }
+  if (!fileInfo.isFile()) return sendError(res, 404, "找不到此文件。");
+  const size = fileInfo.size;
+  let start = 0, end = size - 1;
+  const range = req.headers.range;
+  if (range) {
+    const match = /^bytes=(\d*)-(\d*)$/.exec(range);
+    if (!match || (!match[1] && !match[2])) {
+      res.statusCode = 416; res.setHeader("Content-Range", `bytes */${size}`); return res.end();
+    }
+    if (match[1]) {
+      start = Number(match[1]);
+      end = match[2] ? Number(match[2]) : end;
+    } else {
+      start = Math.max(0, size - Number(match[2]));
+    }
+    if (!Number.isSafeInteger(start) || !Number.isSafeInteger(end) || start > end || start >= size) {
+      res.statusCode = 416; res.setHeader("Content-Range", `bytes */${size}`); return res.end();
+    }
+    end = Math.min(end, size - 1);
+    res.setHeader("Content-Range", `bytes ${start}-${end}/${size}`);
+  }
+  res.statusCode = range ? 206 : 200;
   res.setHeader("Content-Type", contentTypes[path.extname(filename).toLowerCase()] || "application/octet-stream");
-  res.setHeader("Cache-Control", path.basename(filename) === "index.html" ? "no-cache" : "public, max-age=31536000, immutable");
+  res.setHeader("Accept-Ranges", "bytes");
+  res.setHeader("Content-Length", range ? end - start + 1 : size);
+  // Public companion files retain their names between releases. Revalidate them
+  // so an update cannot keep showing the previous character or settings panel.
+  const fingerprinted = /[/\\]assets[/\\]/.test(filename) && /-[\w-]{8,}\.[\w]+$/.test(path.basename(filename));
+  res.setHeader("Cache-Control", fingerprinted ? "public, max-age=31536000, immutable" : "no-cache");
   if (req.method === "HEAD") return res.end();
 
-  const stream = createReadStream(filename);
+  const stream = createReadStream(filename, range ? { start, end } : undefined);
   stream.on("error", () => {
     if (!res.headersSent) sendError(res, 404, "找不到此文件。");
     else res.destroy();

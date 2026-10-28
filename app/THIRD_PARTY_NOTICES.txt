@@ -1,5 +1,12 @@
 小马剪辑台：第三方组件说明
 
+大肥鱼桌宠角色动画：app/public/companion/shenshen 下的 WebM 文件
+来源：https://github.com/MerZlin/dsh-pet-indesktop
+原始素材来源：https://github.com/PC2005-cloud/dsh-pet
+角色 OC「溟月」画师：上善无形。动画素材由社区成员整理制作。
+原项目声明此类同人素材按 CC BY-NC-SA 类条款发布，仅限个人非商业使用；使用须保留署名及来源，不得用于商业或盈利场景。素材不受本项目其他代码许可覆盖。
+原项目声明：https://github.com/MerZlin/dsh-pet-indesktop/blob/main/THIRD_PARTY_NOTICES.md#2-character-animation-assets深深--小鲸鱼-webm-素材
+
 Watermark integration: https://github.com/Kirota233/watermarker
 Commit: 83f569e3d4158808f4a2a901792e9c741b07de31
 该提交未包含 LICENSE 文件；原项目源码单独保存在开发工作区，不纳入最终受保护运行目录。
@@ -212,4 +219,4 @@ The integrated component modifies only matching in-memory punctuation tables, re
 
 JianYing-AI-Pro integrated engine
 Adapted from user-provided JianYing-AI-Pro 2.1 main.py (SHA256 9a411111454eabd7e2fc84bf53efb636c243b5b14d58524d659dcbf42b453b2f). No LICENSE file was supplied with that project. Local integration is performed at the user's request. Standalone GUI and credential handling have been replaced.
-Python runtime and dependency notices: build/jianying/THIRD_PARTY_NOTICES.txt and build/jianying/licenses/.
+The former Python runtime is no longer distributed. The C# JianYing engine is adapted from Kirota233/XM-Editing-Studio v1.5.1, commit 738e9798b3ba6d8b5d4d80b5d3a454c0449cb4a4. Original source: https://github.com/Kirota233/XM-Editing-Studio . Local additions preserve scoped draft scanning, official DeepSeek web integration, progress protocols and encrypted-draft compatibility. Upstream did not supply a repository-wide license at this tag.

@@ -6,11 +6,14 @@
 .bos-titlebar-version { font-size: 10px; color: var(--ui-muted); font-weight: 500; }
 .bos-titlebar-actions { display: flex; gap: 8px; -webkit-app-region: no-drag; }
 .bos-titlebar-actions button { min-height: 25px; padding: 3px 9px; border: 1px solid var(--ui-border); border-radius: 6px; background: var(--ui-raised); color: var(--ui-text); font: inherit; font-size: 10px; cursor: pointer; }
+.bos-titlebar-actions .bos-update-pill { display: inline-flex; align-items: center; justify-content: center; min-width: 118px; text-align: center; white-space: nowrap; }
 .bos-titlebar-actions button:hover:not(:disabled) { background: var(--ui-soft); transform: scale(1.03); }
 .bos-titlebar-actions button:active:not(:disabled) { transform: scale(.96); }
 .bos-titlebar-actions button:disabled { opacity: .65; cursor: wait; }
 .bos-update-pill.is-available, .bos-update-pill.is-ready { border-color: var(--ui-accent); }
 .bos-top-stage-bar { display: grid; grid-template-columns: repeat(4,minmax(0,1fr)); gap: 10px; margin: 12px 0 18px; }
+.bos-workspace-stage-bar { grid-template-columns: repeat(3,minmax(0,1fr)); }
+.bos-script > [hidden] { display: none !important; }
 .bos-script button.bos-stage-tab { display: flex; align-items: center; gap: 10px; min-width: 0; min-height: 76px; padding: 12px; text-align: left; border: 1px solid var(--ui-border); border-radius: 8px; background: var(--ui-surface); color: var(--ui-text); cursor: pointer; transition: transform 170ms ease, border-color 170ms ease, background 170ms ease; }
 .bos-script button.bos-stage-tab:hover { transform: scale(1.025); border-color: var(--ui-accent); }
 .bos-script button.bos-stage-tab:active { transform: scale(.98); }
@@ -24,5 +27,6 @@
 .app-shell button:not(:disabled) { transition: transform 160ms ease, background-color 160ms ease, border-color 160ms ease, box-shadow 160ms ease; }
 .app-shell button:not(:disabled):active { transform: scale(.97); }
 @media (max-width: 1050px) { .bos-top-stage-bar { grid-template-columns: repeat(2,minmax(0,1fr)); } }
+@media (max-width: 760px) { .bos-workspace-stage-bar { grid-template-columns: 1fr; } }
 @media (max-width: 680px) { .app-shell { height: auto; min-height: 100vh; } .app-shell .sidebar, .app-shell .main-column { height: auto; } .bos-titlebar { padding-right: 12px; } .bos-titlebar-actions button { font-size: 9px; } .bos-stage-text small { display: none; } .bos-script button.bos-stage-tab { min-height: 55px; } }
 @media (prefers-reduced-motion: reduce) { .app-shell button, .bos-script button.bos-stage-tab { transition: none; } }

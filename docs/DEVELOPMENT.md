@@ -4,7 +4,7 @@
 
 - Node.js 22.12 或更高版本，建议 Node.js 24，使用配套 npm。
 - 桌面运行与本地工具需要 Windows x64；Electron 与 JS 依赖版本由 `package-lock.json` 固定。
-- 本地工具构建需要 Python 3.12 x64、pip、Windows .NET Framework 4.x 的 C# 编译器。
+- 本地工具构建需要 Windows .NET Framework 4.x 的 C# 编译器，不再需要 Python、PyInstaller、OpenCV 或 NumPy。
 
 从仓库根目录操作。不要在已安装的正式软件目录中开发。
 
@@ -25,13 +25,11 @@ npm run build
 ## 构建本地组件
 
 ```powershell
-py -3.12 -m venv .venv
-.venv\Scripts\python.exe -m pip install -r scripts/requirements-native.txt
-powershell -NoProfile -ExecutionPolicy Bypass -File scripts/build-native.ps1 -Python .venv\Scripts\python.exe
-.venv\Scripts\python.exe tests/test-jianying-engine.py
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/build-native.ps1
+node --test tests/test-native-jianying.mjs
 ```
 
-构建输出包括 `.generated/native/helpers/PeriodKeeper.exe` 和 `app/build/jianying/JianYingEngine.exe`。脚本生成并记录组件哈希，附带运行依赖的许可信息。C# 编译后的校验常量写入 `app/electron/period-helper-integrity.mjs`，构建变更不要混入无关 PR。
+构建输出包括 `.generated/native/helpers/PeriodKeeper.exe` 、`app/build/jianying/JianYingEngine.exe` 和 `app/build/watermark/WatermarkEngine.exe`。脚本生成并记录组件哈希，仅打包当前原生组件。C# 编译后的校验常量写入 `app/electron/period-helper-integrity.mjs`，构建变更不要混入无关 PR。
 
 ## 启动开发版
 
@@ -59,4 +57,4 @@ npm run package
 
 源码来源、原界面工程缺失和第三方许可范围见 [SOURCE-PROVENANCE.md](SOURCE-PROVENANCE.md)。源码的公开与第三方许可是两回事。
 
-1.3.1 发布前，198 项 JavaScript 回归测试与 9 项 Python 引擎测试全部通过；主界面和水印页面重新构建，本地组件通过校验及标点工具自检。本次完整安装包的验证见 [VERIFICATION.md](../VERIFICATION.md)。检查不执行真实剪映任务，不代表所有电脑、模型账号或显卡已实测。
+1.4.1 的自动回归、原生协议测试、界面和安装验证见 [VERIFICATION.md](../VERIFICATION.md)。检查不执行真实剪映点击任务，不代表所有电脑、模型账号或显卡已实测。

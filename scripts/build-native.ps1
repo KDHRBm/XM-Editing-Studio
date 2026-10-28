@@ -1,4 +1,4 @@
-param([string]$Python = 'python')
+﻿param()
 $ErrorActionPreference = 'Stop'
 $repoRoot = Split-Path -Parent $PSScriptRoot
 Push-Location $repoRoot
@@ -13,10 +13,15 @@ try {
     if ($LASTEXITCODE -ne 0) { throw 'Punctuation helper compilation failed.' }
     $hash = (Get-FileHash -LiteralPath $helper -Algorithm SHA256).Hash.ToLowerInvariant()
     [IO.File]::WriteAllText((Join-Path $repoRoot 'app/electron/period-helper-integrity.mjs'), "export const HELPER_SHA256 = '$hash';`n", (New-Object Text.UTF8Encoding $false))
-    & $Python -m PyInstaller --noconfirm --clean --onefile --console --name JianYingEngine --paths app/native/jianying --collect-all cv2 --collect-all pynput --distpath .generated/native-engine --workpath .generated/pyinstaller --specpath .generated app/native/jianying/engine.py
-    if ($LASTEXITCODE -ne 0) { throw 'Python engine compilation failed. Install scripts/requirements-native.txt first.' }
-    & $Python scripts/stage-native.py
-    if ($LASTEXITCODE -ne 0) { throw 'Native engine staging failed.' }
+    $jianyingDir = Join-Path $repoRoot 'app/build/jianying'
+    New-Item -ItemType Directory -Path $jianyingDir -Force | Out-Null
+    $jianyingExe = Join-Path $jianyingDir 'JianYingEngine.exe'
+    & $compiler /nologo /utf8output /codepage:65001 /target:exe /platform:x64 /optimize+ `
+        /r:System.Web.Extensions.dll /r:System.Drawing.dll /r:System.Windows.Forms.dll `
+        ('/out:' + $jianyingExe) (Join-Path $repoRoot 'app/native/JianYingEngine.cs') (Join-Path $repoRoot 'app/native/JianYingScan.cs') (Join-Path $repoRoot 'app/native/JianYingProgress.cs') (Join-Path $repoRoot 'app/native/JianYingDraftIO.cs')
+    if ($LASTEXITCODE -ne 0 -or -not (Test-Path -LiteralPath $jianyingExe)) { throw 'Native JianYing engine compilation failed.' }
+    $jianyingHash = (Get-FileHash -LiteralPath $jianyingExe -Algorithm SHA256).Hash.ToLowerInvariant()
+    [IO.File]::WriteAllText((Join-Path $jianyingDir 'engine.json'), "{`"sha256`":`"$jianyingHash`"}", (New-Object Text.UTF8Encoding $false))
     $watermarkDir = Join-Path $repoRoot 'app/build/watermark'
     New-Item -ItemType Directory -Path $watermarkDir -Force | Out-Null
     $watermarkExe = Join-Path $watermarkDir 'WatermarkEngine.exe'

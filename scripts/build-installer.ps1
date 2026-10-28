@@ -9,7 +9,7 @@ $product = [regex]::Unescape('XM\u526A\u8F91\u53F0')
 $guide = [regex]::Unescape('\u4F7F\u7528\u8BF4\u660E.txt')
 if (-not $Version) { $Version = (Get-Content (Join-Path $root 'package.json') -Raw -Encoding UTF8 | ConvertFrom-Json).version }
 if (-not $PackagedDir) { $PackagedDir = Join-Path $root ('artifacts\' + $product + '-win32-x64') }
-if (-not $OutputDir) { $OutputDir = Join-Path $root 'artifacts\release-1.4.0' }
+if (-not $OutputDir) { $OutputDir = Join-Path $root ('artifacts\release-' + $Version) }
 $packaged = (Resolve-Path -LiteralPath $PackagedDir).Path.TrimEnd('\')
 New-Item -ItemType Directory -Force -Path $OutputDir | Out-Null
 $output = Join-Path $OutputDir "XM-Editing-Studio-$Version-Windows-x64-Setup.exe"

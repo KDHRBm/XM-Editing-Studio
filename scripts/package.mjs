@@ -10,7 +10,13 @@ await verifyPeriodHelper('.generated/native/helpers/PeriodKeeper.exe', 'app/elec
 const stage = path.join(root, '.generated', `package-${Date.now()}`);
 await fs.mkdir(stage, { recursive: true });
 try {
-  for (const folder of ['electron', 'server', 'shared', 'dist', 'build']) await fs.cp(path.join('app', folder), path.join(stage, folder), { recursive: true });
+  for (const folder of ['electron', 'server', 'shared', 'dist']) await fs.cp(path.join('app', folder), path.join(stage, folder), { recursive: true });
+  // Stage only current native components; never ship stale Python build artifacts.
+  for (const file of ['app-icon.ico', 'app-icon.png', 'jianying/JianYingEngine.exe', 'jianying/engine.json', 'watermark/WatermarkEngine.exe', 'watermark/engine.json', 'watermark/watermark.png']) {
+    const destination = path.join(stage, 'build', file);
+    await fs.mkdir(path.dirname(destination), { recursive: true });
+    await fs.copyFile(path.join('app/build', file), destination);
+  }
   await fs.rm(path.join(stage, 'dist', 'client', 'assets', 'provider-portal-scene.png'), { force: true });
   const metadata = JSON.parse(await fs.readFile('app/package.json', 'utf8'));
   delete metadata.dependencies;

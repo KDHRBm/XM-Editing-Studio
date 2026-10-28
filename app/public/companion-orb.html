@@ -6,159 +6,29 @@
   <title>大肥鱼</title>
   <style>
     * { box-sizing: border-box; }
+    [hidden] { display: none !important; }
     html, body { width: 100%; height: 100%; margin: 0; overflow: hidden; background: transparent; user-select: none; font-family: system-ui, sans-serif; }
-    body { --shell: #282a2d; --outline: #f1f2f4; --face: #f1f2f4; --fin: #45484d; --belly: #d9dcdf; --glow: #ffffff55; --tag: #191a1de8; --tag-text: #fff; }
-    body[data-palette="original"] { --shell: #61a9e2; --outline: #216aab; --face: #123b65; --fin: #8dcbf1; --belly: #e9f8ff; --glow: #76caffaa; --tag: #e7f5ffed; --tag-text: #124876; }
-    .stage { position: absolute; inset: 0; display: grid; place-items: center; touch-action: none; cursor: grab; }
+    .stage { position: absolute; inset: 0; touch-action: none; cursor: grab; outline: none; }
     .stage:active { cursor: grabbing; }
-    .pet { position: relative; width: 112px; height: 120px; transform: scale(var(--pet-scale, 1)); transition: transform .18s ease; }
-    .stage:hover .pet { transform: scale(calc(var(--pet-scale, 1) * 1.05)); }
-    .stage:active .pet { transform: scale(calc(var(--pet-scale, 1) * .96)); }
-    .body { position: absolute; left: 12px; top: 12px; width: 87px; height: 83px; border: 3px solid var(--outline); border-radius: 48% 48% 43% 43%; background: var(--shell); box-shadow: 0 8px 22px #0007, inset 0 5px 0 #ffffff3a; overflow: hidden; z-index: 2; }
-    .body::before { content: ''; position: absolute; left: 17px; top: -20px; width: 54px; height: 46px; border-radius: 50%; background: #ffffff22; rotate: -19deg; pointer-events: none; }
-    [data-palette="original"] .body::before { background: #eaf8ffb8; }
-    .fin { position: absolute; top: 2px; width: 23px; height: 30px; border: 3px solid var(--outline); background: var(--fin); z-index: 1; }
-    .fin.left { left: 22px; transform: rotate(-26deg); border-radius: 80% 15% 25% 25%; }
-    .fin.right { right: 22px; transform: rotate(26deg); border-radius: 15% 80% 25% 25%; }
-    .belly { position: absolute; left: 14px; right: 14px; bottom: -14px; height: 49px; border-radius: 50% 50% 35% 35%; background: var(--belly); opacity: .94; }
-    .eye { position: absolute; top: 30px; width: 9px; height: 12px; background: var(--face); border-radius: 50%; animation: blink 5s infinite; z-index: 2; }
-    .eye.left { left: 22px; } .eye.right { right: 22px; }
-    .eye::after { content: ''; position: absolute; left: 2px; top: 2px; width: 3px; height: 3px; border-radius: 50%; background: #fff; }
-    .mouth { position: absolute; left: 38px; top: 51px; width: 11px; height: 6px; border-bottom: 2px solid var(--face); border-radius: 0 0 50% 50%; z-index: 2; }
-    .arm { position: absolute; top: 51px; width: 22px; height: 29px; border: 3px solid var(--outline); background: var(--fin); border-radius: 70% 30% 60% 40%; z-index: 1; }
-    .arm.left { left: 1px; transform: rotate(24deg); transform-origin: 90% 10%; }
-    .arm.right { right: 0; transform: rotate(-24deg) scaleX(-1); transform-origin: 10% 10%; }
-    .foot { position: absolute; top: 85px; width: 26px; height: 14px; border: 3px solid var(--outline); border-radius: 45% 45% 58% 58%; background: var(--fin); z-index: 1; }
-    .foot.left { left: 23px; transform: rotate(8deg); } .foot.right { right: 22px; transform: rotate(-8deg); }
-    .tail { position: absolute; left: 90px; top: 53px; width: 17px; height: 22px; border: 3px solid var(--outline); border-radius: 70% 20% 70% 20%; background: var(--fin); transform: rotate(25deg); transform-origin: left bottom; z-index: 0; }
-    .cheek { display: none; position: absolute; top: 48px; width: 10px; height: 5px; border-radius: 50%; background: #f7a6b8; opacity: .8; }
-    [data-palette="original"] .cheek { display: block; }
-    .cheek.left { left: 12px; } .cheek.right { right: 12px; }
-    .label { position: absolute; left: 8px; right: 8px; bottom: 6px; padding: 3px; text-align: center; color: var(--tag-text); background: var(--tag); border: 1px solid var(--outline); border-radius: 7px; font-size: 10px; white-space: nowrap; }
-    .busy .body { box-shadow: 0 0 0 3px var(--glow), 0 8px 22px #0008; }
-    .busy .label { background: var(--outline); color: var(--shell); }
-    .motion .pet { animation: float 3.4s ease-in-out infinite; }
-    .motion .tail { animation: tail-swish 1.9s ease-in-out infinite; }
-    .motion .fin.left { animation: fin-left 3.4s ease-in-out infinite; }
-    .motion .fin.right { animation: fin-right 3.4s ease-in-out infinite; }
-    .motion .arm.left { animation: arm-left 2.8s ease-in-out infinite; }
-    .motion .arm.right { animation: arm-right 2.8s ease-in-out infinite; }
-    .reacting .pet { animation: hop .48s ease-out 1; }
-    .reacting .body { animation: squash .48s ease-out 1; }
-    .idle-tilt .pet { animation: tilt 1.15s ease-in-out 1; }
-    .idle-peek .eye.left, .idle-peek .eye.right { animation: peek 1.25s ease-in-out 1; }
-    .idle-squash .body { animation: squash 1.2s ease-in-out 1; }
-    .bubbles { position: absolute; inset: 0; pointer-events: none; }
-    .bubble { position: absolute; bottom: 40px; width: 7px; height: 7px; border: 1.5px solid var(--outline); border-radius: 50%; opacity: 0; }
-    .bubble:nth-child(1) { left: 8px; animation-delay: .1s; }
-    .bubble:nth-child(2) { right: 10px; width: 5px; height: 5px; animation-delay: .75s; }
-    .bubble:nth-child(3) { right: 4px; bottom: 48px; width: 4px; height: 4px; animation-delay: 1.4s; }
-    .motion .bubble { animation-name: bubble-rise; animation-duration: 3.8s; animation-timing-function: ease-out; animation-iteration-count: infinite; }
-    @keyframes float { 50% { translate: 0 -4px; } }
-    @keyframes tail-swish { 50% { transform: rotate(4deg); } }
-    @keyframes fin-left { 50% { transform: rotate(-32deg); } }
-    @keyframes fin-right { 50% { transform: rotate(32deg); } }
-    @keyframes arm-left { 50% { transform: rotate(38deg); } }
-    @keyframes arm-right { 50% { transform: rotate(-38deg) scaleX(-1); } }
-    @keyframes hop { 50% { translate: 0 -12px; rotate: -5deg; } }
-    @keyframes tilt { 30% { rotate: -9deg; } 70% { rotate: 8deg; } }
-    @keyframes peek { 35%,65% { translate: 4px 0; } }
-    @keyframes squash { 35% { transform: scale(1.06,.9); } 70% { transform: scale(.96,1.04); } }
-    @keyframes bubble-rise { 10% { opacity: .65; } 80% { opacity: .35; } 100% { transform: translateY(-39px) scale(1.4); opacity: 0; } }
-    @keyframes blink { 0%,94%,98%,100% { transform: scaleY(1); } 96% { transform: scaleY(.1); } }
-    @media (prefers-reduced-motion: reduce) { .motion .pet, .reacting .pet, .motion .tail, .motion .fin, .motion .arm, .motion .bubble, .eye { animation: none; } }
+    .stage:focus-visible { outline: 2px solid #66b8ff; outline-offset: -3px; }
+    .character { position: absolute; inset: 0; transform: scale(var(--pet-scale, 1)); transition: transform .16s ease; pointer-events: none; }
+    .stage:hover .character { transform: scale(calc(var(--pet-scale, 1) * 1.035)); }
+    .stage:active .character { transform: scale(calc(var(--pet-scale, 1) * .98)); }
+    video { position: absolute; width: 429px; height: 241px; max-width: none; left: 50%; top: -32px; transform: translateX(-50%); object-fit: fill; pointer-events: none; opacity: 0; }
+    video.visible { opacity: 1; }
+    .label { position: absolute; left: 16px; right: 16px; bottom: 1px; height: 20px; display: grid; place-items: center; border-radius: 8px; background: #14243dc9; color: #f7fbff; font-size: 11px; font-weight: 600; pointer-events: none; white-space: nowrap; }
+    .busy .label { background: #16649bdc; }
+    @media (prefers-reduced-motion: reduce) { .character { transition: none; } }
   </style>
 </head>
 <body data-palette="original">
   <div class="stage" id="stage" role="button" tabindex="0" aria-label="打开大肥鱼快捷面板">
-    <div class="pet" id="pet">
-      <div class="tail"></div><div class="fin left"></div><div class="fin right"></div><div class="arm left"></div><div class="arm right"></div><div class="foot left"></div><div class="foot right"></div>
-      <div class="body"><div class="belly"></div><div class="eye left"></div><div class="eye right"></div><div class="mouth"></div><div class="cheek left"></div><div class="cheek right"></div></div>
-      <div class="bubbles"><span class="bubble"></span><span class="bubble"></span><span class="bubble"></span></div>
-      <div class="label" id="label">大肥鱼</div>
+    <div class="character" aria-hidden="true">
+      <video id="clip-a" muted playsinline preload="auto" class="visible"></video>
+      <video id="clip-b" muted playsinline preload="auto"></video>
     </div>
+    <div class="label" id="label">大肥鱼</div>
   </div>
-  <script>
-    const api = window.blackObsidian;
-    const stage = document.getElementById('stage');
-    const label = document.getElementById('label');
-    let down = null, moved = false, settings = {}, soundContext, reactionId = 0, idleTimer;
-    function idleAction() {
-      if (settings.motion === false || document.hidden) return;
-      const actions = ['idle-tilt', 'idle-peek', 'idle-squash'];
-      const selected = actions[Math.floor(Math.random() * actions.length)];
-      stage.classList.remove(...actions); void stage.offsetWidth; stage.classList.add(selected);
-      setTimeout(() => stage.classList.remove(selected), 1400);
-    }
-    function scheduleIdle() {
-      clearInterval(idleTimer);
-      if (settings.motion !== false) idleTimer = setInterval(idleAction, (settings.idleInterval || 30) * 1000);
-    }
-    function sound() {
-      if (!settings.sound || !settings.volume) return;
-      try {
-        soundContext ||= new AudioContext();
-        const oscillator = soundContext.createOscillator();
-        const gain = soundContext.createGain();
-        oscillator.type = 'sine';
-        oscillator.frequency.setValueAtTime(540, soundContext.currentTime);
-        oscillator.frequency.exponentialRampToValueAtTime(780, soundContext.currentTime + .1);
-        gain.gain.setValueAtTime(settings.volume / 100 * .08, soundContext.currentTime);
-        gain.gain.exponentialRampToValueAtTime(.001, soundContext.currentTime + .15);
-        oscillator.connect(gain).connect(soundContext.destination);
-        oscillator.start(); oscillator.stop(soundContext.currentTime + .15);
-      } catch { /* Sound is optional on devices without an output. */ }
-    }
-    function openPanel() {
-      sound();
-      stage.classList.remove('reacting'); void stage.offsetWidth; stage.classList.add('reacting');
-      setTimeout(() => stage.classList.remove('reacting'), 500);
-      api?.companionAction?.('panel', 'toggle');
-    }
-    stage.addEventListener('pointerdown', event => {
-      if (event.button !== 0) return;
-      down = { x: event.screenX, y: event.screenY, lastX: event.screenX, lastY: event.screenY };
-      moved = false;
-      stage.setPointerCapture(event.pointerId);
-    });
-    stage.addEventListener('pointermove', event => {
-      if (!down) return;
-      const dx = event.screenX - down.lastX, dy = event.screenY - down.lastY;
-      if (Math.hypot(event.screenX - down.x, event.screenY - down.y) > 5) moved = true;
-      if (moved && (dx || dy)) {
-        down.lastX = event.screenX; down.lastY = event.screenY;
-        api?.companionAction?.('move-by', { dx, dy });
-      }
-    });
-    stage.addEventListener('pointerup', event => {
-      if (!down) return;
-      down = null;
-      if (stage.hasPointerCapture(event.pointerId)) stage.releasePointerCapture(event.pointerId);
-      if (!moved) openPanel();
-    });
-    stage.addEventListener('keydown', event => {
-      if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); openPanel(); }
-    });
-    function render(state) {
-      settings = state?.settings || {};
-      if (stage.dataset.idleInterval !== String(settings.idleInterval) || stage.dataset.motion !== String(settings.motion)) {
-        stage.dataset.idleInterval = String(settings.idleInterval);
-        stage.dataset.motion = String(settings.motion);
-        scheduleIdle();
-      }
-      if (state?.reactionId && state.reactionId !== reactionId) {
-        reactionId = state.reactionId;
-        sound(); stage.classList.remove('reacting'); void stage.offsetWidth; stage.classList.add('reacting');
-        setTimeout(() => stage.classList.remove('reacting'), 500);
-      }
-      document.body.dataset.palette = settings.palette || 'original';
-      stage.classList.toggle('motion', settings.motion !== false);
-      stage.classList.toggle('busy', Boolean(state?.jianying?.busy || state?.watermark?.running));
-      stage.style.setProperty('--pet-scale', { small: '.86', normal: '1', large: '1.16' }[settings.size] || '1');
-      label.textContent = state?.watermark?.running ? '水印处理中' : state?.jianying?.busy ? '剪映处理中' : '大肥鱼';
-    }
-    api?.onCompanionState?.(render);
-    api?.companionAction?.('sync').then(render).catch(() => {});
-  </script>
+  <script src="./companion-orb.js"></script>
 </body>
 </html>
