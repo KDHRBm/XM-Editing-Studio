@@ -1,6 +1,6 @@
 {
   "name": "xm-editing-studio-source",
-  "version": "1.4.1",
+  "version": "1.4.2",
   "private": true,
   "type": "module",
   "description": "XM剪辑台功能源码与开发工具",
@@ -11,6 +11,10 @@
     "build": "node scripts/build.mjs",
     "test": "node scripts/test.mjs",
     "build:native": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/build-native.ps1",
+    "build:host": "node scripts/package.mjs",
+    "test:migration": "node tests/native-storage.mjs",
+    "start:legacy": "node scripts/start-legacy.mjs",
+    "package:legacy": "node scripts/package-legacy.mjs",
     "start": "node scripts/start.mjs",
     "package": "node scripts/package.mjs"
   },

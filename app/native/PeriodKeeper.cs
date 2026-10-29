@@ -190,7 +190,7 @@ internal static class PeriodKeeper {
                         try { if(!ParentAlive()){Restore();Environment.Exit(0);} if(Enabled)Refresh(false); }
                         catch { LastError="剪映状态读取失败，请关闭开关后重试。"; }
                     }
-                },null,2000,4000);
+                },null,1200,1200);
                 string line;
                 while((line=Console.ReadLine())!=null) {
                     lock(Gate) {

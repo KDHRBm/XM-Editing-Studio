@@ -1,4 +1,4 @@
-import { randomUUID } from 'node:crypto';
+const randomUUID = () => globalThis.crypto.randomUUID();
 import { webAIProvider } from '../shared/web-ai.mjs';
 import { analyzeWithWeb, webTaskPrompt, webTaskResult } from '../shared/web-script-analysis.mjs';
 

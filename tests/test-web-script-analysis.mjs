@@ -294,7 +294,7 @@ const built = await build({ entryPoints: ['app/src/upgrade.jsx'], bundle: true, 
 const ui = await import('data:text/javascript;base64,' + Buffer.from(built.outputFiles[0].text).toString('base64'));
 const nodes = tree => !tree || typeof tree !== 'object' ? [] : [tree, ...(tree.children || []).flat(Infinity).flatMap(nodes)];
 const textOf = tree => typeof tree === 'string' ? tree : (tree?.children || []).flat(Infinity).map(textOf).join('');
-test('workspace selector includes built-in websites and updates step, guide and matching button labels', () => {
+test('workspace selector includes built-in websites and updates guide and matching button labels', () => {
   const props = { providers: [{ id: 'g', protocol: 'gemini', name: 'Gemini API', apiKey: 'secret', models: ['gemini-3.7-flash-thinking-high'] }], automation: { queue: {}, jobs: [], running: false }, onNavigate: () => {} };
   const render = () => { cursor = 0; return ui.ScriptAutomation(props); };
   let tree = render(); const picker = nodes(tree).find(n => n.props['aria-label'] === '剧本分析模型');
@@ -303,7 +303,7 @@ test('workspace selector includes built-in websites and updates step, guide and 
     picker.props.onChange({ target: { value: model.key } }); tree = render(); const name = analysisName(model);
     let settings = nodes(tree).find(n => n.props.settings)?.props.settings;
     nodes(settings).find(n => n.props['aria-label'] === '本地匹配分析模型').props.onChange({ target: { value: model.key } }); tree = render();
-    assert.match(textOf(tree), /AI 分析剧本/);
+    assert.match(textOf(tree), new RegExp(name + ' 分析使用官方网页账号额度|开始后会调用 ' + name + ' 与 Suno 服务'));
     assert.match(textOf(picker), /gemini-3\.7-flash-thinking-high/);
     assert.doesNotMatch(textOf(tree).replace(textOf(picker), ''), /gemini-3\.7-flash-thinking-high/);
     const libraryNode = nodes(tree).find(n => typeof n.type === 'function' && n.props.onAnalysis && n.props.segmentJob);

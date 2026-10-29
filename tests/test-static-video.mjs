@@ -4,7 +4,7 @@ import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { createServer } from 'node:http';
-import { serveStatic } from '../app/server/desktop-server.mjs';
+import { serveStatic, createDesktopServer } from '../app/server/desktop-server.mjs';
 
 test('companion videos support full, partial, suffix, HEAD and invalid range requests', async t => {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), 'xm-video-range-'));
@@ -27,5 +27,21 @@ test('companion videos support full, partial, suffix, HEAD and invalid range req
   const head = await fetch(url, { method: 'HEAD' }); assert.equal(head.headers.get('content-length'), '10'); assert.equal(await head.text(), '');
   for (const range of ['bytes=99-', 'bytes=5-2', 'bytes=-0', 'bytes=', 'bytes=1-2,4-6']) {
     const response = await fetch(url, { headers: { range } }); assert.equal(response.status, 416, range); assert.equal(response.headers.get('content-range'), 'bytes */10'); await response.arrayBuffer();
+  }
+});
+
+test('complete companion preview only exposes video files within its own resource root', async t => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), 'xm-pet-preview-'));
+  const media = path.join(root, 'characters'); await fs.mkdir(media);
+  await fs.writeFile(path.join(media, '待机.webm'), '0123456789');
+  await fs.writeFile(path.join(media, 'settings.json'), 'secret');
+  await fs.writeFile(path.join(root, 'outside.webm'), 'outside');
+  const server = await createDesktopServer({ clientDirectory: root, companionDirectory: media, port: 0 });
+  t.after(async () => { await new Promise(r => server.close(r)); await fs.rm(root, {recursive:true,force:true}); });
+  const url = `http://127.0.0.1:${server.address().port}/companion-assets/`;
+  const response=await fetch(url+encodeURIComponent('待机.webm'),{headers:{range:'bytes=2-4'}});
+  assert.equal(response.status,206); assert.equal(await response.text(),'234');
+  for(const file of ['settings.json','missing.webm','..%2foutside.webm','..%5coutside.webm']) {
+    const denied=await fetch(url+file); assert.ok([403,404].includes(denied.status), file); await denied.text();
   }
 });

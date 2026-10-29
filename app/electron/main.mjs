@@ -1,8 +1,9 @@
-import { app, BrowserWindow, WebContentsView, dialog, ipcMain, shell, nativeImage, clipboard, screen, Notification, Tray, Menu } from "electron";
+import { session, net, app, BrowserWindow, WebContentsView, dialog, ipcMain, shell, nativeImage, clipboard, screen, Notification, Tray, Menu } from "electron";
 import { appendFileSync, mkdirSync } from "node:fs";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { startLocalService } from "./local-service.mjs";
 import { createDesktopServer } from "../server/desktop-server.mjs";
 import { exportScriptMaterials } from "./material-export.mjs";
 import { saveMusicAudio } from './audio-save.mjs';
@@ -105,6 +106,7 @@ function registerLocalFileHandlers() {
     const colors = titlebarColors[theme];
     if (!colors) throw new Error('无效的界面主题。');
     mainWindow.setTitleBarOverlay({ color: colors[0], symbolColor: colors[1], height: 36 });
+    companionDock?.setTheme(theme);
   });
   ipcMain.handle('bos:updater-action', (event, action) => {
     fromMainWindow(event);
@@ -250,8 +252,9 @@ let quitting = false;
 if (!hasSingleInstance) {
   app.quit();
 } else {
-  app.on("second-instance", () => {
+  app.on("second-instance", (_event, args) => {
     void createMainWindow().catch(error => logStartup(error.message));
+    if (args.includes('--xm-pet-autostart')) void companionDock?.show().catch(error => logStartup(error.message));
   });
 
   const createMainWindow = async () => {
@@ -306,14 +309,16 @@ if (!hasSingleInstance) {
     scanProgress = createScanProgress({ Window: BrowserWindow, screen, ipcMain, Notification,
       appDirectory: app.getAppPath(), getMainWindow: () => mainWindow, cancelScan: () => jianying.run('stop') });
     logStartup(`app ready; appPath=${app.getAppPath()}`);
-    localServer = await createDesktopServer({
+    localServer = await startLocalService({ createServer: createDesktopServer, protocol: session.defaultSession.protocol, externalFetch: request => net.fetch(request, { bypassCustomProtocolHandlers: true }), log: logStartup, options: {
+      companionDirectory: () => path.join(companionDock?.getRuntimeDirectory() || path.join(app.isPackaged ? process.resourcesPath : path.join(app.getAppPath(), 'build'), 'companion'), '_internal', 'assets', 'characters'),
       clientDirectory: path.join(app.getAppPath(), "dist", "client"),
       host: APP_HOST,
       port: APP_PORT,
       musicLibrary,
-    });
+    } });
     logStartup(`local service listening on ${APP_HOST}:${APP_PORT}`);
     companionDock = createCompanionDock({
+      runtimeDirectory: path.join(app.isPackaged ? process.resourcesPath : path.join(app.getAppPath(), 'build'), 'companion'),
       preloadPath, baseUrl: `http://${APP_HOST}:${APP_PORT}`,
       settingsFile: path.join(app.getPath('userData'), 'companion-settings.json'),
       getJianyingState: () => jianying.run('status'),
@@ -354,6 +359,8 @@ if (!hasSingleInstance) {
     desktopTray = createDesktopTray({ Tray, Menu,
       icon: path.join(app.getAppPath(), 'build', 'app-icon.ico'),
       openMain: createMainWindow,
+      navigate: async target => { await createMainWindow(); mainWindow.webContents.send('bos:tray-navigate', target); },
+      checkUpdate: async () => { await createMainWindow(); await autoUpdater.check(); },
       togglePet: () => companionDock.handleAction('toggle'),
       isPetVisible: () => companionDock.isVisible(),
       getPetName: () => companionDock.getName(),
@@ -361,6 +368,7 @@ if (!hasSingleInstance) {
       onError: error => logStartup(`tray error: ${error.message}`),
     });
     await createMainWindow();
+    if (process.argv.includes('--xm-pet-autostart')) await companionDock.show();
     logStartup("main window loaded");
     setTimeout(() => { void autoUpdater.check(); }, 1800);
     app.on("activate", () => {
@@ -379,9 +387,8 @@ if (!hasSingleInstance) {
       event.preventDefault();
       toolsStopped = true;
       scanProgress?.dispose(); scanProgress = null;
-      companionDock?.dispose();
       desktopTray?.dispose();
-      void Promise.allSettled([webAnalysis.dispose(), periodKeeper.dispose(), watermarkBrowser.dispose(), watermarkHost.dispose(), jianying.dispose(), webAI.dispose()]).finally(() => app.quit());
+      void Promise.allSettled([companionDock?.dispose(), webAnalysis.dispose(), periodKeeper.dispose(), watermarkBrowser.dispose(), watermarkHost.dispose(), jianying.dispose(), webAI.dispose()]).finally(() => app.quit());
       return;
     }
     if (localServer?.listening) localServer.close();

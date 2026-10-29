@@ -1,0 +1,39 @@
+.bos-pet-settings { display: grid; gap: 18px; color: var(--ui-text); padding-bottom: 28px; }
+.bos-pet-settings button, .bos-pet-settings input, .bos-pet-settings select { font: inherit; color: var(--ui-text); border: 1px solid var(--ui-border); background: var(--ui-raised); border-radius: 8px; padding: 9px 12px; min-width: 0; }
+.bos-pet-settings button { cursor: pointer; font-size: 12px; }
+.bos-pet-settings button:hover:not(:disabled) { transform: scale(1.025); border-color: var(--ui-accent); }
+.bos-pet-settings button:disabled { opacity: .5; cursor: wait; }
+.bos-pet-settings :focus-visible { outline: 2px solid var(--ui-accent); outline-offset: 3px; }
+.bos-pet-toolbar { display: flex; align-items: center; flex-wrap: wrap; gap: 12px; }
+.bos-pet-toolbar > div { flex: 1; min-width: 220px; display: grid; gap: 7px; }
+.bos-pet-toolbar strong { font-size: 20px; }
+.bos-pet-toolbar small, .bos-pet-preview small, .bos-pet-card h3 small { color: var(--ui-muted); font-size: 11px; font-weight: 400; }
+.bos-pet-settings .bos-pet-primary { background: var(--ui-accent); color: var(--ui-on-accent); border-color: var(--ui-accent); }
+.bos-pet-layout { display: grid; grid-template-columns: minmax(240px,.8fr) minmax(300px,1.4fr); gap: 18px; align-items: start; }
+.bos-pet-card { padding: 20px; border: 1px solid var(--ui-border); border-radius: 12px; background: var(--ui-surface); min-width: 0; }
+.bos-pet-card h3 { margin: 0 0 18px; font-size: 14px; display: flex; gap: 10px; align-items: center; }
+.bos-pet-preview { display: grid; justify-items: center; gap: 12px; }
+.bos-pet-video { width: 100%; height: 300px; display: grid; place-items: center; background: radial-gradient(ellipse,var(--ui-soft),transparent 70%); overflow: hidden; border-radius: 8px; }
+.bos-pet-video video { width: 100%; height: 100%; object-fit: contain; }
+.bos-pet-actions { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 10px; }
+.bos-pet-name { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; margin-bottom: 10px; font-size: 12px; }
+.bos-pet-name input { flex: 1; width: 120px; }
+.bos-pet-controls { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; padding: 16px 0; border-bottom: 1px solid var(--ui-border); }
+.bos-pet-controls label { display: grid; gap: 8px; font-size: 12px; }
+.bos-pet-controls label > span { display: flex; justify-content: space-between; }
+.bos-pet-controls input[type=range] { padding: 0; width: 100%; accent-color: var(--ui-accent); }
+.bos-pet-switches { display: grid; grid-template-columns: 1fr 1fr; gap: 4px 18px; margin-top: 12px; }
+.bos-pet-switch { display: flex; align-items: center; justify-content: space-between; gap: 12px; min-height: 35px; font-size: 12px; }
+.bos-pet-switch input { width: 16px; height: 16px; accent-color: var(--ui-accent); }
+.bos-pet-hint { color: var(--ui-muted); font-size: 11px; line-height: 1.8; margin: 12px 0 0; }
+.bos-pet-filter { display: flex; gap: 10px; margin-bottom: 14px; }
+.bos-pet-filter input { flex: 1; }
+.bos-pet-animation-list { display: grid; grid-template-columns: repeat(auto-fill,minmax(155px,1fr)); gap: 8px; max-height: 280px; overflow-y: auto; padding: 4px; scrollbar-width: thin; }
+.bos-pet-animation-list button { display: grid; gap: 5px; text-align: left; font-size: 11px; }
+.bos-pet-animation-list small { color: var(--ui-muted); font-size: 10px; }
+.bos-pet-animation-list [aria-pressed=true] { border-color: var(--ui-accent); background: var(--ui-soft); }
+.bos-pet-features { display: grid; grid-template-columns: repeat(auto-fit,minmax(160px,1fr)); gap: 9px; margin: 14px 0; }
+@media (max-width: 1100px) { .bos-pet-layout { grid-template-columns: 1fr; } .bos-pet-video { height: 260px; } }
+@media (max-width: 600px) { .bos-pet-switches, .bos-pet-controls { grid-template-columns: 1fr; } }
+
+.bos-pet-update {display:flex;align-items:center;justify-content:space-between;gap:16px;flex-wrap:wrap}.bos-pet-update p {margin:6px 0}.bos-pet-update progress{width:100%;height:6px;accent-color:var(--accent,#77aee8)}.bos-pet-start-error{font-size:11px;max-width:240px;color:#ff9d93;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}

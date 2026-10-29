@@ -62,7 +62,7 @@ export function GlobalThemePicker() {
   const [collapsed, toggleCollapsed] = usePanelCollapsed('appearance');
   return <section className="bos-appearance" aria-labelledby="bos-appearance-title">
     <div className="bos-appearance-heading">
-      <div><span className="bos-appearance-eyebrow">MAKE IT YOURS</span><h2 id="bos-appearance-title">界面与主题</h2><p>选择你的创作氛围，五个页面与左侧导航同步焕新。</p></div>
+      <div><span className="bos-appearance-eyebrow">MAKE IT YOURS</span><h2 id="bos-appearance-title">界面与主题</h2><p>选择你的创作氛围，所有页面与左侧导航同步焕新。</p></div>
       <div className="bos-panel-heading-actions"><span className="bos-appearance-badge">{collapsed ? THEMES.find(item => item.id === theme).label : `${THEMES.length} 款全局主题`}</span><button type="button" className="bos-panel-toggle" aria-expanded={!collapsed} aria-controls="bos-theme-body" onClick={toggleCollapsed}>{collapsed ? '展开主题' : '收起主题'} <span aria-hidden="true">{collapsed ? '⌄' : '⌃'}</span></button></div>
     </div>
     <div id="bos-theme-body" hidden={collapsed}>

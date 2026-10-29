@@ -5,6 +5,7 @@ import { parseKeywords } from './library-match.mjs';
 import { parseSegments } from './script-segments.mjs';
 import { segmentScoreInput, findSegmentJob } from './segment-shortcut.mjs';
 import { webAnalyzer } from './script-analyzers.mjs';
+import { musicBatchMetadata } from './music-batches.mjs';
 
 export const QUEUE_KEY = 'black-obsidian.script-queue.v1';
 const taskIds = tracks => [...new Set(tracks.map(t => t.taskId || t.id).filter(Boolean))];
@@ -74,6 +75,7 @@ export function createScriptQueue({ initial = [], save, request, getProvider, ex
       const primary = { id: track.id, title: track.title, audioUrl: `${base.origin}/local-music/${track.id}`, status: 'complete' };
       const job = { ...validateScoreRequest(input), id: uuid(), createdAt: now(), source: 'library', localTrack, analysis: parseKeywords(JSON.stringify(analysis)), matchReason: String(reason || '').slice(0, 500), status: 'complete', primary, tracks: [primary], taskIds: [], exportDirectory: directory };
       if (selection) job.localSelection = { projectId: selection.projectId, startLine: selection.startLine, endLine: selection.endLine };
+      Object.assign(job, musicBatchMetadata(job));
       commit([...state.jobs, job]);
       try { onComplete(job); } catch { /* durable queue is available */ }
       return job.id;
@@ -91,6 +93,7 @@ export function createScriptQueue({ initial = [], save, request, getProvider, ex
       if (state.jobs.length >= 50) throw new Error('最多保留 50 份任务，请导出并移除旧任务后继续。');
       const config = value => ({ providerId: value.providerId, model: value.model, baseUrl: value.baseUrl, protocol: value.protocol });
       const job = { ...validateScoreRequest(input), id: uuid(), createdAt: now(), gemini: config(gemini), suno: config(suno), status: 'queued', tracks: [], taskIds: [], exportDirectory: directory };
+      Object.assign(job, musicBatchMetadata(job));
       commit([...state.jobs, job]); return job.id;
     },
     addSegment(input, segment, projectId, gemini, suno, directory = '') {
@@ -100,6 +103,7 @@ export function createScriptQueue({ initial = [], save, request, getProvider, ex
       if (state.jobs.length >= 50) throw new Error('最多保留 50 份任务，请清理旧任务后继续。');
       const config = value => ({ providerId: value.providerId, model: value.model, baseUrl: value.baseUrl, protocol: value.protocol });
       const job = { ...segmentScoreInput(input, segment), id: uuid(), createdAt: now(), shortcutProjectId: projectId, segment: { id: segment.id, title: segment.title, startLine: segment.startLine, endLine: segment.endLine }, gemini: config(gemini), suno: config(suno), status: 'queued', tracks: [], taskIds: [], exportDirectory: directory };
+      Object.assign(job, musicBatchMetadata(job));
       commit([...state.jobs, job]); return job.id;
     },
     startOnly(id) {
@@ -112,6 +116,15 @@ export function createScriptQueue({ initial = [], save, request, getProvider, ex
       commit(state.jobs, { running: true, targetIds: null, notice: '' });
     },
     pause: () => stop('已暂停后续提交；已提交的音乐继续查询。'),
+    closeBatch(batchId) {
+      const selected = state.jobs.filter(job => !job.archived && musicBatchMetadata(job).batchId === batchId);
+      if (!selected.length) return;
+      const retained = selected.filter(job => job.taskIds.length || job.tracks.length || ['submitting', 'uncertain', 'pending', 'pausedQuery'].includes(job.status));
+      for (const job of retained) onArchive(job);
+      const ids = new Set(selected.map(job => job.id));
+      const keep = new Set(retained.map(job => job.id));
+      commit(state.jobs.flatMap(job => !ids.has(job.id) ? [job] : keep.has(job.id) ? [{ ...job, archived: true }] : []), { notice: '此批次已关闭。作品历史保留；已提交的音乐继续查询，尚未提交的任务已取消。' });
+    },
     clear() {
       // Persist history first. A failed history write must never delete the queue.
       const retained = state.jobs.filter(job => job.archived || job.taskIds.length || job.tracks.length || ['submitting', 'uncertain', 'pending', 'pausedQuery'].includes(job.status));
@@ -164,7 +177,7 @@ export function createScriptQueue({ initial = [], save, request, getProvider, ex
           if (job.segmented) {
             const segments = parseSegments(JSON.stringify(result), job, 'suno');
             if (state.jobs.length - 1 + segments.length > 50) throw new Error('分段后超过 50 份任务，请清理旧任务再重试策划。');
-            const children = segments.map((segment, index) => ({ ...job, id: uuid(), parentId: job.id, segmented: false, segment, title: `${job.title.slice(0, 45)} · ${index + 1}. ${segment.title}`, lines: job.lines.filter(line => line.sourceLine >= segment.startLine && line.sourceLine <= segment.endLine), status: 'ready', score: segment.score, tracks: [], taskIds: [], error: '' }));
+            const children = segments.map((segment, index) => ({ ...job, ...musicBatchMetadata(job), id: uuid(), parentId: job.id, segmented: false, segment, title: `${job.title.slice(0, 45)} · ${index + 1}. ${segment.title}`, lines: job.lines.filter(line => line.sourceLine >= segment.startLine && line.sourceLine <= segment.endLine), status: 'ready', score: segment.score, tracks: [], taskIds: [], error: '' }));
             // One durable transaction: no segment can be submitted twice after a reload.
             commit(state.jobs.flatMap(item => item.id === job.id ? children : [item])); return;
           }

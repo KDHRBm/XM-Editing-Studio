@@ -3,8 +3,8 @@
 ## 环境
 
 - Node.js 22.12 或更高版本，建议 Node.js 24，使用配套 npm。
-- 桌面运行与本地工具需要 Windows x64；Electron 与 JS 依赖版本由 `package-lock.json` 固定。
-- 本地工具构建需要 Windows .NET Framework 4.x 的 C# 编译器，不再需要 Python、PyInstaller、OpenCV 或 NumPy。
+- 桌面运行与本地工具需要 Windows x64、.NET Framework 4.8 与 Microsoft Edge WebView2 运行时；构建依赖由 `package-lock.json` 固定。
+- 主程序与本地工具使用 Windows .NET Framework C# 编译器。完整桌宠独立使用 Python/Qt 组件，准备步骤见 [桌宠集成说明](COMPANION-INTEGRATION.md)。
 
 从仓库根目录操作。不要在已安装的正式软件目录中开发。
 
@@ -20,7 +20,7 @@ npm run build
 
 `npm test` 使用本地模拟接口与隔离临时目录，不需要真实 API；`npm run build` 构建主界面和水印页面，并从 npm 依赖复制本地 FFmpeg WASM。输出位于 `app/dist/client`。
 
-只检查源码且无需启动 Electron 时，可用 `npm ci --ignore-scripts` 跳过 Electron 二进制下载；以后需要运行桌面版时执行 `node node_modules/electron/install.js`。
+只检查源码且无需启动 Electron 时，可用 `npm ci --ignore-scripts` 跳过 Electron 二进制下载；以后需要运行旧版迁移测试时执行 `node node_modules/electron/install.js`。
 
 ## 构建本地组件
 
@@ -33,7 +33,7 @@ node --test tests/test-native-jianying.mjs
 
 ## 启动开发版
 
-先退出正在运行的正式版，避免固定本地端口冲突，然后：
+启动独立开发配置的 C# 主程序：
 
 ```powershell
 npm start
@@ -49,7 +49,7 @@ npm start
 npm run package
 ```
 
-输出在 `artifacts`，包括 Windows x64 Electron 运行环境和 ASAR 应用。此开发打包入口生成可运行目录，未进行发布版的混淆、签名或安装器压缩。安装器与全量更新器源码见 [打包说明](../packaging/README.md)。当前 npm 包标记 `private: true` 仅防止误发布 npm，不影响 GitHub 源码公开。
+输出在 `artifacts/XM剪辑台-csharp-win32-x64`，包括 C# 宿主、WebView2 SDK、本地页面、工具与桌宠组件，不包含常驻 Electron/Node 运行环境。需要系统 WebView2 运行时。原生安装更新包的构建与迁移步骤见 [C# 构建说明](CSHARP-MIGRATION.md)。当前 npm 包标记 `private: true` 仅防止误发布 npm，不影响 GitHub 源码公开。
 
 ## 工程结构与现有限制
 
@@ -57,4 +57,4 @@ npm run package
 
 源码来源、原界面工程缺失和第三方许可范围见 [SOURCE-PROVENANCE.md](SOURCE-PROVENANCE.md)。源码的公开与第三方许可是两回事。
 
-1.4.1 的自动回归、原生协议测试、界面和安装验证见 [VERIFICATION.md](../VERIFICATION.md)。检查不执行真实剪映点击任务，不代表所有电脑、模型账号或显卡已实测。
+1.4.2 的自动回归、原生协议测试、界面和安装验证见 [VERIFICATION.md](../VERIFICATION.md)。检查不执行真实剪映点击任务，不代表所有电脑、模型账号或显卡已实测。

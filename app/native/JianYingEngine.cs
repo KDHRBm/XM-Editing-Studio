@@ -1143,9 +1143,9 @@ internal sealed partial class JianYingEngine
 
     private void RegexPreview(string folder, string template)
     {
-        if (string.IsNullOrWhiteSpace(folder) || !Directory.Exists(folder))
+        if (string.IsNullOrWhiteSpace(folder) ? _selectedFiles.Count == 0 : !Directory.Exists(folder))
         {
-            throw new InvalidOperationException("请选择存在的目标文件夹。");
+            throw new InvalidOperationException("请选择存在的目标文件夹或拖入待改名文件。");
         }
         Match m = Regex.Match(template, @"\d+");
         if (!m.Success)
@@ -1156,7 +1156,7 @@ internal sealed partial class JianYingEngine
         string suffix = template.Substring(m.Index + m.Length);
         string[] exts = new[] { ".mp4", ".srt", ".mp3", ".wav", ".mkv" };
 
-        var files = Directory.GetFiles(folder)
+        var files = (string.IsNullOrWhiteSpace(folder) ? _selectedFiles.ToArray() : Directory.GetFiles(folder))
             .Select(f => new FileInfo(f))
             .Where(fi => exts.Contains(fi.Extension.ToLowerInvariant()))
             .OrderBy(fi => Regex.IsMatch(Path.GetFileNameWithoutExtension(fi.Name), @"\(\d+\)\s*$") ? 1 : 0)
@@ -1171,7 +1171,7 @@ internal sealed partial class JianYingEngine
             int? ep = ExtractEpisodeNumber(stem);
             if (!ep.HasValue) continue;
             string newName = prefix + ep.Value + suffix + fi.Extension;
-            if (!usedTargets.Add(newName)) continue;
+            if (!usedTargets.Add(Path.Combine(fi.DirectoryName, newName))) continue;
             plan.Add(new Dictionary<string, object>
             {
                 { "source", fi.FullName },
@@ -1425,7 +1425,7 @@ internal sealed partial class JianYingEngine
                 if (data == null)
                 {
                     int generation = _operationGeneration;
-                    data = JianYingDraftIO.Request("read", file, null, () => CheckInterrupted(generation));
+                    data = JianYingDraftIO.Request("read", file, null, () => CheckInterrupted(generation), Log);
                     _encryptedDrafts.Add(file);
                 }
                 else _encryptedDrafts.Remove(file);
@@ -1906,6 +1906,7 @@ internal static class Program
         NativeWin32.SetProcessDPIAware();
 
         if (args.Length == 3 && args[0] == "--draft-io") return JianYingDraftIO.Worker(args[1], args[2]);
+        if (args.Length == 4 && args[0] == "--draft-io-native") return JianYingDraftIO.NativeWorker(args[1], args[2], args[3]);
 
         var json = new JavaScriptSerializer { MaxJsonLength = int.MaxValue };
         if (args.Length == 1 && args[0] == "--verify-runtime")

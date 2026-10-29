@@ -9,4 +9,6 @@ export { QuickRail, SidebarResizer } from './QuickRail.jsx';
 export { TitleBar } from './TitleBar.jsx';
 export { WebAIStudio } from './WebAIStudio.jsx';
 export { BatchAnalysis } from './BatchAnalysis.jsx';
-export { BatchNavIcon, JianyingNavIcon, WatermarkNavIcon, WebAiNavIcon } from './NavigationIcons.jsx';
+export { CompanionSettings } from './CompanionSettings.jsx';
+export { useInterfaceMotion } from './InterfaceMotion.jsx';
+export { BatchNavIcon, JianyingNavIcon, WatermarkNavIcon, WebAiNavIcon, PetNavIcon } from './NavigationIcons.jsx';

@@ -41,18 +41,35 @@ internal static class JianYingNativeTests
     [STAThread]
     public static int Main(string[] args) {
         if (args.Length == 3 && args[0] == "--draft-io") { Console.InputEncoding = new System.Text.UTF8Encoding(false); Console.OutputEncoding = new System.Text.UTF8Encoding(false); return JianYingDraftIO.Worker(args[1], args[2]); }
+        if (args.Length == 4 && args[0] == "--draft-io-native") { Console.InputEncoding = new System.Text.UTF8Encoding(false); Console.OutputEncoding = new System.Text.UTF8Encoding(false); return JianYingDraftIO.NativeWorker(args[1], args[2], args[3]); }
         var output = Console.Out;
         Console.SetOut(TextWriter.Synchronized(new StringWriter()));
         string root = Path.Combine(Path.GetTempPath(), "xm-native-test-" + Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(root);
         try {
             engine = new JianYingEngine(root);
+            string rememberedDrafts = Path.Combine(root, "草稿目录"), rememberedSrt = Path.Combine(root, "字幕目录");
+            Directory.CreateDirectory(rememberedDrafts); Directory.CreateDirectory(rememberedSrt);
+            engine.Dispatch("paths", Args("draftDir", rememberedDrafts, "subtitleOutput", rememberedSrt));
+            engine.Close(); engine = new JianYingEngine(root);
+            Check((string)engine.Snapshot()["draftDir"] == rememberedDrafts && (string)engine.Snapshot()["subtitleOutput"] == rememberedSrt, "subtitle directories survive engine restart");
+            string other = Path.Combine(root, "子文件夹"); Directory.CreateDirectory(other);
+            string droppedA = Path.Combine(root, "第1集.mp4"), droppedB = Path.Combine(other, "第1集.mp4");
+            File.WriteAllText(droppedA, "a"); File.WriteAllText(droppedB, "b");
+            engine.Dispatch("files", Args("files", new[] { droppedA, droppedB }));
+            Call("RegexPreview", "", "标题_第1集");
+            Check(((List<Dictionary<string, object>>)Field("_plan")).Count == 2, "dropped files across directories retain distinct rename targets");
+            engine.Dispatch("files", Args("files", new string[0]));
             var scope = Call("ParseScope", Scope("草稿 (13)"), 1920, 1080);
             string cards = "{\"visibleCount\":13,\"drafts\":[" + string.Join(",", Enumerable.Range(0, 13).Select(Card)) + "]}";
             var parsed = (List<Tuple<int, int, string>>)Call("ParseCards", cards, scope);
             Check(parsed.Count == 13, "all 13 drafts across rows retained");
             Check(Call("ParseScope", Scope("草稿"), 1920, 1080) != null, "heading without count");
             Check(Call("ParseScope", Scope("本地草稿 / 项目"), 1920, 1080) != null, "folder breadcrumb");
+            Check(Call("ParseScope", "```json\r\n" + Scope("本地草稿 / 错睡") + "\r\n```", 2531, 1422) != null, "Gemini fenced Chinese folder breadcrumb");
+            Check(Call("ParseScope", Scope("本地草稿 / 错睡").Replace("[200,150,230,300]", "[333,50,345,70]").Replace("[240,150,800,800]", "[345,50,444,391]"), 2531, 1422) != null, "screenshot response geometry accepted");
+            Reject(() => Call("ParseScope", Scope("错睡"), 2531, 1422), "folder name alone cannot authorize clicks");
+            Reject(() => Call("ParseScope", Scope("专业升级"), 2531, 1422), "promotional cards above drafts excluded");
             Reject(() => Call("ParseScope", Scope("开始创作"), 1920, 1080), "feature section rejected");
             Reject(() => Call("ParseScope", Scope("草稿").Replace("[240,150,800,800]", "[100,150,800,800]"), 1920, 1080), "region above heading rejected");
             Reject(() => Call("ParseCards", cards.Replace("\"visibleCount\":13", "\"visibleCount\":8"), scope), "incomplete count rejected");
@@ -126,6 +143,32 @@ internal static class JianYingNativeTests
             Check(File.ReadAllText(first) != originalJson && Directory.GetFiles(draftRoot, "*.bak").Length > 0, "successful subtitle update retains backup");
             Check((bool)Call("SameJson", json.DeserializeObject("{\"a\":1,\"b\":[true]}"), json.DeserializeObject("{\"b\":[true],\"a\":1.0}")), "verification ignores key ordering and equivalent numbers");
             Check(!(bool)Call("SameJson", json.DeserializeObject("{\"a\":1}"), json.DeserializeObject("{\"a\":2}")), "verification detects changed values");
+            var libs = new[] { Path.Combine(root, "11.7.5", "videoeditor.dll"), Path.Combine(root, "11.6.5", "videoeditor.dll") };
+            var attempts = new List<string>();
+            string selected = null;
+            Func<string, string, string, Action, string, IDictionary> compatible = (mode, file, input, cancel, lib) => {
+                attempts.Add(Path.GetFileName(Path.GetDirectoryName(lib)) + ":" + mode);
+                if (lib == libs[0]) throw new InvalidOperationException("error 6");
+                return Args("subtitle", "¡Sí! 中文字幕");
+            };
+            var readResult = JianYingDraftIO.RequestWithLibraries("read", first, null, () => {}, libs, compatible, lib => selected = lib);
+            Check(selected == libs[1] && Convert.ToString(readResult["subtitle"]) == "¡Sí! 中文字幕" && attempts.SequenceEqual(new[] {"11.7.5:read", "11.6.5:read"}), "new interface failure falls back without changing Unicode");
+            attempts.Clear();
+            JianYingDraftIO.RequestWithLibraries("write", first, "{}", () => {}, libs, compatible, null);
+            Check(attempts.SequenceEqual(new[] {"11.7.5:read", "11.6.5:read", "11.6.5:write"}), "writes only through successfully read library");
+            int writeCalls = 0;
+            Reject(() => JianYingDraftIO.RequestWithLibraries("write", first, "{}", () => {}, libs, (mode, file, input, cancel, lib) => {
+                if (mode == "write") { writeCalls++; throw new InvalidOperationException("readback failed after write"); }
+                return Args("ok", true);
+            }, null), "write failure bubbles up for transactional rollback");
+            Check(writeCalls == 1, "write failure never retries a second library");
+            int cancelledCalls = 0; bool cancelled = false;
+            try { JianYingDraftIO.RequestWithLibraries("read", first, null, () => {}, libs, (mode, file, input, cancel, lib) => { cancelledCalls++; throw new OperationCanceledException(); }, null); }
+            catch (OperationCanceledException) { cancelled = true; }
+            Check(cancelled && cancelledCalls == 1, "cancellation never triggers fallback");
+            int invalidCalls = 0;
+            Reject(() => JianYingDraftIO.RequestWithLibraries("write", first, "[]", () => {}, libs, (mode, file, input, cancel, lib) => { invalidCalls++; return Args(); }, null), "invalid write JSON rejected before native IO");
+            Check(invalidCalls == 0, "invalid JSON does not start any worker");
             output.WriteLine("Native compatibility checks passed: " + checks);
             return 0;
         } catch (Exception ex) { output.WriteLine(ex.ToString()); return 1; }

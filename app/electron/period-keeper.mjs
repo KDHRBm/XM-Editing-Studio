@@ -22,6 +22,8 @@ export function createPeriodKeeper(resourcesDirectory, { clipboard } = {}) {
       if (actual !== HELPER_SHA256) throw new Error('标点组件校验失败，请重新安装XM剪辑台。');
       const processHandle = spawn(executable, ['--parent-pid', String(process.pid)], { windowsHide: true, stdio: ['pipe', 'pipe', 'ignore'] });
       child = processHandle;
+      // A competing installation can own the shared Jianying helper mutex.
+      processHandle.stdin.on('error', () => failPending('标点组件连接已断开，请稍后重试。'));
       processHandle.on('error', error => { child = null; void guard?.dispose().catch(() => {}); failPending(`无法启动标点组件：${error.message}`); });
       processHandle.on('exit', () => { if (child === processHandle) child = null; void guard?.dispose().catch(() => {}); failPending('标点组件已退出，请刷新状态后重试。'); });
       const reader = createInterface({ input: processHandle.stdout });

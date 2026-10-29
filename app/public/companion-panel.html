@@ -4,20 +4,31 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>大肥鱼</title>
+  <link rel="stylesheet" href="/theme-tokens.css">
   <style>
     * { box-sizing: border-box; }
     html, body { width: 100%; height: 100%; margin: 0; overflow: hidden; font: 12px "Microsoft YaHei UI", system-ui, sans-serif; }
     [hidden] { display: none !important; }
-    body { --bg: #191a1c; --surface: #26282c; --raised: #303236; --line: #484b50; --text: #f4f4f4; --muted: #b9bcc1; --accent: #e8e8e8; --on-accent: #1a1a1a; background: var(--bg); color: var(--text); }
-    body[data-palette="original"] { --bg: #eaf5fd; --surface: #fafdff; --raised: #d6ecfa; --line: #a8cde9; --text: #194269; --muted: #51799b; --accent: #2483c5; --on-accent: #fff; }
-    .panel { height: 100%; padding: 14px; display: flex; flex-direction: column; gap: 10px; }
-    header { display: flex; align-items: center; gap: 8px; padding-bottom: 9px; border-bottom: 1px solid var(--line); }
+    body { --bg: var(--ui-sidebar); --surface: var(--ui-surface); --raised: var(--ui-raised); --line: var(--ui-border); --text: var(--ui-text); --muted: var(--ui-muted); --accent: var(--ui-accent); --on-accent: var(--ui-on-accent); background: transparent; color: var(--text); color-scheme: var(--ui-scheme); }
+    .panel { height: 100%; padding: 14px; display: flex; flex-direction: column; gap: 10px; border-radius: 16px; background: color-mix(in srgb, var(--bg) 92%, transparent); backdrop-filter: blur(20px); overflow: hidden; }
+    html[data-native-host="true"] .panel { background: var(--bg); border-radius: 10px; }
+    header { display: flex; align-items: center; gap: 8px; padding-bottom: 9px; border-bottom: 1px solid var(--line); -webkit-app-region: drag; user-select: none; cursor: move; }
+    header button { -webkit-app-region: no-drag; cursor: pointer; }
     header strong { flex: 1; font-size: 14px; }
     button { border: 1px solid var(--line); border-radius: 6px; padding: 7px 8px; background: var(--raised); color: var(--text); font: inherit; cursor: pointer; transition: transform .16s, background .16s, border-color .16s; }
     button:hover:not(:disabled) { transform: scale(1.03); border-color: var(--accent); }
     button:active:not(:disabled) { transform: scale(.96); }
     button:disabled { opacity: .45; cursor: not-allowed; }
     button:focus-visible, input:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+    button[aria-busy="true"]::before { content:""; display:inline-block; width:10px; height:10px; margin-right:5px; border:2px solid currentColor; border-right-color:transparent; border-radius:50%; vertical-align:-2px; animation:pet-button-spin .7s linear infinite; }
+    @keyframes pet-button-spin { to { transform:rotate(360deg); } }
+    .section, .setting-row, .section-title { min-width:0; }
+    .setting-row { flex-wrap:wrap; }
+    .setting-row strong, .setting-row > span { flex:1; min-width:100px; overflow-wrap:anywhere; }
+    .setting-row > button { flex-shrink:0; }
+    .drop-choice { border-color:var(--ui-accent); }
+    .rename-plan { max-height:160px; overflow:auto; overflow-wrap:anywhere; line-height:1.8; }
+    @media (prefers-reduced-motion:reduce) { button[aria-busy="true"]::before { animation:none; } }
     .close { border: 0; background: transparent; padding: 3px 8px; font-size: 17px; }
     .tabs { display: grid; grid-template-columns: 1fr 1fr; gap: 4px; padding: 3px; border: 1px solid var(--line); border-radius: 7px; }
     .tabs button { border: 0; background: transparent; font-weight: 600; }
@@ -32,8 +43,7 @@
     .section small, .hint { color: var(--muted); }
     .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 7px; }
     .primary { background: var(--accent); color: var(--on-accent); border-color: var(--accent); }
-    .danger { color: #f4a5a5; }
-    [data-palette="original"] .danger { color: #a72e39; }
+    .danger { color: var(--ui-danger); }
     .progress { height: 5px; overflow: hidden; border-radius: 3px; background: var(--raised); }
     .progress > span { display: block; height: 100%; width: 0; background: var(--accent); transition: width .2s ease; }
     .job { display: flex; gap: 5px; align-items: center; color: var(--muted); }
@@ -62,6 +72,8 @@
     </div>
     <main>
       <div class="page" id="xm-page" role="tabpanel" aria-labelledby="xm-tab">
+        <div class="section drop-choice" id="drop-choice" hidden><strong id="drop-label"></strong><small>改名先预览；水印成片保存到原文件旁。</small><div class="grid"><button id="drop-rename">改名</button><button id="drop-watermark">加水印</button></div><button id="drop-cancel">取消</button></div>
+        <div class="section" id="drop-rename-panel" hidden><div class="section-title"><strong>批量改名</strong><button id="rename-close" aria-label="收起改名">×</button></div><small id="rename-files"></small><input class="name-input" id="rename-template" value="短剧名称_第1集" aria-label="命名模板"><div class="grid"><button id="rename-preview">生成预览</button><button id="rename-run">执行改名</button></div><div class="rename-plan" id="rename-plan"></div></div>
         <div class="status" id="status">正在读取状态…</div>
         <div class="section" id="modal" hidden>
           <strong id="modal-title">确认操作</strong><small id="modal-message"></small>
@@ -90,7 +102,7 @@
           <div class="choice" id="size-choice"><button data-value="small">小</button><button data-value="normal">中</button><button data-value="large">大</button></div>
         </div>
         <div class="section">
-          <div class="setting-row"><strong>待机动作</strong><button id="motion">开启</button></div>
+          <button id="full-settings" class="primary">原版完整设置 ↗</button>
           <div class="setting-row"><strong>桌面漫游</strong><button id="roam">开启</button></div>
           <div class="slider"><div><strong>动作间隔</strong><span id="interval-value">30 秒</span></div><input id="interval" type="range" min="10" max="90" step="5" aria-label="动作间隔"></div>
           <button id="react">互动一下</button>
@@ -99,7 +111,7 @@
         <div class="section">
           <div class="setting-row"><strong>点击音效</strong><button id="sound">开启</button></div>
           <div class="slider"><div><strong>音量</strong><span id="volume-value">40%</span></div><input id="volume" type="range" min="0" max="100" step="5" aria-label="音量"></div>
-          <div class="setting-row"><strong>跟随剪映窗口</strong><button id="dock">开启</button></div>
+          <button id="reset-position">找回桌宠位置</button>
         </div>
       </div>
     </main>
@@ -115,12 +127,17 @@
       clearTimeout(noticeTimer);
       noticeTimer = setTimeout(() => { $('notice').textContent = ''; }, 4000);
     }
-    async function act(action, value) {
+    const pendingButtons = new Set();
+    async function act(action, value, button = document.activeElement) {
+      if (button?.tagName !== 'BUTTON') button = null;
+      if (button && pendingButtons.has(button)) return;
+      if (button) { pendingButtons.add(button); button.disabled = true; button.setAttribute('aria-busy', 'true'); }
       try {
         const result = await api?.companionAction?.(action, value);
         if (result?.error) note(result.error);
         if (result) render(result);
       } catch (error) { note(error.message || '操作失败'); }
+      finally { if (button) { pendingButtons.delete(button); button.disabled = false; button.removeAttribute('aria-busy'); } if (current) render(current); }
     }
     function selectPage(next) {
       page = next;
@@ -128,17 +145,27 @@
         $(name + '-page').hidden = name !== page;
         $(name + '-tab').setAttribute('aria-selected', String(name === page));
       }
+      if (!matchMedia('(prefers-reduced-motion: reduce)').matches) $(page + '-page').animate([{ opacity: 0, transform: 'translateY(5px)' }, { opacity: 1, transform: 'translateY(0)' }], { duration: 220, easing: 'cubic-bezier(.2,.8,.2,1)' });
     }
     function render(state) {
       current = state;
-      const jy = state.jianying || {}, wm = state.watermark || {}, settings = state.settings || {};
+      const jy = state.jianying || {}, wm = state.watermark || {}, settings = state.settings || {}, native = state.native?.settings || {};
       const name = settings.name || '大肥鱼';
       $('pet-title').textContent = name;
       $('pet-tab').textContent = name;
       document.title = name;
       if (!$('pet-name').dataset.dirty && document.activeElement !== $('pet-name')) $('pet-name').value = name;
       $('showName').textContent = settings.showName !== false ? '已开启' : '已隐藏';
-      document.body.dataset.palette = settings.palette || 'original';
+      document.documentElement.dataset.bosTheme = state.theme || 'graphite';
+      $('drop-choice').hidden = !state.pendingDropCount;
+      $('drop-label').textContent = '收到 ' + (state.pendingDropCount || 0) + ' 个素材，需要做什么？';
+      $('drop-rename-panel').hidden = !state.renameOpen;
+      $('rename-files').textContent = '已选择 ' + (state.renameFileCount || 0) + ' 个文件';
+      $('rename-plan').replaceChildren();
+      for (const row of state.renamePlan || []) { const line = document.createElement('div'); line.textContent = row.old_name + ' → ' + row.new_name; $('rename-plan').append(line); }
+      $('rename-run').disabled = jy.busy || !(state.renamePlan || []).length;
+      $('rename-preview').disabled = jy.busy;
+      $('drop-watermark').disabled = wm.running;
       $('status').textContent = jy.lastLog || jy.status || '就绪';
       $('queue').textContent = (jy.queueCount || 0) + ' 个待导出';
       $('scan').disabled = jy.busy || !jy.ready;
@@ -162,14 +189,20 @@
         }
         $('jobs').append(row);
       }
-      for (const button of $('size-choice').querySelectorAll('button')) button.setAttribute('aria-pressed', String(button.dataset.value === settings.size));
-      for (const key of ['motion', 'roam', 'sound']) $(key).textContent = settings[key] ? '已开启' : '开启';
-      $('dock').textContent = state.autoDock ? '已开启' : '开启';
-      $('interval').value = settings.idleInterval ?? 30;
+      for (const button of $('size-choice').querySelectorAll('button')) button.setAttribute('aria-pressed', String(({small:.5,normal:.72,large:1})[button.dataset.value] === native.scale));
+      $('roam').textContent = native.no_move ? '开启' : '已开启'; $('sound').textContent = native.click_sound_enabled ? '已开启' : '开启';
+      $('interval').value = native.animation_gap_seconds ?? 30;
       $('interval-value').textContent = $('interval').value + ' 秒';
-      $('volume').value = settings.volume ?? 40;
+      $('volume').value = Math.round((native.click_sound_volume ?? .4)*100);
       $('volume-value').textContent = $('volume').value + '%';
+      for (const button of pendingButtons) button.disabled = true;
     }
+    $('drop-rename').onclick = () => act('drop-choice', 'rename');
+    $('drop-watermark').onclick = () => act('drop-choice', 'watermark');
+    $('drop-cancel').onclick = () => act('drop-choice', 'cancel');
+    $('rename-close').onclick = () => act('rename-close');
+    $('rename-preview').onclick = () => act('rename-preview', $('rename-template').value);
+    $('rename-run').onclick = () => act('rename-run');
     $('xm-tab').onclick = () => selectPage('xm');
     $('pet-tab').onclick = () => selectPage('pet');
     $('close').onclick = () => act('panel', false);
@@ -184,7 +217,8 @@
     $('period').onclick = () => act('toggle-period');
     $('launch').onclick = () => act('launch-jy');
     $('workspace').onclick = () => act('navigate', 'jianying');
-    $('dock').onclick = () => act('toggle-dock');
+    $('full-settings').onclick = () => act('native-settings');
+    $('reset-position').onclick = () => act('reset-position');
     $('react').onclick = () => act('react');
     $('pet-name').oninput = () => { $('pet-name').dataset.dirty = 'true'; };
     $('name-form').onsubmit = async event => {
@@ -195,11 +229,14 @@
     };
     $('showName').onclick = () => act('update-settings', { showName: current.settings?.showName === false });
     for (const button of $('size-choice').querySelectorAll('button')) button.onclick = () => act('update-settings', { size: button.dataset.value });
-    for (const key of ['motion', 'roam', 'sound']) $(key).onclick = () => act('update-settings', { [key]: !current.settings?.[key] });
+    $('roam').onclick = () => act('native-update', {no_move: !current.native?.settings?.no_move});
+    $('sound').onclick = () => act('native-update', {click_sound_enabled: !current.native?.settings?.click_sound_enabled});
     for (const key of ['volume', 'interval']) $(key).onchange = () => act('update-settings', { [key === 'interval' ? 'idleInterval' : key]: Number($(key).value) });
     $('volume').oninput = () => { $('volume-value').textContent = $('volume').value + '%'; };
     $('interval').oninput = () => { $('interval-value').textContent = $('interval').value + ' 秒'; };
     api?.onCompanionState?.(render);
+    document.documentElement.dataset.bosTheme = 'graphite';
+    api?.onCompanionTheme?.(theme => { document.documentElement.dataset.bosTheme = theme; });
     act('sync');
   </script>
 </body>

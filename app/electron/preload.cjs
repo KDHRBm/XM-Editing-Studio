@@ -3,6 +3,7 @@ const { contextBridge, ipcRenderer, webUtils } = require("electron");
 contextBridge.exposeInMainWorld("blackObsidian", {
   getUpdaterStatus: () => ipcRenderer.invoke('bos:updater-status'),
   setTitlebarTheme: theme => ipcRenderer.invoke('bos:titlebar-theme', theme),
+  onCompanionTheme: callback => { const listener = (_event, value) => callback(value); ipcRenderer.on('bos:companion-theme', listener); return () => ipcRenderer.removeListener('bos:companion-theme', listener); },
   updaterAction: action => ipcRenderer.invoke('bos:updater-action', action),
   onUpdaterState: callback => { const listener = (_event, value) => callback(value); ipcRenderer.on('bos:updater-state', listener); return () => ipcRenderer.removeListener('bos:updater-state', listener); },
   onTrayNavigate: callback => { const listener = (_event, value) => callback(value); ipcRenderer.on('bos:tray-navigate', listener); return () => ipcRenderer.removeListener('bos:tray-navigate', listener); },

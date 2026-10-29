@@ -1,4 +1,4 @@
-import { randomUUID } from 'node:crypto';
+const randomUUID = () => globalThis.crypto.randomUUID();
 import { webTaskPrompt, webTaskResult } from '../shared/web-script-analysis.mjs';
 
 const scanResult = (text, token, manual = false) => webTaskResult(text, token, manual, ['heading', 'drafts', 'error']);

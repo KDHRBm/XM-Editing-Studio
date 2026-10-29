@@ -33,7 +33,10 @@ export function WebAIStudio({ active, onNavigate }) {
       const signature = JSON.stringify(input);
       if (signature === last) return;
       last = signature;
-      void api.layoutWebAI(input).then(value => { if (live && value) { setStatus(value); setError(''); } }).catch(err => { if (live) { last = ''; setError(err.message); } });
+      // Layout responses do not include the page probe's notice/access fields.
+      // Retain them so moving the view cannot remove a notice, resize the slot,
+      // and trigger another layout until the next probe adds it back.
+      void api.layoutWebAI(input).then(value => { if (live && value) { setStatus(previous => ({ ...previous, ...value })); setError(''); } }).catch(err => { if (live) { last = ''; setError(err.message); } });
     };
     const schedule = () => { if (!frame) frame = requestAnimationFrame(sync); };
     const resize = new ResizeObserver(schedule); resize.observe(slot.current);
@@ -63,9 +66,14 @@ export function WebAIStudio({ active, onNavigate }) {
   return <section className={`bos-script bos-web-ai${task || opened ? ' bos-web-ai-overlay' : ''}`} hidden={!visible} aria-label="国内 AI 官方网页版">
     {(task || opened) && <div className="bos-web-ai-task-heading"><strong>{task ? `${current.name} · ${task.stage}` : `${current.name} · 官方网页登录`}</strong><button type="button" onClick={() => task ? taskAction('cancel') : setOpened('')}>{task?.kind === 'draft-scan' ? '中断扫描 · F10' : task ? '中断分析' : '返回工作空间'}</button></div>}
     {task && <div className="bos-web-ai-task"><p role="status">{task.message}</p><div className="bos-script-actions"><button type="button" onClick={() => taskAction('copy')}>复制当前任务</button><small>网页回答会自动读取并接回原任务，无需 API 配置。</small></div><details><summary>网页无法自动读取时，粘贴回答继续</summary><textarea aria-label="网页分析结果" value={manualReply} onChange={event => setManualReply(event.target.value)} rows={3} placeholder="粘贴网页返回的完整 JSON 回答" /><button type="button" disabled={!manualReply.trim()} onClick={() => taskAction('import')}>导入结果并继续</button></details></div>}
-    <div className="bos-web-ai-toolbar"><div className="bos-source-choice" role="group" aria-label="选择国内 AI">{WEB_AI_PROVIDERS.map(item => <button type="button" key={item.id} disabled={!!task} aria-pressed={provider === item.id} onClick={() => changeProvider(item.id)}>{item.name}</button>)}</div><div className="bos-script-actions"><button type="button" disabled={!ready} onClick={() => action('login')}>登录账号</button><button type="button" disabled={!ready || !!task} onClick={() => action('home')}>返回官网首页</button><button type="button" disabled={!ready} onClick={() => action('reload')}>刷新网页</button><button type="button" disabled={!ready} onClick={() => action('external')}>系统浏览器打开 ↗</button></div></div>
-    <div className="bos-web-ai-note"><strong>{current.name} 官方网页版 · 无需 API 密钥</strong><p>在下方登录你自己的账号即可聊天。{current.description}可用模型、免费额度和限制以官网为准，登录状态分别保存在本机。</p><small>{status?.loading ? '正在加载网页… · ' : '当前网址：'}{status?.url || current.url}</small></div>
-    {!task && <details className="bos-web-ai-script"><summary>使用工作空间的当前剧本</summary><p>{projects.project.draft.script.trim() ? `当前剧本 ${projects.project.draft.script.length} 字符 · ${projects.project.draft.segmented ? '按情节分段' : '整篇分析'}` : '先到工作空间粘贴剧本，再复制分析任务。'}可在工作空间选择本网页模型直接分析，也可自行粘贴任务。生成音乐仍使用原有 Suno 服务。</p><div className="bos-script-actions"><button type="button" disabled={!projects.project.draft.script.trim()} onClick={() => copyTask('keywords')}>复制剧本关键词任务</button><button type="button" disabled={!projects.project.draft.script.trim()} onClick={() => copyTask('suno')}>复制 Suno 提示词任务</button><button type="button" onClick={() => onNavigate('workspace')}>前往工作空间</button><button type="button" onClick={() => onNavigate('music')}>前往音乐页</button></div></details>}
+    <div className="bos-web-ai-bar">
+      <div className="bos-web-ai-toolbar">
+        <div className="bos-source-choice" role="group" aria-label="选择国内 AI">{WEB_AI_PROVIDERS.map(item => <button type="button" key={item.id} disabled={!!task} aria-pressed={provider === item.id} onClick={() => changeProvider(item.id)}>{item.name}</button>)}</div>
+        <div className="bos-web-ai-meta" title={status?.url || current.url}><strong>{current.name} 官方网页 · 无需 API 密钥</strong><small>{status?.loading ? '正在加载…' : status?.url || current.url}</small></div>
+        <div className="bos-script-actions"><button type="button" disabled={!ready} onClick={() => action('login')}>登录</button><button type="button" disabled={!ready || !!task} onClick={() => action('home')}>首页</button><button type="button" disabled={!ready} onClick={() => action('reload')}>刷新</button><button type="button" disabled={!ready} onClick={() => action('external')}>浏览器打开 ↗</button></div>
+      </div>
+      {!task && <details className="bos-web-ai-script"><summary><span>剧本快捷指令 · 自行粘贴</span><small>{projects.project.draft.script.trim() ? `已载入 ${projects.project.draft.script.length} 字 · ${projects.project.draft.segmented ? '分段模式' : '整篇模式'}` : '未填写剧本'}</small></summary><div className="bos-script-actions"><button type="button" disabled={!projects.project.draft.script.trim()} onClick={() => copyTask('keywords')}>复制剧本关键词任务</button><button type="button" disabled={!projects.project.draft.script.trim()} onClick={() => copyTask('suno')}>复制 Suno 提示词任务</button><button type="button" onClick={() => onNavigate('workspace')}>前往工作空间</button><button type="button" onClick={() => onNavigate('music')}>前往音乐页</button></div></details>}
+    </div>
     {notice && <p className="bos-script-message" role="status">{notice}</p>}
     {(error || status?.error) && <p className="bos-script-warning" role="alert">{error || status.error}</p>}
     {status?.pageNotice && <p className="bos-script-warning" role="status">{status.pageNotice}</p>}

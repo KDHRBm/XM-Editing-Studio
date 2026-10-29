@@ -71,6 +71,8 @@ Function .onInit
 FunctionEnd
 
 Function ValidateDirectory
+  IfFileExists "$INSTDIR\xm-fork-install.id" invalidDirectory 0
+  IfFileExists "$INSTDIR\XM剪辑台-Fork.exe" invalidDirectory 0
   ${GetRoot} "$INSTDIR" $0
   ${If} $INSTDIR == $0
   ${OrIf} $INSTDIR == ""

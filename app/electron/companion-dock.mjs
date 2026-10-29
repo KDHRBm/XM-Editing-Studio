@@ -1,148 +1,112 @@
-import { BrowserWindow, screen } from 'electron';
+import { app, BrowserWindow, screen } from 'electron';
+import path from 'node:path';
+import { readFile, writeFile, mkdir } from 'node:fs/promises';
 import { createCompanionSettingsStore, DEFAULT_COMPANION_SETTINGS } from './companion-settings.mjs';
+import { createCompanionUpdater } from './companion-updater.mjs';
+import { createCompanionRuntime } from './companion-runtime.mjs';
 
-const ORB = { width: 188, height: 210 };
-const PANEL = { width: 330, height: 472 };
-export function createCompanionDock({ preloadPath, baseUrl, settingsFile, getJianyingState, getWatermarkState, getPeriodStatus, onAction, onState = () => {} }) {
-  let orb, panel, visible = false, panelOpen = false, autoDock = true, timer, moveTimer, lastRoam = Date.now(), reactionId = 0, motionId = 0;
+export function createCompanionDock({ preloadPath, baseUrl, settingsFile, runtimeDirectory, getJianyingState, getWatermarkState, getPeriodStatus, onAction, onState = () => {} }) {
+  let panel, panelOpen = false, panelOpening, timer, polling = false, lastBusy = false, lastSnapshot, theme = 'graphite';
+  const positionFile = path.join(path.dirname(settingsFile), 'companion-panel-position.json');
+  let positionSave = Promise.resolve(), moveTimer;
+  const savePosition = () => {
+    if (!alive()) return;
+    const { x, y } = panel.getBounds();
+    positionSave = positionSave.catch(() => {}).then(async () => { await mkdir(path.dirname(positionFile), { recursive: true }); await writeFile(positionFile, JSON.stringify({ x, y })); });
+  };
   let settings = { ...DEFAULT_COMPANION_SETTINGS };
-  const settingsStore = createCompanionSettingsStore(settingsFile);
-  async function loadSettings() {
-    settings = await settingsStore.load();
-  }
-  const alive = window => window && !window.isDestroyed();
-  const area = () => screen.getDisplayNearestPoint(screen.getCursorScreenPoint()).workArea;
-  function stopMotion() { if (moveTimer) clearInterval(moveTimer); moveTimer = null; }
-  function moveTo(targetX, targetY, duration = 360) {
-    if (!alive(orb)) return;
-    stopMotion();
-    motionId += 1;
-    void broadcast();
-    const [startX, startY] = orb.getPosition();
-    const start = Date.now();
-    moveTimer = setInterval(() => {
-      if (!alive(orb)) { stopMotion(); return; }
-      const progress = Math.min(1, (Date.now() - start) / duration);
-      const eased = 1 - (1 - progress) ** 3;
-      orb.setPosition(Math.round(startX + (targetX - startX) * eased), Math.round(startY + (targetY - startY) * eased));
-      if (progress >= 1) stopMotion();
-    }, 24);
-  }
-  const options = { frame: false, resizable: false, skipTaskbar: true, alwaysOnTop: true,
-    webPreferences: { preload: preloadPath, contextIsolation: true, sandbox: true, nodeIntegration: false, devTools: false } };
-
-  function placePanel() {
-    if (!alive(orb) || !alive(panel)) return;
-    const [ox, oy] = orb.getPosition();
-    const bounds = screen.getDisplayNearestPoint({ x: ox, y: oy }).workArea;
-    const x = Math.max(bounds.x + 8, Math.min(ox - PANEL.width - 8, bounds.x + bounds.width - PANEL.width - 8));
-    const y = Math.max(bounds.y + 8, Math.min(oy, bounds.y + bounds.height - PANEL.height - 8));
-    panel.setBounds({ x, y, ...PANEL });
-  }
-
-  async function ensureWindows() {
-    await loadSettings();
-    if (!alive(orb)) {
-      const bounds = area();
-      orb = new BrowserWindow({ ...options, ...ORB, x: bounds.x + bounds.width - ORB.width - 24, y: bounds.y + bounds.height - ORB.height - 24, transparent: true, hasShadow: false });
-      orb.setAlwaysOnTop(true, 'floating');
-      orb.on('move', placePanel);
-      orb.on('closed', () => { orb = null; visible = false; });
-      await orb.loadURL(`${baseUrl}/companion-orb.html`);
-    }
-    if (!alive(panel)) {
-      panel = new BrowserWindow({ ...options, ...PANEL, show: false, backgroundColor: '#191a1c', roundedCorners: true });
-      panel.setAlwaysOnTop(true, 'floating');
-      panel.on('closed', () => { panel = null; panelOpen = false; });
-      await panel.loadURL(`${baseUrl}/companion-panel.html`);
-    }
-    placePanel();
-  }
-
+  const store = createCompanionSettingsStore(settingsFile);
+  const runtime = createCompanionRuntime({ directory: runtimeDirectory, dataDirectory: path.dirname(settingsFile), hostArgs: app.isPackaged ? [] : [app.getAppPath()], onEvent: action => action === 'open-panel' && openPanel() });
+  const updater = createCompanionUpdater({ runtime, baseDirectory: runtimeDirectory, dataDirectory: path.dirname(settingsFile), notify: update => { if (lastSnapshot) { const value = { ...lastSnapshot, update }; onState(value); if (alive()) panel.webContents.send('bos:companion-state', value); } else void broadcast().catch(() => {}); } });
+  const alive = () => panel && !panel.isDestroyed();
   async function snapshot() {
-    await loadSettings();
-    const [jy, wm, period] = await Promise.all([
-      getJianyingState().catch(() => null), getWatermarkState().catch(() => null), getPeriodStatus().catch(() => null),
-    ]);
-    return { visible, panelOpen, autoDock, settings, reactionId, motionId,
-      jianying: { ready: Boolean(jy?.ready), busy: Boolean(jy?.busy || jy?.exporting || jy?.recording), status: jy?.status || '引擎准备中', queueCount: jy?.queue?.length || 0, modal: jy?.modal || null, lastLog: jy?.logs?.at(-1) || '' },
-      jianyingWindow: jy?.jianyingWindow || null,
-      watermark: { running: Boolean(wm?.running), progress: wm?.overallProgress || 0,
-        completed: wm?.completedCount || 0, jobs: wm?.jobs || [] },
-      periodEnabled: Boolean(period?.enabled) };
+    await updater.init();
+    settings = await store.load();
+    const [jy, wm, period, native] = await Promise.all([getJianyingState().catch(() => null), getWatermarkState().catch(() => null), getPeriodStatus().catch(() => null), runtime.status()]);
+    return lastSnapshot = { visible: native.visible, panelOpen, theme, settings, native, update: updater.snapshot(),
+      jianying: { ready: !!jy?.ready, busy: !!(jy?.busy || jy?.exporting || jy?.recording), status: jy?.status || '引擎准备中', queueCount: jy?.queue?.length || 0, modal: jy?.modal || null, lastLog: jy?.logs?.at(-1) || '' },
+      watermark: { running: !!wm?.running, progress: wm?.overallProgress || 0, completed: wm?.completedCount || 0, jobs: wm?.jobs || [] }, periodEnabled: !!period?.enabled };
   }
-
   async function broadcast() {
     const state = await snapshot();
-    for (const window of [orb, panel]) if (alive(window)) window.webContents.send('bos:companion-state', state);
-    onState(state);
-    return state;
+    if (alive()) panel.webContents.send('bos:companion-state', state);
+    onState(state); return state;
   }
-
-  async function tick() {
-    if (!visible || !alive(orb)) return;
-    const state = await broadcast();
-    const window = state.jianyingWindow;
-    if (autoDock && window?.found && !window.minimized && window.width > 300) {
-      const target = { x: Math.round(window.x + window.width - ORB.width - 14), y: Math.round(window.y + 38) };
-      const [x, y] = orb.getPosition();
-      if (Math.abs(x - target.x) > 4 || Math.abs(y - target.y) > 4) moveTo(target.x, target.y, 280);
-    } else if (settings.roam && settings.motion && !panelOpen && !state.jianying.busy && Date.now() - lastRoam >= settings.idleInterval * 1000) {
-      lastRoam = Date.now();
-      const [x, y] = orb.getPosition();
-      const bounds = screen.getDisplayNearestPoint({ x, y }).workArea;
-      const nextX = Math.max(bounds.x, Math.min(bounds.x + bounds.width - ORB.width, x + Math.round((Math.random() - 0.5) * 90)));
-      const nextY = Math.max(bounds.y, Math.min(bounds.y + bounds.height - ORB.height, y + Math.round((Math.random() - 0.5) * 50)));
-      moveTo(nextX, nextY, 950);
+  function monitor() {
+    if (timer) return;
+    timer = setInterval(async () => {
+      if (polling) return;
+      polling = true;
+      try {
+        const state = await broadcast();
+        const busy = state.jianying.busy || state.watermark.running;
+        if (state.native.ready && busy !== lastBusy) { lastBusy = busy; await runtime.run('task-state', busy); }
+      } catch { /* Next poll recovers; user commands report their own errors. */ }
+      finally { polling = false; }
+    }, 2000);
+  }
+  async function openPanel() {
+    if (panelOpening) return panelOpening;
+    panelOpening = openPanelWindow();
+    try { await panelOpening; } finally { panelOpening = null; }
+  }
+  async function openPanelWindow() {
+    if (!alive()) {
+      let saved; try { saved = JSON.parse(await readFile(positionFile, 'utf8')); } catch { /* First open uses the current display. */ }
+      const point = Number.isFinite(saved?.x) && Number.isFinite(saved?.y) ? { x: Math.round(saved.x), y: Math.round(saved.y) } : screen.getCursorScreenPoint();
+      const area = screen.getDisplayNearestPoint(point).workArea;
+      const width = Math.min(350, area.width), height = Math.min(500, area.height);
+      const x = Math.round(Math.max(area.x, Math.min(saved?.x ?? area.x + area.width - width - 20, area.x + area.width - width)));
+      const y = Math.round(Math.max(area.y, Math.min(saved?.y ?? area.y + area.height - height - 20, area.y + area.height - height)));
+      panel = new BrowserWindow({ width, height, x, y, frame: false, transparent: true, hasShadow: false, show: false, resizable: false, movable: true, skipTaskbar: true, alwaysOnTop: true, backgroundColor: '#00000000', webPreferences: { preload: preloadPath, contextIsolation: true, sandbox: true, nodeIntegration: false } });
+      panel.on('move', () => { clearTimeout(moveTimer); moveTimer = setTimeout(savePosition, 200); });
+      panel.on('closed', () => { panel = null; panelOpen = false; });
+      await panel.loadURL(`${baseUrl}/companion-panel.html?v=${encodeURIComponent(app.getVersion())}-glass`);
     }
+    panelOpen = true; panel.show(); monitor();
+    await broadcast();
   }
-
-  async function show(openPanel = false) {
-    await ensureWindows();
-    visible = true;
-    orb.showInactive();
-    if (openPanel) { panelOpen = true; placePanel(); panel.show(); }
-    if (!timer) timer = setInterval(() => { void tick(); }, 1800);
+  async function show(withPanel = false) {
+    await updater.init();
+    await runtime.run('visible', true); monitor();
+    if (withPanel) await openPanel();
     return broadcast();
   }
   async function hide() {
-    visible = false; panelOpen = false;
-    stopMotion();
-    if (timer) clearInterval(timer);
-    timer = null;
-    if (alive(panel)) panel.hide();
-    if (alive(orb)) orb.hide();
+    if (runtime.isRunning()) await runtime.run('visible', false);
+    panelOpen = false; if (alive()) panel.hide();
     return broadcast();
   }
   async function handleAction(action, value) {
+    await updater.init();
     if (action === 'sync') return broadcast();
-    if (action === 'toggle') return visible ? hide() : show(true);
-    if (action === 'panel') {
-      if (!visible) await show();
-      panelOpen = value === 'toggle' ? !panelOpen : Boolean(value);
-      if (panelOpen) { placePanel(); panel.show(); panel.focus(); } else panel.hide();
-      return broadcast();
-    }
-    if (action === 'move-by') {
-      autoDock = false;
-      stopMotion();
-      if (alive(orb)) { const [x, y] = orb.getPosition(); orb.setPosition(x + Math.round(Number(value?.dx) || 0), y + Math.round(Number(value?.dy) || 0)); }
-      return null;
-    }
-    if (action === 'toggle-dock') { autoDock = !autoDock; return broadcast(); }
-    if (action === 'react') { reactionId += 1; return broadcast(); }
+    if (action === 'check-update') { await updater.check(); return broadcast(); }
+    if (action === 'install-update') { await updater.update(); return broadcast(); }
+    if (updater.isBusy() && action !== 'animations') throw new Error('桌宠正在更新，请稍后操作。');
+    if (action === 'animations') return runtime.inventory();
+    if (action === 'toggle') return runtime.isVisible() ? hide() : show();
+    if (action === 'show') return show();
+    if (action === 'hide') return hide();
+    if (action === 'panel') { if (value === true || value === 'toggle' && !panelOpen) await openPanel(); else { panelOpen = false; if (alive()) panel.hide(); } return broadcast(); }
     if (action === 'update-settings') {
-      settings = await settingsStore.update(value);
+      settings = await store.update(value);
+      const patch = {};
+      if ('size' in value) patch.scale = { small: .5, normal: .72, large: 1 }[settings.size];
+      if ('roam' in value) patch.no_move = !settings.roam;
+      if ('sound' in value) patch.click_sound_enabled = settings.sound;
+      if ('volume' in value) patch.click_sound_volume = settings.volume / 100;
+      if ('idleInterval' in value) patch.animation_gap_seconds = settings.idleInterval;
+      if (Object.keys(patch).length) await runtime.run('update', patch);
       return broadcast();
     }
-    try { await onAction(action, value); return broadcast(); }
-    catch (error) { return { ...await broadcast(), error: error.message || '操作失败' }; }
+    if (['native-settings', 'native-update', 'native-play', 'reset-position', 'spawn', 'chat', 'todo'].includes(action)) {
+      const command = { 'native-settings': 'settings', 'native-update': 'update', 'native-play': 'play' }[action] || action;
+      await runtime.run(command, value); monitor(); return broadcast();
+    }
+    if (action === 'react') { const clips = await runtime.inventory(); const clicks = clips.filter(item => item.category === 'click'); await runtime.run('play', clicks[Math.floor(Math.random() * clicks.length)].id); return broadcast(); }
+    await onAction(action, value); return broadcast();
   }
-  function dispose() {
-    stopMotion();
-    if (timer) clearInterval(timer);
-    timer = null;
-    for (const window of [panel, orb]) if (alive(window)) window.destroy();
-  }
-  return { show, hide, handleAction, dispose, isVisible: () => visible, getName: () => settings.name, isSender: sender => [orb, panel].some(window => alive(window) && window.webContents === sender) };
+  function setTheme(value) { theme = value; if (lastSnapshot) lastSnapshot.theme = value; if (alive()) panel.webContents.send('bos:companion-theme', value); }
+  async function dispose() { await updater.settle(); clearInterval(timer); clearTimeout(moveTimer); savePosition(); await positionSave.catch(() => {}); if (alive()) panel.destroy(); await runtime.dispose(); }
+  return { show, hide, handleAction, dispose, setTheme, getRuntimeDirectory: runtime.getDirectory, isVisible: runtime.isVisible, getName: () => settings.name, isSender: sender => alive() && panel.webContents === sender };
 }

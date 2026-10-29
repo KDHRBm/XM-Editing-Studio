@@ -92,10 +92,10 @@ internal sealed class JianYingDraftIO
         if (File.Exists(value)) value = Path.GetDirectoryName(value);
         if (Directory.Exists(value)) roots.Add(Path.GetFullPath(value));
     }
-    internal static string FindLibrary() {
+    internal static List<string> FindLibraries() {
         var roots = new List<string>();
         string configured = Environment.ExpandEnvironmentVariables(Environment.GetEnvironmentVariable("JIANYING_VIDEOEDITOR_DLL") ?? "").Trim(' ', '"');
-        if (File.Exists(configured)) return Path.GetFullPath(configured); AddRoot(roots, configured);
+        AddRoot(roots, configured);
         foreach (var hive in new[] { RegistryHive.CurrentUser, RegistryHive.LocalMachine }) foreach (var view in new[] { RegistryView.Registry64, RegistryView.Registry32 }) {
             using (var baseKey = RegistryKey.OpenBaseKey(hive, view)) {
                 foreach (var name in new[] { @"Software\Bytedance\JianyingPro", @"Software\Microsoft\Windows\CurrentVersion\App Paths\JianyingPro.exe" }) {
@@ -111,6 +111,11 @@ internal sealed class JianYingDraftIO
             foreach (var relative in new[] { "JianyingPro", @"Programs\JianyingPro", @"ByteDance\JianyingPro" }) AddRoot(roots, Path.Combine(root, relative));
         }
         foreach (var drive in DriveInfo.GetDrives().Where(d => d.IsReady && d.DriveType == DriveType.Fixed)) foreach (var relative in new[] { "JianyingPro", @"Program Files\JianyingPro", @"Program Files (x86)\JianyingPro", @"Program Files\ByteDance\JianyingPro" }) AddRoot(roots, Path.Combine(drive.RootDirectory.FullName, relative));
+        // The optional local compatibility runtime survives a Jianying upgrade.
+        string installData = Environment.GetEnvironmentVariable("XM_INSTALL_DATA");
+        if (!string.IsNullOrWhiteSpace(installData)) AddRoot(roots, Path.Combine(installData, "draft-compat"));
+        AddRoot(roots, Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), @"XM-Editing-Studio\draft-compat"));
+        AddRoot(roots, Path.Combine(Path.GetDirectoryName(Assembly.GetExecutingAssembly().Location), "draft-compat"));
         var files = new List<string>();
         foreach (var root in roots.Distinct(StringComparer.OrdinalIgnoreCase)) {
             var stack = new Stack<Tuple<string, int>>(); stack.Push(Tuple.Create(root, 0));
@@ -120,17 +125,28 @@ internal sealed class JianYingDraftIO
                 try { foreach (var dir in Directory.GetDirectories(item.Item1)) if ((File.GetAttributes(dir) & FileAttributes.ReparsePoint) == 0) stack.Push(Tuple.Create(dir, item.Item2 + 1)); } catch (IOException) { } catch (UnauthorizedAccessException) { }
             }
         }
-        var found = files.OrderByDescending(f => Regex.Replace(new DirectoryInfo(Path.GetDirectoryName(f)).Name, @"\d+", m => m.Value.PadLeft(8, '0')), StringComparer.Ordinal).FirstOrDefault();
-        if (found == null) throw new FileNotFoundException("未找到剪映 videoeditor.dll，请安装剪映或设置 JIANYING_VIDEOEDITOR_DLL。"); return found;
+        var found = files.Distinct(StringComparer.OrdinalIgnoreCase).OrderByDescending(f => Regex.Replace(new DirectoryInfo(Path.GetDirectoryName(f)).Name, @"\d+", m => m.Value.PadLeft(8, '0')), StringComparer.Ordinal).ToList();
+        if (File.Exists(configured)) { string explicitFile = Path.GetFullPath(configured); found.RemoveAll(f => string.Equals(f, explicitFile, StringComparison.OrdinalIgnoreCase)); found.Insert(0, explicitFile); }
+        if (found.Count == 0) throw new FileNotFoundException("未找到可用草稿读取组件，请安装剪映或准备 11.6.5 兼容组件。"); return found;
     }
     internal static int Worker(string mode, string path) {
         var json = new JavaScriptSerializer { MaxJsonLength = int.MaxValue };
         try {
+            string input = mode == "write" ? Console.In.ReadToEnd() : null;
+            var data = Request(mode, path, input, () => { });
+            Console.Out.WriteLine(json.Serialize(new { data = data })); return 0;
+        } catch (Exception ex) { Console.Out.WriteLine(json.Serialize(new { error = ex.Message })); return 1; }
+    }
+    internal static int NativeWorker(string mode, string path, string library) {
+        var json = new JavaScriptSerializer { MaxJsonLength = int.MaxValue };
+        try {
             if (mode != "read" && mode != "write") throw new InvalidOperationException("无效草稿操作。");
-            var io = new JianYingDraftIO(FindLibrary());
+            var io = new JianYingDraftIO(Path.GetFullPath(library));
             if (mode == "write") {
                 string input = Console.In.ReadToEnd();
                 if (!(json.DeserializeObject(input) is IDictionary)) throw new InvalidOperationException("草稿根节点必须为对象。");
+                // Never write through a library that cannot read this draft.
+                if (!(json.DeserializeObject(io.Read(path)) is IDictionary)) throw new InvalidOperationException("草稿写入前读取校验失败。");
                 io.Write(path, input);
             }
             string text = io.Read(path);
@@ -139,8 +155,37 @@ internal sealed class JianYingDraftIO
             Console.Out.WriteLine(json.Serialize(new { data = data })); return 0;
         } catch (Exception ex) { Console.Out.WriteLine(json.Serialize(new { error = ex.Message })); return 1; }
     }
-    internal static IDictionary Request(string mode, string path, string input, Action check) {
-        var start = new ProcessStartInfo(Assembly.GetExecutingAssembly().Location, "--draft-io " + mode + " \"" + Path.GetFullPath(path) + "\"") {
+    private static string preferredLibrary;
+    internal static IDictionary Request(string mode, string path, string input, Action check, Action<string> log = null) {
+        var libraries = FindLibraries();
+        string preferred = preferredLibrary;
+        if (!string.IsNullOrEmpty(preferred) && libraries.Remove(preferred)) libraries.Insert(0, preferred);
+        return RequestWithLibraries(mode, path, input, check, libraries, RunWorker, library => {
+            preferredLibrary = library;
+            if (log != null) log("草稿解密接口：" + new DirectoryInfo(Path.GetDirectoryName(library)).Name + "（已读取校验）");
+        });
+    }
+    internal static IDictionary RequestWithLibraries(string mode, string path, string input, Action check, IEnumerable<string> libraries, Func<string, string, string, Action, string, IDictionary> run, Action<string> selected) {
+        if (mode != "read" && mode != "write") throw new InvalidOperationException("无效草稿操作。");
+        check();
+        if (mode == "write" && !(new JavaScriptSerializer { MaxJsonLength = int.MaxValue }.DeserializeObject(input) is IDictionary)) throw new InvalidOperationException("草稿根节点必须为对象。");
+        var failures = new List<string>();
+        foreach (string library in libraries.Distinct(StringComparer.OrdinalIgnoreCase)) {
+            check();
+            IDictionary data;
+            try { data = run("read", path, null, check, library); if (data == null) throw new InvalidOperationException("读取结果为空。"); }
+            catch (OperationCanceledException) { throw; }
+            catch (Exception ex) { failures.Add(new DirectoryInfo(Path.GetDirectoryName(library)).Name + "：" + ex.Message); continue; }
+            check();
+            if (selected != null) selected(library);
+            // A write failure may have modified bytes: do not retry another
+            // library. SaveSubtitleJsons must restore all original copies.
+            return mode == "read" ? data : run("write", path, input, check, library);
+        }
+        throw new InvalidOperationException("所有可用草稿接口均读取失败，未执行写入。11.7.5 草稿可尝试 11.6.5 兼容组件；请保留 attachment_pc_common.json。" + string.Join("；", failures));
+    }
+    private static IDictionary RunWorker(string mode, string path, string input, Action check, string library) {
+        var start = new ProcessStartInfo(Assembly.GetExecutingAssembly().Location, "--draft-io-native " + mode + " \"" + Path.GetFullPath(path) + "\" \"" + Path.GetFullPath(library) + "\"") {
             UseShellExecute = false, CreateNoWindow = true, RedirectStandardInput = true, RedirectStandardOutput = true, RedirectStandardError = true,
             StandardOutputEncoding = Encoding.UTF8, StandardErrorEncoding = Encoding.UTF8
         };
@@ -156,7 +201,8 @@ internal sealed class JianYingDraftIO
                 text = text.Split('\n').LastOrDefault(l => l.TrimStart().StartsWith("{\"data\":") || l.TrimStart().StartsWith("{\"error\":")) ?? "";
                 if (text.Length == 0) throw new InvalidOperationException("剪映草稿接口异常退出（" + process.ExitCode + "），原草稿已保留。");
                 var response = new JavaScriptSerializer { MaxJsonLength = int.MaxValue }.DeserializeObject(text) as IDictionary;
-                if (response.Contains("error")) throw new InvalidOperationException(Convert.ToString(response["error"]));
+                if (response == null || response.Contains("error")) throw new InvalidOperationException(response == null ? "草稿接口未返回有效结果。" : Convert.ToString(response["error"]));
+                if (process.ExitCode != 0) throw new InvalidOperationException("草稿接口异常退出（" + process.ExitCode + "）。");
                 return response["data"] as IDictionary;
             } finally { if (!process.HasExited) { process.Kill(); process.WaitForExit(5000); } }
         }

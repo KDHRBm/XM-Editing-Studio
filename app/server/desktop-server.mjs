@@ -98,8 +98,15 @@ export async function serveStatic(req, res, clientDirectory) {
   stream.pipe(res);
 }
 
-export function createDesktopServer({ clientDirectory, host = "127.0.0.1", port = 37651, musicLibrary }) {
+export function createDesktopServer({ clientDirectory, host = "127.0.0.1", port = 37651, musicLibrary, companionDirectory }) {
   const server = createServer((req, res) => {
+    if (req.url?.startsWith('/companion-assets/')) {
+      if (!companionDirectory) return sendError(res, 404, '桌宠资源未安装。');
+      req.url = req.url.slice('/companion-assets'.length);
+      if (!/\.webm(?:\?|$)/i.test(req.url)) return sendError(res, 404, '资源不存在。');
+      serveStatic(req, res, typeof companionDirectory === 'function' ? companionDirectory() : companionDirectory).catch(() => { if (!res.headersSent) sendError(res, 500, '无法读取桌宠动画。'); });
+      return;
+    }
     if (req.url?.startsWith('/local-music/')) {
       if (!musicLibrary) return sendError(res, 404, '本地音乐库不可用。');
       musicLibrary.serve(req, res).catch(error => { if (!res.headersSent && !res.destroyed) sendError(res, error.status || 500, error.message || '无法读取本地音乐。'); });

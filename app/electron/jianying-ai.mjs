@@ -1,4 +1,9 @@
-import { setTimeout as wait } from 'node:timers/promises';
+const wait = (ms, _value, { signal } = {}) => new Promise((resolve, reject) => {
+  signal?.throwIfAborted();
+  const abort = () => { clearTimeout(timer); reject(signal.reason); };
+  const timer = setTimeout(() => { signal?.removeEventListener('abort', abort); resolve(); }, ms);
+  signal?.addEventListener('abort', abort, { once: true });
+});
 
 export function buildJianyingAIRequest(connection, input) {
   const { provider, model } = connection || {};

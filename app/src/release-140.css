@@ -1,12 +1,19 @@
 .app-shell { padding-top: 36px; height: 100vh; box-sizing: border-box; }
+.app-shell .bos-rail-peek { top: 48px; right: 12px; width: 36px; height: 36px; z-index: 85; -webkit-app-region: no-drag; }
+.app-shell .bos-rail-edge { top: 40px; }
+.bos-music-batch-heading { display: flex; align-items: center; padding-right: 10px; }
+.bos-script .bos-music-batch-heading .bos-music-batch-toggle { flex: 1; min-width: 0; width: auto; }
+.bos-script .bos-music-batch-close { flex: 0 0 32px; width: 32px; height: 32px; padding: 0; display: grid; place-items: center; font-size: 20px; border-color: transparent; background: transparent; }
+.bos-script .bos-music-batch-close:hover { color: var(--ui-danger); background: var(--ui-raised); }
 .app-shell .sidebar, .app-shell .main-column, .app-shell .bos-quickrail { height: calc(100vh - 36px); }
-.bos-titlebar { position: fixed; inset: 0 0 auto; z-index: 90; height: 36px; display: flex; align-items: center; justify-content: space-between; padding: 0 140px 0 14px; background: var(--ui-sidebar); border-bottom: 1px solid var(--ui-border); color: var(--ui-text); }
+.bos-titlebar { position: fixed; inset: 0 0 auto; z-index: 90; height: 36px; display: flex; align-items: center; justify-content: space-between; padding: 0 150px 0 14px; box-sizing: border-box; background: var(--ui-sidebar); border-bottom: 1px solid var(--ui-border); color: var(--ui-text); }
 .bos-titlebar-drag { -webkit-app-region: drag; flex: 1; height: 100%; display: flex; align-items: center; gap: 9px; min-width: 0; font-size: 12px; font-weight: 700; }
 .bos-titlebar-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--ui-accent); }
 .bos-titlebar-version { font-size: 10px; color: var(--ui-muted); font-weight: 500; }
-.bos-titlebar-actions { display: flex; gap: 8px; -webkit-app-region: no-drag; }
+.bos-titlebar-actions { display: flex; align-items: center; flex: 0 0 auto; height: 100%; gap: 8px; -webkit-app-region: no-drag; }
 .bos-titlebar-actions button { min-height: 25px; padding: 3px 9px; border: 1px solid var(--ui-border); border-radius: 6px; background: var(--ui-raised); color: var(--ui-text); font: inherit; font-size: 10px; cursor: pointer; }
-.bos-titlebar-actions .bos-update-pill { display: inline-flex; align-items: center; justify-content: center; min-width: 118px; text-align: center; white-space: nowrap; }
+.bos-titlebar-actions .bos-pet-entry { box-sizing: border-box; display: inline-grid; place-items: center; width: 32px; height: 28px; padding: 2px; border-radius: 7px; }
+.bos-titlebar-actions .bos-update-pill { display: inline-flex; align-items: center; justify-content: center; gap: 5px; box-sizing: border-box; min-width: 112px; height: 28px; padding: 0 12px; border-radius: 999px; background: transparent; color: var(--ui-muted); font-size: 11px; font-weight: 600; line-height: 1; text-align: center; white-space: nowrap; }
 .bos-titlebar-actions button:hover:not(:disabled) { background: var(--ui-soft); transform: scale(1.03); }
 .bos-titlebar-actions button:active:not(:disabled) { transform: scale(.96); }
 .bos-titlebar-actions button:disabled { opacity: .65; cursor: wait; }
@@ -30,3 +37,23 @@
 @media (max-width: 760px) { .bos-workspace-stage-bar { grid-template-columns: 1fr; } }
 @media (max-width: 680px) { .app-shell { height: auto; min-height: 100vh; } .app-shell .sidebar, .app-shell .main-column { height: auto; } .bos-titlebar { padding-right: 12px; } .bos-titlebar-actions button { font-size: 9px; } .bos-stage-text small { display: none; } .bos-script button.bos-stage-tab { min-height: 55px; } }
 @media (prefers-reduced-motion: reduce) { .app-shell button, .bos-script button.bos-stage-tab { transition: none; } }
+
+/* Compact official-AI toolbar, like the fork; keep its native browser untransformed. */
+.bos-web-ai-bar { display: flex; align-items: flex-start; gap: 14px; padding: 14px; margin-bottom: 14px; border: 1px solid var(--ui-border); border-radius: var(--ui-radius); background: var(--ui-surface); box-shadow: var(--ui-shadow); }
+.bos-web-ai-bar .bos-web-ai-toolbar { flex: 1; min-width: 0; justify-content: flex-start; align-self: center; gap: 14px; }
+.bos-web-ai-meta { flex: 1; min-width: 170px; display: grid; gap: 5px; }
+.bos-web-ai-meta strong { font-size: 13px; font-weight: 600; }
+.bos-web-ai-meta small { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--ui-muted); font-size: 10px; }
+.bos-web-ai-bar .bos-script-actions { gap: 6px; margin: 0; }
+.bos-web-ai-bar .bos-script-actions button { padding: 8px 12px; white-space: nowrap; }
+.bos-web-ai-bar .bos-web-ai-script { flex: 0 0 190px; margin: 0; padding: 12px; background: transparent; }
+.bos-web-ai-script summary small { display: block; margin-top: 9px; font-size: 10px; color: var(--ui-muted); }
+.bos-web-ai-script[open] .bos-script-actions { display: grid; margin-top: 12px; }
+.bos-web-ai-slot { min-height: 320px; height: max(360px,calc(100vh - 280px)); border-radius: 16px; overflow: hidden; }
+.bos-web-ai-overlay { top: 46px; }
+.bos-web-ai-overlay .bos-web-ai-bar { flex: 0 0 auto; margin-bottom: 0; padding: 10px; }
+.bos-web-ai-overlay .bos-web-ai-slot { height: auto; min-height: 220px; }
+.bos-btn-spinner { width: 12px; height: 12px; border: 2px solid currentColor; border-right-color: transparent; border-radius: 50%; display: inline-block; vertical-align: -2px; margin-right: 5px; flex-shrink: 0; animation: xm-button-spin .7s linear infinite; }
+@keyframes xm-button-spin { to { transform: rotate(360deg); } }
+@media (max-width: 1100px) { .bos-web-ai-bar { flex-wrap: wrap; } .bos-web-ai-bar .bos-web-ai-script { flex-basis: 100%; } .bos-web-ai-script[open] .bos-script-actions { display: flex; flex-wrap: wrap; } }
+@media (prefers-reduced-motion: reduce) { .bos-btn-spinner { animation: none; } }

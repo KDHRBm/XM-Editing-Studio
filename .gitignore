@@ -3,6 +3,7 @@ node_modules/
 .venv/
 .generated/
 .local-profile/
+.local-profile-native/
 artifacts/
 app/dist/
 app/build/
@@ -22,3 +23,5 @@ private-user-data/
 .xiaoma-update-backups/
 Thumbs.db
 .DS_Store
+
+packaging/update/native-config.nsh

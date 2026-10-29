@@ -14,7 +14,8 @@ export function PeriodKeeper({ text }) {
   const [busy, setBusy] = i.useState(false);
   const [error, setError] = i.useState('');
   const [notice, setNotice] = i.useState('');
-  const [collapsed, toggleCollapsed] = usePanelCollapsed('period-keeper');
+  const [collapsed, toggleCollapsed, setCollapsed] = usePanelCollapsed('period-keeper');
+  i.useEffect(() => { const focus = () => { setCollapsed(false); setTimeout(() => document.querySelector('.bos-period-keeper')?.scrollIntoView({ block: 'center', behavior: 'smooth' }), 0); }; window.addEventListener('xm-focus-period', focus); return () => window.removeEventListener('xm-focus-period', focus); }, []);
   const api = globalThis.blackObsidian;
   const available = typeof api?.getPeriodKeeperStatus === 'function';
   const latestText = i.useRef(text); latestText.current = text;
@@ -39,7 +40,7 @@ export function PeriodKeeper({ text }) {
       <div className="bos-period-status" role="status"><strong>{state ? periodKeeperStatusText(state) : available ? '正在检测剪映…' : '请在桌面程序中启用标点保留'}</strong><small>{state?.clipboardProtected ? '原工具兼容保护已开启 · 完整复制后校验' : '开启保留后，按原工具方式保护逗号和句号'}</small></div>
       <div className="bos-period-actions">
         <button type="button" role="switch" aria-label="剪映标点保留" aria-checked={!!state?.enabled} disabled={!available || !state || busy} onClick={() => perform(async () => { setState(await api.setPeriodKeeperEnabled(!state.enabled, 'compatible')); })}>{state?.enabled ? '关闭保留' : '开启保留'}</button>
-        <button type="button" className="bos-script-primary" disabled={!text.trim() || busy} onClick={() => perform(copy)}>复制到剪映</button>
+        <button type="button" className="bos-script-primary" aria-busy={busy} disabled={!text.trim() || busy} onClick={() => perform(copy)}>{busy && <span className="bos-btn-spinner" aria-hidden="true" />}复制到剪映</button>
 
       </div>
       {(error || state?.error || state?.clipboardError) && <p className="bos-script-warning" role="alert">{error || state.error || state.clipboardError}</p>}

@@ -12,9 +12,11 @@ import { findSegmentJob } from '../shared/segment-shortcut.mjs';
 import { installMusicPlayback } from './music-playback.mjs';
 import { WEB_ANALYZERS, webAnalyzer, analysisName, analysisReady, openWebAnalyzer } from '../shared/script-analyzers.mjs';
 import { requestScriptAnalysis } from './AnalysisRequest.mjs';
+import { groupMusicJobs, musicBatchMetadata } from '../shared/music-batches.mjs';
 
 const DRAFT = 'black-obsidian.script-draft.v1';
 const SETTINGS = 'black-obsidian.script-settings.v1';
+const BATCH_EXPANDED = 'black-obsidian.music-batches-expanded.v1';
 let runtime, providersNow = [];
 const read = (key, fallback) => { try { return JSON.parse(localStorage.getItem(key)) ?? fallback; } catch { return fallback; } };
 function getRuntime() {
@@ -63,18 +65,27 @@ const labels = { queued: '等待处理', planning: '模型策划中', ready: '�
 export function ScriptAutomation({ providers, automation, onNavigate }) {
   const { queue, running, notice } = automation;
   const jobs = automation.jobs.filter(job => !job.archived);
+  const batches = groupMusicJobs(jobs);
   const projects = useScriptProjects();
   const draft = projects.project.draft;
   const [directory, setDirectory] = i.useState(() => read(SETTINGS, {}).directory || read('black-obsidian.music-settings.v1', {}).downloadDirectory || '');
   const [localDirectory, setLocalDirectory] = i.useState(() => read(SETTINGS, {}).localDirectory ?? read(SETTINGS, {}).directory ?? '');
   const [error, setError] = i.useState('');
   const [message, setMessage] = i.useState('');
-  const [collapsed, toggleCollapsed] = usePanelCollapsed('script');
-  const [linesCollapsed, toggleLinesCollapsed] = usePanelCollapsed('english-lines');
+  const [collapsed, toggleCollapsed, setCollapsed] = usePanelCollapsed('script');
+  const [linesCollapsed, toggleLinesCollapsed, setLinesCollapsed] = usePanelCollapsed('english-lines');
   const [recovery, setRecovery] = i.useState({});
   const [confirm, setConfirm] = i.useState('');
   const [opened, setOpened] = i.useState('');
   const [viewMode, setViewMode] = i.useState('script');
+  i.useEffect(() => { const focus = () => { setViewMode('script'); setCollapsed(false); setLinesCollapsed(false); }; window.addEventListener('xm-focus-period', focus); return () => window.removeEventListener('xm-focus-period', focus); }, []);
+  const [expandedBatches, setExpandedBatches] = i.useState(() => read(BATCH_EXPANDED, {}) || {});
+  const expandBatch = (id, open) => setExpandedBatches(previous => {
+    const next = Object.fromEntries(batches.filter(batch => batch.id !== id && Object.hasOwn(previous, batch.id)).map(batch => [batch.id, previous[batch.id]]));
+    next[id] = open;
+    try { localStorage.setItem(BATCH_EXPANDED, JSON.stringify(next)); } catch { /* Collapse preferences do not affect durable tasks. */ }
+    return next;
+  });
   const models = providers.flatMap(provider => (provider.models || []).map(model => ({ key: `${provider.id}::${model}`, providerId: provider.id, protocol: provider.protocol, baseUrl: provider.baseUrl, provider, model })));
   const geminis = [...models.filter(m => isGeminiModel(m.provider, m.model)), ...WEB_ANALYZERS];
   const sunos = models.filter(m => isSunoModel(m.provider, m.model));
@@ -82,7 +93,6 @@ export function ScriptAutomation({ providers, automation, onNavigate }) {
   const libraryGemini = geminis.find(m => m.key === draft.libraryGeminiKey) || geminis[0];
   const libraryAnalyzerName = analysisName(libraryGemini);
   const analyzerName = analysisName(gemini);
-  const stages = ['提取字幕', 'AI 分析剧本', '选择或生成音乐', '剪映素材'];
   const suno = sunos.find(m => m.key === draft.sunoKey) || sunos[0];
   const extraction = i.useMemo(() => { try { return { lines: draft.script.trim() ? splitScript(draft.script, draft.subtitleLanguage || 'auto') : [], error: '' }; } catch (err) { return { lines: [], error: err.message }; } }, [draft.script, draft.subtitleLanguage]);
   const subtitleLines = extraction.lines;
@@ -101,8 +111,8 @@ export function ScriptAutomation({ providers, automation, onNavigate }) {
     if (extraction.error) throw new Error(extraction.error);
     const lines = subtitleLines;
     const id = queue.add({ ...draft, lines }, gemini, suno, directory);
-    setOpened(id); change({ script: '', title: '' });
-    setMessage(draft.segmented ? `剧本已加入分段配乐队列；${analyzerName} 完成策划后将展开为多个独立音乐任务。` : '剧本已加入队列；可继续粘贴下一份剧本。');
+    setOpened(id); expandBatch(id, true); change({ script: '', title: '' });
+    setMessage(draft.segmented ? `剧本已加入分段配乐队列；${analyzerName} 策划后的多段音乐会归入同一张批次卡片。` : '剧本已加入队列；可继续粘贴下一份剧本。');
     if (start) queue.start();
   });
   const chooseDirectory = (local = false) => perform(async () => {
@@ -136,6 +146,7 @@ export function ScriptAutomation({ providers, automation, onNavigate }) {
   const viewSegmentJob = job => {
     if (job.archived) { onNavigate('music'); return; }
     setOpened(job.id);
+    expandBatch(musicBatchMetadata(job).batchId, true);
     setViewMode('queue');
     if (collapsed) toggleCollapsed();
     setTimeout(() => document.getElementById('bos-script-queue-body')?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 0);
@@ -175,7 +186,6 @@ export function ScriptAutomation({ providers, automation, onNavigate }) {
     <div className="bos-script-group" hidden={viewMode !== 'script'}>
     <header className="bos-script-heading"><div><span className="bos-script-eyebrow">SCRIPT TO SOUND</span><h2 id="bos-script-title">让剧本，自带配乐。</h2><p>提取字幕，用完整故事匹配本地音乐，也可通过 Suno 创作配乐。</p></div><div className="bos-panel-heading-actions"><span className="bos-script-badge">{running ? '配乐队列运行中' : '字幕台词 · 本地音乐'}</span><button type="button" className="bos-panel-toggle" onClick={clearCurrent} disabled={!draft.script && !draft.hint && !draft.customKeywords && !projects.project.recommendation && !jobs.length} title="清空当前内容和配乐任务列表，作品历史保留在音乐页；已提交音乐继续查询">清空当前内容</button><button type="button" className="bos-panel-toggle" aria-expanded={!collapsed} aria-controls="bos-script-body" onClick={toggleCollapsed}>{collapsed ? '展开剧本配乐' : '收起剧本配乐'} <span aria-hidden="true">{collapsed ? '⌄' : '⌃'}</span></button></div></header>
     <div id="bos-script-body" hidden={collapsed}>
-    <ol className="bos-script-steps">{stages.map((stage, index) => <li key={stage}><b>{String(index + 1).padStart(2, '0')}</b><span>{stage}</span></li>)}</ol>
     <div className="bos-project-bar"><div className="bos-project-tabs" role="tablist" aria-label="选择剧本">{projects.projects.map((p, index) => <div className="bos-project-tab" key={p.id}><button type="button" role="tab" aria-selected={p.id === projects.project.id} title={p.draft.title} onClick={() => projects.select(p.id)}>剧本 {index + 1}{p.recommendation && <span aria-label="已有推荐"> ·</span>}</button><button type="button" className="bos-project-close" aria-label={`关闭剧本 ${index + 1}`} title="关闭并存入历史" onClick={() => projects.close(p.id)}>×</button></div>)}</div><div className="bos-project-tools"><button type="button" onClick={() => perform(projects.add)}>＋ 新建剧本</button><label><span className="bos-visually-hidden">历史剧本</span><select aria-label="历史剧本" value="" onChange={e => perform(() => projects.restore(e.target.value))}><option value="">历史剧本 · {projects.history.length} / 5</option>{projects.history.map(p => <option key={p.id} value={p.id}>{p.draft.title} · {p.recommendation ? '查看历史推荐' : '查看原文'}</option>)}</select></label><button type="button" disabled={!projects.history.length} title="清空历史剧本和历史推荐，保留当前打开的剧本及生成任务" onClick={() => perform(() => { projects.clearHistory(); setMessage("历史剧本及其推荐已清空。"); })}>清空历史</button></div></div>
     <div className="bos-script-layout">
       <div className="bos-script-panel">
@@ -211,7 +221,17 @@ export function ScriptAutomation({ providers, automation, onNavigate }) {
     <section className="bos-script-queue" aria-label="剧本配乐任务队列">
       <div className="bos-script-queue-heading"><div><span className="bos-script-eyebrow">PRODUCTION QUEUE</span><h3>配乐任务 <small>{complete} / {jobs.length} 已完成</small></h3></div><div className="bos-script-actions"><button type="button" disabled={!jobs.length} onClick={() => perform(queue.clear)}>清空任务</button>{running ? <button type="button" onClick={queue.pause}>暂停后续提交</button> : <button type="button" className="bos-script-primary" disabled={!jobs.some(j => ['queued', 'ready'].includes(j.status)) || !!queue.loadError} onClick={() => perform(queue.start)}>开始队列</button>}<span>{running ? '按顺序处理' : '等待开始'}</span></div></div>
       {!jobs.length && <div className="bos-script-empty"><span>♫</span><strong>你的第一段故事，等待配乐。</strong><p>加入剧本后，提示词、生成进度和剪映素材会集中显示在这里。</p></div>}
-      {jobs.map((job, index) => <article key={job.id} className="bos-script-job" data-status={job.status}>
+      {batches.map((batch, batchIndex) => {
+        const expanded = expandedBatches[batch.id] ?? batchIndex === batches.length - 1;
+        const status = batch.attention ? `${batch.attention} 项待处理` : batch.active ? '生成中' : batch.complete === batch.jobs.length ? '已完成' : '等待处理';
+        return <section key={batch.id} className="bos-music-batch" aria-label={`配乐批次 ${batch.title}`}>
+        <div className="bos-music-batch-heading"><button type="button" className="bos-music-batch-toggle" aria-expanded={expanded} aria-controls={`music-batch-${batch.id}`} onClick={() => expandBatch(batch.id, !expanded)}>
+          <span className="bos-script-job-number">{String(batchIndex + 1).padStart(2, '0')}</span>
+          <span className="bos-music-batch-title"><strong>{batch.title}</strong><small>{batch.jobs.length} 首配乐 · 已完成 {batch.complete} / {batch.jobs.length}{batch.createdAt ? ` · ${new Date(batch.createdAt).toLocaleString('zh-CN', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' })}` : ''}</small></span>
+          <span className="bos-script-state">{status}</span><span className="bos-music-batch-chevron" aria-hidden="true">{expanded ? '⌃' : '⌄'}</span>
+        </button><button type="button" className="bos-music-batch-close" aria-label={`关闭批次 ${batch.title}`} title="关闭批次，已生成作品保留在历史中" onClick={() => perform(() => queue.closeBatch(batch.id))}>×</button></div>
+        <div className="bos-music-batch-body" id={`music-batch-${batch.id}`} hidden={!expanded}>
+        {batch.jobs.map((job, index) => <article key={job.id} className="bos-script-job" data-status={job.status}>
         <div className="bos-script-job-heading"><div className="bos-script-job-number">{String(index + 1).padStart(2, '0')}</div><div><h4>{job.title}</h4><small>{job.lines.filter(l => l.kind !== 'scene').length} 行台词 · {job.source === 'library' ? `本地音乐 · ${job.localTrack.title}` : `目标 ${job.durationSeconds} 秒 · ${job.suno.model}`}</small></div><span className="bos-script-state">{job.source === 'library' ? '已选用本地音乐' : (job.status === 'planning' ? `${analysisName(job.gemini)} 策划中` : labels[job.status] || job.status)}</span></div>
         {job.segment && <p className="bos-script-footnote">情节：{job.segment.title} · 原文第 {job.segment.startLine}–{job.segment.endLine} 行 · {job.segment.summary}</p>}
         {job.error && <p className="bos-script-warning">{job.error}</p>}
@@ -223,6 +243,8 @@ export function ScriptAutomation({ providers, automation, onNavigate }) {
         <div className="bos-script-job-actions">{job.status === 'pausedQuery' && <button type="button" onClick={() => perform(() => queue.recover(job.id))}>继续查询原任务</button>}{job.status === 'error' && job.phase !== 'music' && <button type="button" onClick={() => perform(() => queue.retryPlan(job.id))}>修复后重新排队</button>}{job.status === 'complete' && <button type="button" disabled={job.exportState === 'exporting'} onClick={() => perform(() => queue.export(job.id, job.source === 'library' ? localDirectory : directory))}>{job.exportState === 'exporting' ? '正在保存…' : job.source === 'library' ? (job.exportState === 'done' ? '再次导出素材' : '导出剪映素材') : (job.exportState === 'done' ? '再次保存音乐' : '保存音乐')}</button>}{['queued', 'ready', 'error', 'complete'].includes(job.status) && <button type="button" disabled={job.exportState === 'exporting'} onClick={() => perform(() => queue.remove(job.id))}>移除记录</button>}</div>
         {job.exportPath && <p className="bos-script-export">已保存：{job.exportPath}</p>}{job.exportError && <p className="bos-script-warning">保存失败：{job.exportError} 可重新保存，无需重新生成配乐。</p>}
       </article>)}
+        </div></section>;
+      })}
       <p className="bos-script-footnote">切换页面不影响队列。关闭软件后任务记录保留；重启会继续查询已提交的任务，新任务需点击开始。Suno 音乐按调性与乐器命名，直接保存音频；本地音乐仍可导出配乐与台词底稿。台词也可单独导出 TXT。</p>
     </section>
     </div>
