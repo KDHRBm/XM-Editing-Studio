@@ -114,7 +114,7 @@ test('background submission notifications do not claim rendering finished', t =>
 
 test('recording card stays passive, hides before sampling and reports F10 cancellation', async t => {
   const f = cardFixture(t);
-  const extra = { operation: 'recording', total: 4, completed: 2, current: 3, mode: 'wait_close', step: 'popup_close', skipAvailable: true };
+  const extra = { operation: 'recording', total: 4, completed: 2, current: 3, mode: 'wait_close', step: 'close_btn', skipAvailable: false };
   f.update('preparing', 'record-1', extra); const window = f.windows[0]; window.emit('ready-to-show');
   assert.equal(window.bounds.height, 280); assert.equal(window.passthrough, true);
   await f.card.beforeCapture('record-1'); assert.equal(window.visible, false);

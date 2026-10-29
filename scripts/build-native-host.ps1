@@ -90,7 +90,7 @@ Copy-Item -LiteralPath (Join-Path $projectRoot 'app/THIRD_PARTY_NOTICES.txt') -D
 
 $periodHash = (Get-FileHash -LiteralPath (Join-Path $nativeResources 'helpers/PeriodKeeper.exe') -Algorithm SHA256).Hash.ToLowerInvariant()
 
-@{version='1.4.3';architecture='C# + WebView2';periodSha256=$periodHash} | ConvertTo-Json | Set-Content -LiteralPath (Join-Path $nativeResources 'native-manifest.json') -Encoding utf8
+@{version=(Get-Content -LiteralPath (Join-Path $projectRoot 'package.json') -Raw | ConvertFrom-Json).version;architecture='C# + WebView2';periodSha256=$periodHash} | ConvertTo-Json | Set-Content -LiteralPath (Join-Path $nativeResources 'native-manifest.json') -Encoding utf8
 
 if (-not (Test-Path -LiteralPath 'app/build/companion/xm-manifest.json')) { throw 'Build the complete companion first; see docs/COMPANION-INTEGRATION.md' }
 

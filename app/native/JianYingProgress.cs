@@ -36,11 +36,10 @@ internal sealed partial class JianYingEngine
     {
         if (_recState == null || _recordingProgress == null) return;
         string[] steps = _exportMode == "wait_close" ? new[] { "export", "confirm", "close_btn", "draft_close" } : new[] { "export", "confirm", "popup_close" };
-        bool skip = _recState == "popup_close" && _exportMode == "wait_close";
-        _recordingProgress["current"] = skip ? 3 : Array.IndexOf(steps, _recState) + 1;
+        _recordingProgress["current"] = Array.IndexOf(steps, _recState) + 1;
         _recordingProgress["completed"] = steps.Count(key => _recordingCoords[key] != null);
         _recordingProgress["step"] = _recState;
-        _recordingProgress["skipAvailable"] = skip;
+        _recordingProgress["skipAvailable"] = false;
         EmitProgress(_recordingProgress, "recording-progress", stage, _guide + " · F10 结束录制");
     }
 
@@ -53,7 +52,6 @@ internal sealed partial class JianYingEngine
         lock (_lock)
         {
             if (_recState == null || _recordingCoords == null || _recordingCapture != null) return;
-            if (_recState == "popup_close" && _exportMode == "wait_close") { SyncRecordingProgress(); return; }
             // Sampling a hovered button must not require focus or send a mouse click.
             if (!NativeWin32.GetCursorPos(out point)) { _recordingError = "无法获取鼠标位置，请重按 F8。"; EmitProgress(_recordingProgress, "recording-progress", "retry", _recordingError); return; }
             step = _recState; generation = _operationGeneration;

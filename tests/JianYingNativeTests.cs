@@ -105,10 +105,26 @@ internal static class JianYingNativeTests
             Check(((IDictionary)engine.Snapshot()["recordingProgress"])["stage"].Equals("cancelled"), "F10 cancels pending capture");
             Check(engine.Snapshot()["templateId"].Equals(template), "cancel retains previous template");
             Set("_exportMode", "wait_close"); engine.Dispatch("wizard", Args());
-            Record(false, false); Record(false, false);
-            Check(((IDictionary)engine.Snapshot()["recordingProgress"])["skipAvailable"].Equals(true), "wait mode skip offered");
-            Call("OnKeyF9"); Record(false, false); Record(false, false);
+            string[] recordingSteps = { "export", "confirm", "close_btn", "draft_close" };
+            for (int i=0;i<recordingSteps.Length;i++) {
+                var state=(IDictionary)engine.Snapshot()["recordingProgress"];
+                Check(Field("_recState").Equals(recordingSteps[i]) && state["step"].Equals(recordingSteps[i]), "F8 advances directly to the correct coordinate");
+                Check(state["current"].Equals(i+1) && state["completed"].Equals(i) && state["total"].Equals(4), "four-step card counts remain consistent");
+                Check(state["skipAvailable"].Equals(false) && !Convert.ToString(state["message"]).Contains("F9"), "recording never requires F9");
+                if(i==2) {
+                    Record(false,true);
+                    Check(Field("_recState").Equals("close_btn") && ((IDictionary)engine.Snapshot()["recordingProgress"])["completed"].Equals(2), "failed close-button capture retries without consuming a step");
+                }
+                Record(false, false);
+            }
             Check(((IDictionary)engine.Snapshot()["recordingProgress"])["completed"].Equals(4), "four-step recording completes");
+            Check(!(bool)engine.Snapshot()["recording"] && (bool)engine.Snapshot()["coordinatesReady"], "four F8 captures save a usable template");
+            var recorded=(Dictionary<string,int[]>)Field("_coords");
+            Check(recorded["popup_close"]==null && recordingSteps.All(step=>recorded[step]!=null), "wait-close template records only its four required buttons");
+            string savedPath=Convert.ToString(Field("_activeTemplatePath")),savedBytes=File.ReadAllText(savedPath);
+            Check((bool)Call("LoadCoordinateTemplate",savedPath) && (bool)Call("ModeCoordsReady","wait_close"), "four-step template reloads with the existing schema");
+            engine.Dispatch("wizard",Args()); Record(false,false); Record(false,false); Record(false,false); Call("OnKeyF10");
+            Check(File.ReadAllText(savedPath)==savedBytes && Convert.ToString(Field("_activeTemplatePath"))==savedPath, "cancelling before fourth F8 preserves the previous template");
             Call("BeginExportProgress", 1, "return_home", parsed, (Dictionary<string, int[]>)Field("_coords"));
             Call("ExportStep", 1, "草稿1", true);
             Set("_exportActive", true); Call("StopOperation", "F10");

@@ -27,7 +27,7 @@ function render(value) {
   $('open').hidden = activeManual;
   $('open').disabled = value.stage === 'preparing' || activeManual;
   $('shortcut').hidden = !activeManual;
-  $('shortcut').innerHTML = recording ? value.skipAvailable ? '按 <kbd>F9</kbd> 跳过本步 · <kbd>F10</kbd> 结束录制' : '按 <kbd>F8</kbd> 记录坐标 · <kbd>F10</kbd> 结束录制' : value.stage === 'stopping' ? '正在结束运行，请稍候' : '按 <kbd>F10</kbd> 结束运行';
+  $('shortcut').innerHTML = recording ? '按 <kbd>F8</kbd> 记录坐标 · <kbd>F10</kbd> 结束录制' : value.stage === 'stopping' ? '正在结束运行，请稍候' : '按 <kbd>F10</kbd> 结束运行';
   $('open').textContent = value.stage === 'complete' ? '查看结果' : '返回工作台';
   $('progress').setAttribute('aria-label', title);
   const determinate = (exporting || recording) && value.total > 0;

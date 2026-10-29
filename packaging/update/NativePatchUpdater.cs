@@ -24,6 +24,7 @@ internal static class NativePatchUpdater {
         using (var reader = new StreamReader(stream, Encoding.UTF8)) return Json.Deserialize<Manifest>(reader.ReadToEnd());
     }
     static void Need(bool ok, string message) { if (!ok) throw new IOException(message); }
+    static string Supported(Manifest manifest) { return string.Join(" / ",manifest.baselines.Select(item=>item.version).Distinct()); }
     static string Hash(string path) {
         using (var stream = File.OpenRead(path)) using (var sha = SHA256.Create())
             return BitConverter.ToString(sha.ComputeHash(stream)).Replace("-", "").ToLowerInvariant();
@@ -53,7 +54,7 @@ internal static class NativePatchUpdater {
         string exe = Child(target,"小马剪辑台.exe");
         var version = File.Exists(exe) ? FileVersionInfo.GetVersionInfo(exe).ProductVersion : "";
         Need(manifest.baselines != null && manifest.baselines.Length > 0, "更新包缺少兼容版本清单，请重新下载。");
-        Need(manifest.baselines.Any(item => version == item.version + ".0") || version == manifest.version + ".0", "此小更新包支持原版 1.4.2 和 1.4.3。1.3.1 等旧版本请先升级到 1.4.2 完整版。");
+        Need(manifest.baselines.Any(item => version == item.version + ".0") || version == manifest.version + ".0", "此增量更新包支持原版 " + Supported(manifest) + "。旧版本请先升级到 " + manifest.baseVersion + " 完整版。");
         Closed(target);
         foreach (var file in manifest.changed) Verify(Child(Path.Combine(Root,"payload"),file.name),file.after);
         // Check the installed components that are deliberately omitted from this small package.
@@ -63,7 +64,7 @@ internal static class NativePatchUpdater {
         // Match one complete build, not independent per-file allowlists: a mixed
         // installation must not be mistaken for another supported revision.
         var baseline = manifest.baselines.FirstOrDefault(item => version == item.version + ".0" && manifest.changed.All(file => item.files.ContainsKey(file.name) && current[file.name] == item.files[file.name]));
-        Need(baseline != null, "当前文件不属于本包支持的完整 1.4.2 / 1.4.3 版本，可能存在混用或修改。原文件未修改，请保留安装目录并获取对应更新包。");
+        Need(baseline != null, "当前文件不属于本包支持的完整 " + Supported(manifest) + " 版本，可能存在混用或修改。原文件未修改，请保留安装目录并获取对应更新包。");
         var changes = manifest.changed.Select(file => new Entry { name=file.name, before=current[file.name], after=file.after }).ToArray();
         if (verifyOnly) return "更新前校验通过。";
         Need(new DriveInfo(Path.GetPathRoot(target)).AvailableFreeSpace > manifest.changed.Sum(file => new FileInfo(Child(Path.Combine(Root,"payload"),file.name)).Length) * 3 + 32 * 1024 * 1024, "磁盘空间不足，请至少预留 64 MB。");
@@ -118,8 +119,9 @@ internal static class NativePatchUpdater {
             catch (Exception error) { try { Console.Error.WriteLine(error.Message); } catch(IOException) { } return 1; }
         }
         Application.EnableVisualStyles(); Application.SetCompatibleTextRenderingDefault(false);
-        var form = new Form { Text="XM剪辑台 1.4.3 小更新包", ClientSize=new Size(590,210), StartPosition=FormStartPosition.CenterScreen, FormBorderStyle=FormBorderStyle.FixedDialog, MaximizeBox=false };
-        var title = new Label { Text="支持原版 1.4.2 / 1.4.3，更新至最新 1.4.3。请先彻底退出软件。", AutoSize=true, Location=new Point(20,20) };
+        var manifest = Load();
+        var form = new Form { Text="XM剪辑台 " + manifest.version + " 增量更新包", ClientSize=new Size(590,210), StartPosition=FormStartPosition.CenterScreen, FormBorderStyle=FormBorderStyle.FixedDialog, MaximizeBox=false };
+        var title = new Label { Text="支持原版 " + Supported(manifest) + "，更新至 " + manifest.version + "。请先彻底退出软件。", AutoSize=true, Location=new Point(20,20) };
         var folder = new TextBox { Location=new Point(20,54), Width=450 };
         using (var key=Registry.CurrentUser.OpenSubKey("Software\\Xiaoma\\EditingStudio")) if(key!=null) folder.Text=Convert.ToString(key.GetValue("InstallLocation"));
         var browse = new Button { Text="选择目录", Location=new Point(480,52), Width=90 };

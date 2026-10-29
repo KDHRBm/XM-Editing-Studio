@@ -3,8 +3,11 @@ import path from 'node:path';
 import {createHash} from 'node:crypto';
 import {spawnSync} from 'node:child_process';
 
-const [baseArg, hostArg, clientArg, outArg, ...priorManifestArgs] = process.argv.slice(2);
-if (!outArg) throw Error('Usage: node scripts/build-native-patch.mjs baseline-app new-host new-client output [known-prior-native-files.json ...]');
+const args=process.argv.slice(2), engineIndex=args.indexOf('--jianying');
+const engineArg=engineIndex<0?null:args.splice(engineIndex,2)[1];
+if(engineIndex>=0&&!engineArg)throw Error('--jianying requires a directory with JianYingEngine.exe and engine.json');
+const [baseArg, hostArg, clientArg, outArg, ...priorManifestArgs] = args;
+if (!outArg) throw Error('Usage: node scripts/build-native-patch.mjs baseline-app new-host new-client output [known-prior-native-files.json ...] [--jianying new-engine-directory]');
 const base=path.resolve(baseArg), host=path.resolve(hostArg), client=path.resolve(clientArg), output=path.resolve(outArg);
 const version=JSON.parse(await fs.readFile('package.json','utf8')).version;
 const baselineBytes=await fs.readFile(path.join(base,'native-files.json'));
@@ -13,6 +16,13 @@ if(baseline.version!=='1.4.2'||baseline.architecture!=='csharp-webview2') throw 
 await fs.mkdir(output); const payload=path.join(output,'payload'); await fs.mkdir(payload);
 const hash=bytes=>createHash('sha256').update(bytes).digest('hex');
 const candidates=new Map([['小马剪辑台.exe',await fs.readFile(host)]]);
+if(engineArg) {
+  const engine=await fs.readFile(path.resolve(engineArg,'JianYingEngine.exe'));
+  const descriptor=await fs.readFile(path.resolve(engineArg,'engine.json'));
+  if(JSON.parse(descriptor).sha256!==hash(engine))throw Error('JianYing engine descriptor checksum mismatch');
+  candidates.set('resources/jianying/JianYingEngine.exe',engine);
+  candidates.set('resources/jianying/engine.json',descriptor);
+}
 async function walk(directory) {
   for(const entry of await fs.readdir(directory,{withFileTypes:true})) {
     const file=path.join(directory,entry.name);if(entry.isSymbolicLink())throw Error('Linked source');
@@ -40,7 +50,8 @@ for(const [name,digest] of Object.entries(retained)) if(hash(await fs.readFile(p
 const baselines=[];
 for(const bytes of [baselineBytes,...await Promise.all(priorManifestArgs.map(file=>fs.readFile(path.resolve(file))))]) {
   const prior=JSON.parse(bytes);
-  if(![baseline.version,version].includes(prior.version)||prior.architecture!==baseline.architecture)throw Error('Unsupported prior native manifest');
+  const number=value=>/^\d+\.\d+\.\d+$/.test(value)?value.split('.').reduce((sum,part)=>sum*100000+Number(part),0):NaN;
+  if(!Number.isFinite(number(prior.version))||number(prior.version)<number(baseline.version)||number(prior.version)>number(version)||prior.architecture!==baseline.architecture)throw Error('Unsupported prior native manifest');
   for(const [name,digest] of Object.entries(retained))if(prior.files[name]!==digest)throw Error('Prior build requires additional component payload: '+name);
   const files=Object.fromEntries(changed.map(file=>[file.name,file.name==='native-files.json'?hash(bytes):prior.files[file.name]||'']));
   if(!baselines.some(item=>item.version===prior.version&&JSON.stringify(item.files)===JSON.stringify(files)))baselines.push({version:prior.version,files});
@@ -56,5 +67,5 @@ for(const [exe,args] of [[path.join(output,'XM-Editing-Studio-'+version+'-Update
   if(result.status!==0)throw Error(result.stdout+result.stderr);
 }
 await fs.copyFile('CHANGELOG-'+version+'.md',path.join(output,'更新说明.md'));
-await fs.writeFile(path.join(output,'使用说明.txt'),'XM剪辑台 '+version+' 小更新包\r\n适用：原版 1.4.2，以及此前发布和本机更新的 1.4.3（C# + WebView2）\r\n\r\n1. 将整个压缩包解压到安装目录之外。不要只取出 exe。\r\n2. 保存任务，从托盘彻底退出 XM剪辑台和桌宠。\r\n3. 双击 XM-Editing-Studio-'+version+'-Update.exe，选择原版安装目录并点击开始更新。\r\n4. 已安装本次修改时，会提示无需重复更新。\r\n\r\n程序自动校验和备份，保留配置、任务、音乐与桌宠。备份位于安装目录 .xiaoma-update-backups。\r\n此包不是完整安装包；1.3.1 等旧版请先更新至 1.4.2。请勿混用其他版本文件。\r\n');
+await fs.writeFile(path.join(output,'使用说明.txt'),'XM剪辑台 '+version+' 累计增量更新包\r\n适用：原版 '+[...new Set(baselines.map(item=>item.version))].join('、')+'，包含已知本地修订（C# + WebView2）\r\n\r\n1. 将整个压缩包解压到安装目录之外。不要只取出 exe。\r\n2. 保存任务，从托盘彻底退出 XM剪辑台和桌宠。\r\n3. 双击 XM-Editing-Studio-'+version+'-Update.exe，选择原版安装目录并点击开始更新。\r\n4. 已安装本次修改时，会提示无需重复更新。\r\n\r\n程序自动校验和备份，保留配置、任务、音乐与桌宠。备份位于安装目录 .xiaoma-update-backups。\r\n此包不是完整安装包；1.3.1 等旧版请先更新至 1.4.2。请勿混用其他版本文件。\r\n');
 console.log(JSON.stringify({output,version,changed:changed.map(file=>file.name),baselines:baselines.map(item=>item.version),retained:Object.keys(retained).length},null,2));

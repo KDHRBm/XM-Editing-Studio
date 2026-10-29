@@ -2,7 +2,7 @@ import { PetNavIcon } from './NavigationIcons.jsx';
 
 
 
-const idle = { status: 'idle', currentVersion: '1.4.3', progress: 0 };
+const idle = { status: 'idle', currentVersion: '1.4.4', progress: 0 };
 
 
 

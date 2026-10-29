@@ -14,7 +14,7 @@ using Microsoft.Web.WebView2.WinForms;
 
 namespace XM.Native {
     internal sealed partial class StudioHost : ApplicationContext {
-        internal const string Origin = "https://xm.local", Version = "1.4.3";
+        internal const string Origin = "https://xm.local", Version = "1.4.4";
         internal readonly string BaseDir, DataDir, ClientDir;
         internal StudioWindow MainWindow, PanelWindow;
         internal WebView2 MainView, PanelView;

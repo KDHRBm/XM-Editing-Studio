@@ -68,7 +68,6 @@ internal static class NativeWin32
     public const uint KEYEVENTF_KEYUP = 0x0002;
     public const byte VK_RETURN = 0x0D;
     public const int VK_F8 = 0x77;
-    public const int VK_F9 = 0x78;
     public const int VK_F10 = 0x79;
 
     public static string GetForegroundProcessName()
@@ -593,21 +592,18 @@ internal sealed partial class JianYingEngine
 
     private void HotkeyLoop()
     {
-        bool prevF8 = false, prevF9 = false, prevF10 = false;
+        bool prevF8 = false, prevF10 = false;
         while (!_disposed)
         {
             try
             {
                 bool f8 = (NativeWin32.GetAsyncKeyState(NativeWin32.VK_F8) & 0x8000) != 0;
-                bool f9 = (NativeWin32.GetAsyncKeyState(NativeWin32.VK_F9) & 0x8000) != 0;
                 bool f10 = (NativeWin32.GetAsyncKeyState(NativeWin32.VK_F10) & 0x8000) != 0;
 
                 if (f10 && !prevF10) OnKeyF10();
                 if (f8 && !prevF8) OnKeyF8();
-                if (f9 && !prevF9) OnKeyF9();
 
                 prevF8 = f8;
-                prevF9 = f9;
                 prevF10 = f10;
             }
             catch { }
@@ -618,19 +614,6 @@ internal sealed partial class JianYingEngine
     private void OnKeyF10()
     {
         StopOperation("F10");
-    }
-
-    private void OnKeyF9()
-    {
-        lock (_lock)
-        {
-            if (_recState == "popup_close" && _exportMode == "wait_close" && _recordingCoords != null && _recordingCapture == null)
-            {
-                _recordingCoords["popup_close"] = null;
-                Log("  ↪ 已跳过收起至首页坐标，继续录制后续步骤");
-                AdvanceRecording();
-            }
-        }
     }
 
     private void AdvanceRecording()
@@ -661,18 +644,13 @@ internal sealed partial class JianYingEngine
             }
             else if (_recState == "confirm")
             {
-                _recState = "popup_close";
-                _guide = "等待完成关闭模式请按 F9，继续录制关闭按钮";
-            }
-            else if (_recState == "popup_close")
-            {
                 _recState = "close_btn";
-                _guide = "3/4 鼠标在导出完成后的【关闭(X)】按钮上 → F8";
+                _guide = "3/4 等待导出完成，鼠标放在【关闭导出界面】按钮上 → F8";
             }
             else if (_recState == "close_btn")
             {
                 _recState = "draft_close";
-                _guide = "4/4 鼠标放在【关闭草稿/返回首页】上 → 按 F8结束录制并保存模板";
+                _guide = "4/4 鼠标放在【关闭草稿/返回首页】上 → F8 结束录制并保存模板";
             }
             else
             {

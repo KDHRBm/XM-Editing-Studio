@@ -1,12 +1,12 @@
 # XM剪辑台
 
-**1.4.2 已改用 C# + WebView2 主程序**，保留现有界面和业务功能。更新包支持原版 **1.3.1 及以上版本直接升级**；配置、任务和历史在校验后迁移到安装目录的 `data`。详见 [1.4.2 更新说明](CHANGELOG-1.4.2.md) 和 [迁移说明](docs/CSHARP-MIGRATION.md)。
+**1.4.4 累计增量更新已发布**，包含 1.4.3 全部修改和四步 F8 坐标录制，支持原版 **1.4.2、1.4.3** 直接更新。首次安装及 1.3.1 等旧版本，请先使用 1.4.2 完整安装包，再应用 1.4.4 增量包。软件使用 C# + WebView2 主程序，配置、任务和历史保存在安装目录的 `data`。详见 [1.4.4 更新说明](CHANGELOG-1.4.4.md) 和 [迁移说明](docs/CSHARP-MIGRATION.md)。
 
 **把剧本、字幕、音乐和剪映常用工具放进一个工作台。**
 
 XM剪辑台面向短剧剪辑与批量制作：粘贴剧本，整理中文／英文／西语台词，按整篇或不同情节分析配乐，在本地音乐库里找合适的音乐，或交给 Suno 生成，再继续完成样片水印和剪映工程处理。
 
-[下载安装](https://github.com/KDHRBm/XM-Editing-Studio/releases/latest) · [更新说明](CHANGELOG-1.4.2.md) · [查看源码](app) · [参与开发](CONTRIBUTING.md) · [反馈问题](https://github.com/KDHRBm/XM-Editing-Studio/issues)
+[下载安装](https://kdhrbm.github.io/XM-Editing-Studio-Website/) · [更新说明](CHANGELOG-1.4.4.md) · [查看源码](app) · [参与开发](CONTRIBUTING.md) · [反馈问题](https://github.com/KDHRBm/XM-Editing-Studio/issues)
 
 ## 剪辑台能做什么
 

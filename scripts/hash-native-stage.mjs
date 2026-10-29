@@ -15,5 +15,6 @@ await walk(stage);entries.sort();const files={};let cursor=0;
 await Promise.all(Array.from({length:4},async()=>{
   while(cursor<entries.length){const file=entries[cursor++];files[path.relative(stage,file).replaceAll('\\','/')]=createHash('sha256').update(await fs.readFile(file)).digest('hex');}
 }));
-await fs.writeFile(path.join(stage,'native-files.json'),JSON.stringify({version:'1.4.3',architecture:'csharp-webview2',files},null,2));
+const version=JSON.parse(await fs.readFile(new URL('../package.json',import.meta.url),'utf8')).version;
+await fs.writeFile(path.join(stage,'native-files.json'),JSON.stringify({version,architecture:'csharp-webview2',files},null,2));
 console.log(`Native package verified: ${entries.length} files.`);

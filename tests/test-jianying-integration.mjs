@@ -69,6 +69,8 @@ test('sixth page exposes four separately collapsible panels and reuses existing 
   const exportPanel = nodes(tree, node => node.props.id === 'jy-export')[0];
   const connections = nodes(tree, node => node.props.id === 'jy-settings')[0];
   assert.match(textOf(exportPanel), /导出模式与参数/); assert.match(textOf(exportPanel), /保存等待时间/);
+  assert.match(textOf(exportPanel), /导出 → 确认导出 → 关闭导出界面 → 关闭草稿/);
+  assert.doesNotMatch(textOf(exportPanel), /F9/);
   assert.doesNotMatch(textOf(connections), /坐标模板|保存等待时间/);
   const optionsToggle = nodes(exportPanel, node => node.props['aria-controls'] === 'bos-jy-export-options-body')[0];
   assert.equal(optionsToggle.props['aria-expanded'], true);
