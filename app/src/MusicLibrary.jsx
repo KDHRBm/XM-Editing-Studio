@@ -30,6 +30,8 @@ export function MusicLibrary({ input, projectId, savedRecommendation, onAnalysis
   const analyzerName = analysisName(gemini);
   const [catalog, setCatalog] = i.useState(emptyCatalog);
   const [scanning, setScanning] = i.useState(false);
+  const [dragging, setDragging] = i.useState(false);
+  const scanPending = i.useRef(false);
   const [error, setError] = i.useState('');
   const [notice, setNotice] = i.useState('');
   const [collapsed, toggleCollapsed] = usePanelCollapsed('local-music');
@@ -76,11 +78,20 @@ export function MusicLibrary({ input, projectId, savedRecommendation, onAnalysis
   }, []);
   const changeCatalog = async operation => {
     if (!ready) { setError('连接本地盘需要使用更新后的桌面程序。'); return; }
-    if (scanning) return;
+    if (scanPending.current) return;
+    scanPending.current = true;
     setScanning(true); setError('');
     try { setCatalog(await operation()); setNotice('音乐索引已更新。新增或重命名音乐后，可重新分析匹配。'); }
     catch (err) { setError(err.message || '无法读取音乐库。'); }
-    finally { setScanning(false); }
+    finally { scanPending.current = false; setScanning(false); }
+  };
+  const dropFolders = event => {
+    if (!Array.from(event.dataTransfer.types || []).includes('Files')) return;
+    event.preventDefault(); event.stopPropagation(); setDragging(false);
+    const files = Array.from(event.dataTransfer.files || []);
+    if (!api?.connectDroppedMusicFolders) { setError('请使用新版桌面程序拖入文件夹，也可以点击“连接音乐文件夹”。'); return; }
+    if (collapsed) toggleCollapsed();
+    void changeCatalog(() => api.connectDroppedMusicFolders(files));
   };
   const analyze = async () => {
     if (matchState.busy) return;
@@ -133,8 +144,11 @@ export function MusicLibrary({ input, projectId, savedRecommendation, onAnalysis
       setNotice(selected ? `已选用「${item.track.title}」，可在下方任务区导出素材。` : `已取消选用「${item.track.title}」，已移除对应任务和使用标记。`);
     } catch (err) { setError(err.message); }
   };
-  return <><section className="bos-library bos-script-panel" aria-labelledby="bos-library-title">
+  return <><section className={`bos-library bos-script-panel${dragging ? ' bos-library-dragging' : ''}`} aria-labelledby="bos-library-title" aria-busy={scanning}
+    onDragOver={event => { if (Array.from(event.dataTransfer.types || []).includes('Files')) { event.preventDefault(); event.stopPropagation(); event.dataTransfer.dropEffect = scanning ? 'none' : 'copy'; setDragging(!scanning); } }}
+    onDragLeave={event => { if (!event.currentTarget.contains(event.relatedTarget)) setDragging(false); }} onDrop={dropFolders}>
     <div className="bos-library-heading"><div><span className="bos-script-eyebrow">YOUR MUSIC LIBRARY</span><h3 id="bos-library-title">本地音乐库</h3><p>管理音乐文件夹与检索标题。支持多个文件夹与子目录。</p></div><div className="bos-script-actions"><button type="button" disabled={scanning} onClick={() => changeCatalog(() => api.connectMusicLibrary())}>{scanning ? '正在扫描…' : '连接音乐文件夹'}</button><button type="button" disabled={scanning || !catalog.directories.length} onClick={() => changeCatalog(() => api.refreshMusicLibrary())}>刷新音乐库</button><button type="button" className="bos-panel-toggle" aria-expanded={!collapsed} aria-controls="bos-library-body" onClick={toggleCollapsed}>{collapsed ? '展开本地配乐' : '收起本地配乐'} <span aria-hidden="true">{collapsed ? '⌄' : '⌃'}</span></button></div></div>
+    <div className="bos-library-drop-hint" role="status">{scanning ? '正在读取音乐文件夹，请稍候…' : dragging ? '松开即可连接文件夹并扫描音乐' : '拖入音乐文件夹即可自动识别，支持多个文件夹与子目录'}</div>
     <div id="bos-library-body" hidden={collapsed}>
     {error && <div className="bos-script-alert" role="alert">{error}</div>}
     {usage.error && <p className="bos-script-warning" role="alert">{usage.error}</p>}

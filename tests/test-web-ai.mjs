@@ -193,19 +193,23 @@ test('web UI selects and remembers provider, only copies on click, and reports c
   assert.equal(render(false).props.hidden, true);
 });
 test('UI lifecycle hides native page behind dialogs and on page switch, with no observers left', async () => {
-  const originals = Object.fromEntries(['setInterval', 'clearInterval', 'requestAnimationFrame', 'cancelAnimationFrame', 'window', 'document', 'ResizeObserver', 'MutationObserver'].map(key => [key, globalThis[key]]));
-  const layouts = [], frames = new Map(), observers = [], listeners = new Set(), intervals = new Set(); let next = 0, modal = false;
+  const originals = Object.fromEntries(['setInterval', 'clearInterval', 'requestAnimationFrame', 'cancelAnimationFrame', 'window', 'document', 'ResizeObserver', 'MutationObserver', 'getComputedStyle'].map(key => [key, globalThis[key]]));
+  const layouts = [], frames = new Map(), observers = [], listeners = new Set(), intervals = new Set(); let next = 0, modal = false, radius = 20;
   try {
     globalThis.requestAnimationFrame = fn => { const id = ++next; frames.set(id, fn); return id; }; globalThis.cancelAnimationFrame = id => frames.delete(id);
     globalThis.setInterval = fn => { intervals.add(fn); return fn; }; globalThis.clearInterval = fn => intervals.delete(fn);
     const flush = () => { const pending = [...frames.values()]; frames.clear(); pending.forEach(fn => fn()); };
     globalThis.window = { innerWidth: 1440, innerHeight: 900, addEventListener: name => listeners.add(name), removeEventListener: name => listeners.delete(name) };
     globalThis.document = { body: {}, querySelector: () => null, querySelectorAll: () => modal ? [{ getClientRects: () => [1], closest: () => null }] : [] };
+    globalThis.getComputedStyle = () => ({ borderTopLeftRadius: radius + 'px' });
     globalThis.ResizeObserver = globalThis.MutationObserver = class { constructor(fn) { this.fn = fn; observers.push(this); } observe() {} disconnect() { this.disconnected = true; } };
     globalThis.blackObsidian = { layoutWebAI: async input => { layouts.push(input); return null; }, webAIAction: async () => ({ official: true }) };
     slots = []; const tree = render(); const slot = nodes(tree).find(node => node.props.ref);
     slot.props.ref.current = { getBoundingClientRect: () => ({ left: 270, top: 300, right: 1100, bottom: 950 }), closest: () => ({ getBoundingClientRect: () => ({ left: 260, top: 0, right: 1120, bottom: 864 }) }) };
     const cleanup = effects[0](); flush(); assert.equal(layouts.at(-1).visible, true); assert.equal(layouts.at(-1).bounds.height, 562);
+    assert.equal(layouts.at(-1).cornerRadius, 18);
+    const count = layouts.length; observers[0].fn(); flush(); assert.equal(layouts.length, count, 'Unchanged geometry must not trigger redundant layout');
+    radius = 26; observers[1].fn(); flush(); assert.equal(layouts.at(-1).cornerRadius, 24, 'Native clipping follows the CSS inset radius');
     modal = true; observers[1].fn(); flush(); assert.equal(layouts.at(-1).visible, false);
     modal = false; observers[1].fn(); flush(); assert.equal(layouts.at(-1).visible, true);
     cleanup(); assert.equal(layouts.at(-1).visible, false); assert(observers.every(o => o.disconnected)); assert.equal(intervals.size, 0); assert.equal(listeners.size, 0); assert.equal(frames.size, 0);

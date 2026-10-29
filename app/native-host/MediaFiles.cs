@@ -24,6 +24,12 @@ namespace XM.Native {
             Task.Run(async () => { try { await ScanLibrary(); } catch (Exception error) { Log(error.Message); } });
         }
         private void SaveLibrary() { J.Save(Path.Combine(DataDir, "music-library.json"), J.Obj("version", 1, "directories", musicRoots)); }
+        private async Task<object> ConnectMusicFolders(IEnumerable<string> folders) {
+            var next = MusicDirectories.Merge(musicRoots, folders);
+            J.Save(Path.Combine(DataDir, "music-library.json"), J.Obj("version", 1, "directories", next));
+            musicRoots = next;
+            return await ScanLibrary();
+        }
         private async Task<object> ScanLibrary() {
             await libraryGate.WaitAsync();
             try {

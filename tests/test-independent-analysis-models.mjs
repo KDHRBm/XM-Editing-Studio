@@ -1,3 +1,4 @@
+import { fileURLToPath } from 'node:url';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { build } from 'esbuild';
@@ -29,7 +30,7 @@ globalThis.i = {
   useRef: value => ({ current: value }), useEffect: () => {}, useMemo: fn => fn(),
   useSyncExternalStore: (_subscribe, snapshot) => snapshot(),
 };
-const bundle = await build({ stdin: { contents: "export {ScriptAutomation} from '../app/src/ScriptAutomation.jsx'; export {useScriptProjects} from '../app/src/ScriptProjects.jsx';", resolveDir: new URL('.', import.meta.url).pathname.replace(/^\/(\w:)/, '$1') }, bundle: true, write: false, format: 'esm', jsxFactory: 'i.createElement', jsxFragment: 'i.Fragment' });
+const bundle = await build({ stdin: { contents: "export {ScriptAutomation} from '../app/src/ScriptAutomation.jsx'; export {useScriptProjects} from '../app/src/ScriptProjects.jsx';", resolveDir: fileURLToPath(new URL('.', import.meta.url)) }, bundle: true, write: false, format: 'esm', jsxFactory: 'i.createElement', jsxFragment: 'i.Fragment' });
 const load = suffix => import('data:text/javascript;base64,' + Buffer.from(bundle.outputFiles[0].text + '\n//' + suffix).toString('base64'));
 const ui = await load('first');
 const nodes = tree => !tree || typeof tree !== 'object' ? [] : [tree, ...(tree.children || []).flat(Infinity).flatMap(nodes)];

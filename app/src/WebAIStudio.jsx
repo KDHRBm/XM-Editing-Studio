@@ -29,7 +29,8 @@ export function WebAIStudio({ active, onNavigate }) {
       const viewport = { left: 0, top: 0, right: window.innerWidth, bottom: window.innerHeight };
       const bounds = clipWebAISlot(rect, viewport, slot.current.closest('.main-scroll')?.getBoundingClientRect(), rail?.width || 0);
       const modal = [...document.querySelectorAll('[role=dialog],.modal-backdrop')].some(node => node.getClientRects().length && !node.closest('[hidden],.bos-web-ai'));
-      const input = { provider, visible: !modal && bounds.width > 100 && bounds.height > 80, bounds };
+      const cornerRadius = Math.max(0, (parseFloat(getComputedStyle(slot.current).borderTopLeftRadius) || 20) - 2);
+      const input = { provider, visible: !modal && bounds.width > 100 && bounds.height > 80, bounds, cornerRadius };
       const signature = JSON.stringify(input);
       if (signature === last) return;
       last = signature;

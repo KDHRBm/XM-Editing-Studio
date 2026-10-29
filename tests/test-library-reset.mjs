@@ -5,6 +5,7 @@ const saved = new Map();
 let injectedCatalog;
 globalThis.localStorage = { getItem: key => saved.get(key) || null, setItem: (key, value) => saved.set(key, value), removeItem: key => saved.delete(key) };
 globalThis.i = {
+  useRef: value => ({ current: value }),
   createElement: (type, props, ...children) => ({ type, props: props || {}, children }),
   useState: initial => [injectedCatalog && initial?.tracks ? injectedCatalog : typeof initial === 'function' ? initial() : initial, () => {}],
   useEffect: () => {}, useMemo: calculate => calculate(),

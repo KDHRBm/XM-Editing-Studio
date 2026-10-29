@@ -1,6 +1,6 @@
 {
   "name": "xm-editing-studio-source",
-  "version": "1.4.2",
+  "version": "1.4.3",
   "private": true,
   "type": "module",
   "description": "XM剪辑台功能源码与开发工具",

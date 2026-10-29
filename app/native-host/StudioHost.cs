@@ -13,54 +13,8 @@ using Microsoft.Web.WebView2.Core;
 using Microsoft.Web.WebView2.WinForms;
 
 namespace XM.Native {
-    internal sealed class StudioWindow : RoundedWindow {
-        [DllImport("user32.dll")] static extern bool ReleaseCapture();
-        [DllImport("user32.dll")] static extern IntPtr SendMessage(IntPtr handle, int msg, IntPtr wparam, IntPtr lparam);
-        [DllImport("dwmapi.dll")] static extern int DwmSetWindowAttribute(IntPtr hwnd, int attr, ref int value, int size);
-        [StructLayout(LayoutKind.Sequential)] private struct MinMaxInfo { public Point Reserved, MaxSize, MaxPosition, MinTrackSize, MaxTrackSize; }
-        public StudioWindow(bool panel = false) {
-            Text = "XM剪辑台"; FormBorderStyle = FormBorderStyle.None; AutoScaleMode = AutoScaleMode.Dpi;
-            Size = panel ? new Size(350, 500) : new Size(1440, 920); MinimumSize = panel ? new Size(280, 320) : new Size(860, 600);
-            StartPosition = FormStartPosition.CenterScreen; BackColor = Color.FromArgb(23, 24, 27);
-            ShowInTaskbar = !panel; TopMost = panel; CornerRadius = panel ? 16 : 0;
-            Padding = new Padding(6);
-        }
-        private int ResizeEdge { get { using (var graphics = CreateGraphics()) return Math.Max(6, (int)Math.Ceiling(6 * graphics.DpiX / 96f)); } }
-        private void UpdateResizeFrame() {
-            // Keep a small native edge outside the WebView HWND: hit-testing the
-            // Form alone cannot receive input covered by a browser child window.
-            if (!IsHandleCreated) return;
-            int edge = WindowState == FormWindowState.Maximized ? 0 : ResizeEdge;
-            if (Padding.All != edge) Padding = new Padding(edge);
-        }
-        protected override void OnHandleCreated(EventArgs e) { base.OnHandleCreated(e); UpdateResizeFrame(); }
-        protected override void OnSizeChanged(EventArgs e) { base.OnSizeChanged(e); UpdateResizeFrame(); }
-        public void Drag() { ReleaseCapture(); SendMessage(Handle, 0xA1, new IntPtr(2), IntPtr.Zero); }
-        public void Palette(bool dark) { int v = dark ? 1 : 0; try { DwmSetWindowAttribute(Handle, 20, ref v, 4); int rounded = 2; DwmSetWindowAttribute(Handle, 33, ref rounded, 4); } catch {} }
-        protected override void WndProc(ref Message m) {
-            if (m.Msg == 0x24) {
-                base.WndProc(ref m);
-                var screen = Screen.FromHandle(m.HWnd); var limits = (MinMaxInfo)Marshal.PtrToStructure(m.LParam, typeof(MinMaxInfo));
-                limits.MaxPosition = new Point(screen.WorkingArea.Left - screen.Bounds.Left, screen.WorkingArea.Top - screen.Bounds.Top);
-                limits.MaxSize = new Point(screen.WorkingArea.Width, screen.WorkingArea.Height);
-                Marshal.StructureToPtr(limits, m.LParam, false); return;
-            }
-            if (m.Msg == 0x84 && WindowState == FormWindowState.Normal) {
-                Point p = PointToClient(new Point((short)(m.LParam.ToInt64() & 0xffff), (short)(m.LParam.ToInt64() >> 16)));
-                int edge = ResizeEdge, corner = edge * 3;
-                if (ClientRectangle.Contains(p)) {
-                    bool l = p.X < edge, r = p.X >= ClientSize.Width - edge, t = p.Y < edge, b = p.Y >= ClientSize.Height - edge;
-                    bool cl = p.X < corner, cr = p.X >= ClientSize.Width - corner, ct = p.Y < corner, cb = p.Y >= ClientSize.Height - corner;
-                    int hit = (t && cl || l && ct) ? 13 : (t && cr || r && ct) ? 14 : (b && cl || l && cb) ? 16 : (b && cr || r && cb) ? 17 : t ? 12 : b ? 15 : l ? 10 : r ? 11 : 0;
-                    if (hit != 0) { m.Result = new IntPtr(hit); return; }
-                }
-            }
-            base.WndProc(ref m);
-            if (m.Msg == 0x02E0) UpdateResizeFrame();
-        }
-    }
     internal sealed partial class StudioHost : ApplicationContext {
-        internal const string Origin = "https://xm.local", Version = "1.4.2";
+        internal const string Origin = "https://xm.local", Version = "1.4.3";
         internal readonly string BaseDir, DataDir, ClientDir;
         internal StudioWindow MainWindow, PanelWindow;
         internal WebView2 MainView, PanelView;
@@ -116,7 +70,7 @@ namespace XM.Native {
                     Dictionary<string, object> request; try { request = J.Map(J.Decode(e.TryGetWebMessageAsString())); } catch { return; }
                     object id = J.Get(request, "id"); var command = J.Str(request, "cmd");
                     if (Environment.GetEnvironmentVariable("XM_NATIVE_QA") == "1") Log("request " + command);
-                    var attachedFiles = command == "watermark-drop" || command == "watermark-browser-open" ? e.AdditionalObjects.OfType<CoreWebView2File>().Select(file => (object)file.Path).ToArray() : new object[0];
+                    var attachedFiles = command == "watermark-drop" || command == "watermark-browser-open" || command == "music-library-drop" || command == "quick-folders-drop" ? e.AdditionalObjects.OfType<CoreWebView2File>().Select(file => (object)file.Path).ToArray() : new object[0];
                     // WebView2 callbacks must return before opening dialogs or another browser.
                     MainWindow.BeginInvoke(new Action(async () => {
                     try {
@@ -126,7 +80,9 @@ namespace XM.Native {
                             var files = attachedFiles;
                             if (files.Length == 0) throw new Exception("未取得视频路径，请使用选择视频按钮。");
                             value = await WatermarkAction("add-videos", files);
-                        } else if (command == "watermark-browser-open" && view == MainView) value = browserWatermark.Open(J.Get(request, "payload"), attachedFiles.Select(Convert.ToString).ToArray());
+                        } else if (command == "music-library-drop" && view == MainView) value = await ConnectMusicFolders(attachedFiles.Select(Convert.ToString));
+                        else if (command == "quick-folders-drop" && view == MainView) value = await AddQuickFolders(attachedFiles.Select(Convert.ToString));
+                        else if (command == "watermark-browser-open" && view == MainView) value = browserWatermark.Open(J.Get(request, "payload"), attachedFiles.Select(Convert.ToString).ToArray());
                         else value = await Dispatch(view, command, J.Map(J.Get(request, "payload")));
                         if (!view.IsDisposed) core.PostWebMessageAsJson(J.Encode(J.Obj("id", id, "result", value)));
                     } catch (Exception error) { Log("request-error " + command + " " + error.GetType().Name); if (!view.IsDisposed) core.PostWebMessageAsJson(J.Encode(J.Obj("id", id, "error", error.Message))); }

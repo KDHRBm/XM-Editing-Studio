@@ -13,6 +13,14 @@ namespace XM.Native {
     internal sealed partial class StudioHost {
         private Dictionary<string, object> quickSettings;
         private List<object> installs = new List<object>();
+        private async Task<object> AddQuickFolders(IEnumerable<string> paths) {
+            string file = Path.Combine(DataDir, "quick-launch.json");
+            var settings = quickSettings ?? J.Map(J.Read(file, J.Obj("folders", new object[0], "selected", "")));
+            var next = new Dictionary<string, object>(settings);
+            next["folders"] = QuickFolders.Merge(J.Arr(J.Get(settings,"folders")), paths);
+            J.Save(file,next); quickSettings = next;
+            return await QuickLaunch("status",null);
+        }
         private async Task<object> QuickLaunch(string action, object value) {
             string file = Path.Combine(DataDir, "quick-launch.json");
             if (quickSettings == null) quickSettings = J.Map(J.Read(file, J.Obj("folders", new object[0], "selected", "")));
@@ -22,8 +30,7 @@ namespace XM.Native {
                 installs = await Task.Run(() => DiscoverJianying(J.Str(quickSettings, "selected")));
             } else if (action == "addFolder") {
                 if (folders.Count >= 8) throw new Exception("最多设置八个自定义文件夹。"); var folder = ChooseFolder();
-                if (folder.Length > 0 && !folders.Any(x => J.Str(x, "path").Equals(folder, StringComparison.OrdinalIgnoreCase))) folders.Add(J.Obj("id", Guid.NewGuid().ToString("N"), "path", folder, "name", Path.GetFileName(folder)));
-                quickSettings["folders"] = folders; J.Save(file, quickSettings);
+                if (folder.Length > 0) return await AddQuickFolders(new[] { folder });
             } else if (action == "removeFolder") { quickSettings["folders"] = folders.Where(x => J.Str(x, "id") != Convert.ToString(value)).ToArray(); J.Save(file, quickSettings); }
             else if (action == "openFolder") { string folder = J.Str(folders.Find(x => J.Str(x, "id") == Convert.ToString(value)), "path"); if (!Directory.Exists(folder)) throw new Exception("文件夹不存在或磁盘未连接。"); OpenPath(folder); }
             else if (action == "select") { if (!installs.Any(x => J.Str(x, "path") == Convert.ToString(value))) throw new Exception("请重新检测剪映。"); quickSettings["selected"] = value; J.Save(file, quickSettings); }

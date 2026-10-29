@@ -1,10 +1,34 @@
-// English / Spanish require language markers; Chinese has a separate speaker-line mode.
+// Explicit language markers take precedence; otherwise accept speaker-labelled Latin dialogue.
 import { normalizeSubtitlePunctuation } from './period-text.mjs';
 import { extractChineseSubtitles } from './chinese-subtitles.mjs';
 const marker = /^(?:\[(EN|ES(?:[-_](?:ES|MX|LA|419))?|ESP|SPA|SPANISH|ESPAÑOL|西语|西班牙语)\]|【(EN|ES|ESP|SPA|SPANISH|ESPAÑOL|西语|西班牙语)】|\[(EN|ES|ESP|SPA)\s+|(?:西语|西班牙语|Español|Spanish)\s*[:：])/i;
 const direction = /^(?:[△▲]|(?:VO|V\.O\.|OS|O\.S\.|SFX|ACTION|SCENE|NOTE|INT\.|EXT\.)\s*[:：])/i;
 const titleEnding = /\b(?:Mr|Mrs|Ms|Mx|Dr|Prof|Sr|Jr)\.$/i;
 const spanishTitleEnding = /\b(?:Sr|Sra|Srta|Dr|Dra|Ud|Uds|Prof|Profa)\.$/i;
+const scriptHeading = /^(?:第\s*[0-9零〇一二两三四五六七八九十百千]+\s*[集话回]|(?:EP(?:ISODE)?\.?\s*\d+)|\d+[-－]\d+\s)/i;
+const metadataLabel = /^(?:人物|角色|场景|地点|时间|画面|字幕|音效|配乐|备注|说明|旁白说明|CAST|CHARACTERS?|LOCATION|TIME|TITLE|EPISODE|SCENE|ACTION|NOTE|SFX|MUSIC|BGM|INT\.?|EXT\.?|English|Spanish|https?)$/i;
+
+function unmarkedDialogue(text) {
+  if (direction.test(text) || /^[\[【△▲Δ]/.test(text)) return null;
+  let depth = 0, separator = -1;
+  for (let at = 0; at < text.length; at++) {
+    if ('(（[【'.includes(text[at])) depth++;
+    else if (')）]】'.includes(text[at])) depth = Math.max(0, depth - 1);
+    else if (!depth && /[:：]/.test(text[at])) { separator = at; break; }
+  }
+  if (separator < 1) return null;
+  const speaker = text.slice(0, separator).replace(/\([^)]*\)|（[^）]*）|\[[^\]]*\]|【[^】]*】/g, '').trim();
+  if (speaker.length > 70 || metadataLabel.test(speaker) || !/\p{L}/u.test(speaker) || !/^[\p{L}\p{M}\p{N}\s.'’·/_—–-]+$/u.test(speaker)) return null;
+  const dialogue = text.slice(separator + 1).split(/[△▲Δ]/, 1)[0].trim();
+  const spoken = dialogue.replace(/\([^)]*\)|（[^）]*）|\[[^\]]*\]|【[^】]*】/g, '');
+  if (!/\p{Script=Latin}/u.test(spoken) || /\p{Script=Han}/u.test(spoken)) return null;
+  return dialogue;
+}
+function latinLanguage(text, fallback = 'en') {
+  if (/[¿¡ñÑ]/.test(text) || /\b(?:hola|gracias|señor|señora|estoy|estás|está|dónde|qué|cómo|quiero|puedes|usted|ustedes|nosotros|ahora|aquí|espera|pero|porque|tengo|tienes|vamos|eres|esto|eso)\b/iu.test(text)) return 'es';
+  if (/\b(?:the|your|you|are|was|were|with|why|what|please|hello|thanks|don't|can't|isn't|it's|i'm)\b/i.test(text)) return 'en';
+  return fallback;
+}
 
 function dialogueAfterSpeaker(text) {
   // Remove the complete label before stripping Chinese, including bilingual names.
@@ -85,9 +109,22 @@ export function rhythmLines(text, language = 'en') {
 
 export function extractSubtitles(script, selectedLanguage = 'auto') {
   if (selectedLanguage === 'zh') return extractChineseSubtitles(script);
+  const rows = script.split('\n');
+  // Keep the established explicit-marker format strict: unmarked directions in
+  // a marked script must not unexpectedly become extra subtitles.
+  const explicit = rows.some(row => marker.test(row.trim().replace(/^[-*]\s+/, '')));
+  // Untagged bilingual dialogue is accepted when the input looks like a real
+  // screenplay (episode/scene heading or direction marker). This keeps short
+  // arbitrary notes such as "JACK: Hello" from becoming subtitles by accident.
+  const structured = rows.some(row => scriptHeading.test(row.trim()))
+    || rows.some(row => /^(?:△|▲|Δ)/.test(row.trim()));
+  const plain = explicit || structured ? rows.map(row => unmarkedDialogue(row.trim())).filter(Boolean) : [];
+  const languages = plain.map(text => latinLanguage(text, ''));
+  const fallback = languages.filter(x => x === 'es').length > languages.filter(x => x === 'en').length ? 'es' : selectedLanguage === 'es' ? 'es' : 'en';
   const utterances = []; let current = null;
-  for (const [index, raw] of script.split('\n').entries()) {
+  for (const [index, raw] of rows.entries()) {
     let text = raw.trim();
+    if (scriptHeading.test(text)) { current = null; continue; }
     const unlisted = text.replace(/^[-*]\s+/, '');
     // A list prefix before [EN]/[ES] is formatting; a dialogue continuation's dash is text.
     if (marker.test(unlisted)) text = unlisted;
@@ -101,7 +138,11 @@ export function extractSubtitles(script, selectedLanguage = 'auto') {
       if (/^[△▲]/.test(text)) { current = null; continue; }
       text = dialogueAfterSpeaker(text);
       current = { sourceLine: index + 1, language, text }; utterances.push(current);
-    } else if (current && text && !direction.test(text) && !/[\p{Script=Han}△▲]|^\[|^【/u.test(text) && !/^[\p{Lu}][\p{Lu} _.'()-]{0,70}[:：]/u.test(text)) {
+    } else if (!explicit && structured && unmarkedDialogue(text) !== null) {
+      const dialogue = unmarkedDialogue(text), language = latinLanguage(dialogue, fallback);
+      if (selectedLanguage !== 'auto' && selectedLanguage !== language) { current = null; continue; }
+      current = { sourceLine: index + 1, language, text: dialogue }; utterances.push(current);
+    } else if (current && text && !direction.test(text) && !metadataLabel.test(text.split(/[:：]/, 1)[0].trim()) && !/[\p{Script=Han}△▲Δ]|^\[|^【/u.test(text) && !/^[\p{Lu}][\p{Lu} _.'()-]{0,70}[:：]/u.test(text)) {
       current.text += ' ' + text;
     } else current = null;
   }

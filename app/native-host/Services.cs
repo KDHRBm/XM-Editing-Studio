@@ -66,7 +66,7 @@ namespace XM.Native {
                 case "export-script-materials": return await ExportMaterials(p);
                 case "music-library-list": return libraryCatalog;
                 case "music-library-refresh": return await ScanLibrary();
-                case "music-library-connect": { string folder = ChooseFolder(); if (folder.Length > 0) { if (musicRoots.Count >= 20 && !musicRoots.Contains(folder)) throw new Exception("最多连接20个音乐文件夹。"); if (!musicRoots.Contains(folder)) musicRoots.Add(folder); SaveLibrary(); } return await ScanLibrary(); }
+                case "music-library-connect": { string folder = ChooseFolder(); return folder.Length > 0 ? await ConnectMusicFolders(new[] { folder }) : libraryCatalog; }
                 case "music-library-disconnect": { musicRoots.RemoveAll(root => J.Hash(root.ToLowerInvariant()) == J.Str(p, "id")); SaveLibrary(); return await ScanLibrary(); }
                 case "prepare-music-drag": return PrepareDrag(p);
                 case "start-music-drag": { string path = ResolveDrag(J.Str(p, "token")); sender.DoDragDrop(new DataObject(DataFormats.FileDrop, new[] { path }), DragDropEffects.Copy); return null; }
@@ -130,7 +130,7 @@ namespace XM.Native {
             string provider = J.Str(p, "provider"); if (provider != "deepseek" && provider != "doubao") throw new Exception("无效的网页模型。");
             WebView2 view;
             if (!aiViews.TryGetValue(provider, out view)) {
-                view = new WebView2 { Visible = false, DefaultBackgroundColor = Color.White }; aiViews[provider] = view; MainWindow.Controls.Add(view);
+                view = new RoundedWebView { Visible = false, DefaultBackgroundColor = Color.White }; aiViews[provider] = view; MainWindow.Controls.Add(view);
                 aiReady[provider] = InitializeAI(view, provider);
             }
             await aiReady[provider];
@@ -143,6 +143,7 @@ namespace XM.Native {
             int width = Math.Max(0, Math.Min(MainView.Right - x, (int)Math.Round(J.Num(bounds, "width") * zoom)));
             int height = Math.Max(0, Math.Min(MainView.Bottom - y, (int)Math.Round(J.Num(bounds, "height") * zoom)));
             var rectangle = new Rectangle(x, y, width, height);
+            ((RoundedWebView)view).RadiusPixels = (int)Math.Round(Math.Max(0,Math.Min(40,J.Num(p,"cornerRadius",18))) * zoom);
             if (view.Bounds != rectangle) view.Bounds = rectangle;
             bool visible = width > 100 && height > 80, changed = view.Visible != visible || activeAi != provider;
             if (view.Visible != visible) view.Visible = visible;

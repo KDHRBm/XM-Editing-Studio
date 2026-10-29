@@ -54,8 +54,13 @@ export function batchSubtitleLines(task, preserve = true) {
   const heading = rows.findIndex(line => episodeHeading(line));
   const subtitleScript = rows.map((line, index) => index <= heading ? '' : line).join('\n');
   // Keep the existing workspace's Chinese punctuation behavior unchanged.
-  const selected = language === 'auto' && !/\[(?:EN|ES(?:[-_](?:ES|MX|LA|419))?|ESP|SPA|SPANISH|ESPAÑOL|西语|西班牙语)(?:\]|\s)|【(?:EN|ES|西语)】|(?:西语|西班牙语|Español|Spanish)\s*[:：]/i.test(subtitleScript) ? 'zh' : language;
-  return selected === 'zh' ? extractChineseSubtitles(subtitleScript, { preservePunctuation: preserve }) : splitScript(subtitleScript, selected);
+  if (language === 'zh') return extractChineseSubtitles(subtitleScript, { preservePunctuation: preserve });
+  // Retain the episode heading only as Latin-format context; the extractor
+  // ignores heading text. Chinese extraction still excludes that entire row.
+  const latin = splitScript(rows.map((line, index) => index < heading ? '' : line).join('\n'), language);
+  // Prefer the same English/Spanish result as the workspace. Only a script
+  // without those dialogue rows falls back to Chinese in batch auto mode.
+  return language === 'auto' && !latin.length ? extractChineseSubtitles(subtitleScript, { preservePunctuation: preserve }) : latin;
 }
 export function nextBatchGroup(tasks, onlyIds = []) {
   const pending = tasks.filter(task => (!onlyIds.length || onlyIds.includes(task.id)) && ['queued', 'paused'].includes(task.status));

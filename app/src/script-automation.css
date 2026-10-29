@@ -43,3 +43,8 @@
 .bos-period-status small, .bos-period-hint { white-space:normal; overflow-wrap:anywhere; }
 .bos-period-actions > button { display:inline-flex; align-items:center; justify-content:center; min-height:34px; flex:0 0 auto; }
 .bos-period-keeper details > summary { white-space:normal; overflow-wrap:anywhere; }
+.bos-library-drop-hint{margin:16px 0;padding:15px 18px;border:1px dashed var(--ui-border);border-radius:10px;color:var(--ui-muted);font-size:12px;transition:background-color .18s ease,border-color .18s ease}
+.bos-library-dragging{outline:2px solid var(--ui-accent);outline-offset:3px}
+.bos-library-dragging .bos-library-drop-hint{background:var(--ui-raised);border-color:var(--ui-accent);color:var(--ui-text)}
+
+.bos-web-ai-slot{border-radius:20px;overflow:hidden;isolation:isolate}

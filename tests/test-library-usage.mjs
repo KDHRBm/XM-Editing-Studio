@@ -1,3 +1,4 @@
+import { fileURLToPath } from 'node:url';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { build } from 'esbuild';
@@ -37,10 +38,11 @@ test('shuffle does not mutate or lose candidates, and never reintroduces used tr
 });
 
 globalThis.localStorage = memory();
-const bundle = await build({ stdin: { contents: "export {MusicLibrary,clearCurrentLibraryMatch} from '../app/src/MusicLibrary.jsx'; export {musicUsage} from '../app/src/MusicUsage.mjs';", resolveDir: new URL('.', import.meta.url).pathname.replace(/^\/(\w:)/, '$1') }, bundle: true, write: false, format: 'esm', jsxFactory: 'i.createElement', jsxFragment: 'i.Fragment', target: 'es2022' });
+const bundle = await build({ stdin: { contents: "export {MusicLibrary,clearCurrentLibraryMatch} from '../app/src/MusicLibrary.jsx'; export {musicUsage} from '../app/src/MusicUsage.mjs';", resolveDir: fileURLToPath(new URL('.', import.meta.url)) }, bundle: true, write: false, format: 'esm', jsxFactory: 'i.createElement', jsxFragment: 'i.Fragment', target: 'es2022' });
 const { MusicLibrary, musicUsage, clearCurrentLibraryMatch } = await import('data:text/javascript;base64,' + Buffer.from(bundle.outputFiles[0].text).toString('base64'));
 let slots = [], cursor = 0, catalog = { directories: [], tracks, revision: 'fixture' };
 globalThis.i = {
+  useRef: value => ({ current: value }),
   createElement: (type, props, ...children) => ({ type, props: props || {}, children }),
   useState(initial) {
     const index = cursor++;
@@ -191,4 +193,25 @@ test('whole recommendation cancel clears usage only after success, including whe
   await button(tree, '已选用 · 点击取消').props.onClick();
   assert(!musicUsage.snapshot().history.some(item => item.id === track.id));
   tree = render(currentProps); assert.equal(button(tree, '请重新匹配').props.disabled, true);
+});
+
+test('folder drop forwards native File objects once while scanning and refreshes the catalog', async () => {
+  const previous = globalThis.blackObsidian;
+  let finish, calls = 0, prevented = 0;
+  const files = [{name:'配乐文件夹'}];
+  globalThis.blackObsidian = {getMusicLibrary: async () => catalog, connectDroppedMusicFolders: input => {
+    assert.deepEqual(input, files); calls++;
+    return new Promise(resolve => {finish=resolve;});
+  }};
+  try {
+    slots=[];
+    const tree=render(props), area=nodes(tree).find(node => typeof node.props.onDrop === 'function');
+    assert(area);
+    const event={dataTransfer:{types:['Files'],files},preventDefault:()=>prevented++,stopPropagation:()=>{}};
+    area.props.onDrop(event);area.props.onDrop(event);
+    assert.equal(calls,1);assert.equal(prevented,2);
+    finish({directories:[{id:'new-folder',path:'fixture',count:1}],tracks:[tracks[0]],revision:'dropped'});
+    await new Promise(resolve=>setImmediate(resolve));
+    assert.match(textOf(render(props)),/音乐索引已更新/);
+  } finally {globalThis.blackObsidian=previous;}
 });
