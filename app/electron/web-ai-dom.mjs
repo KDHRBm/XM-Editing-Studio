@@ -2,7 +2,7 @@
 // site application state, internal endpoints or the main app's privileged bridge.
 const page = String.raw`(input => {
   if (input.host && (location.protocol !== 'https:' || location.hostname !== input.host)) return { state: 'login', message: '请返回官方对话页面后继续。' };
-  const visible = node => node.getClientRects().length > 0 && getComputedStyle(node).visibility !== 'hidden' && getComputedStyle(node).opacity !== '0' && !node.closest('[hidden],[aria-hidden="true"]');
+  const visible = node => node.getClientRects().length > 0 && (!node.checkVisibility || node.checkVisibility({ checkOpacity: true, checkVisibilityCSS: true })) && getComputedStyle(node).visibility !== 'hidden' && getComputedStyle(node).opacity !== '0' && !node.closest('[hidden],[aria-hidden="true"]');
   const alerts = [...document.querySelectorAll('[role="alert"],[class*="toast"],[class*="message-error"],[data-testid*="toast"]')].filter(visible).map(node => node.innerText || '').join(' ');
   const limited = /访问频繁|请求过于频繁|操作频繁|请求频繁|too many requests|rate limit|额度.*(?:用完|耗尽|不足)/i.test(alerts);
   const buttons = [...document.querySelectorAll('button,[role="button"],a')].filter(visible);
@@ -40,8 +40,20 @@ const page = String.raw`(input => {
       if (node.querySelector('input[type="file"]') && buttons.some(button => node.contains(button))) break;
     }
     composer ||= editor.parentElement;
-    const media = [...composer.querySelectorAll('img,canvas,div,span')].filter(visible).flatMap(node => {
+    // DeepSeek can put the preview above a separately scrolling text editor.
+    // Locate this upload by its unique filename before applying size heuristics;
+    // the expanded composer can be taller than the old 600px limit.
+    const isNamedAttachment = node => visible(node) && !node.contains(editor) && !node.closest('article,pre,code,[class*="markdown"],[data-message-author-role],[data-testid*="message"]') &&
+      [node.getAttribute('title'), node.getAttribute('aria-label'), node.getAttribute('alt'), node.childElementCount === 0 ? node.textContent?.trim() : null].includes(input.filename);
+    const namedAttachments = [...document.querySelectorAll('[title],[aria-label],[alt],button,span,div')].filter(isNamedAttachment);
+    for (const attachment of namedAttachments) {
+      let common = editor.parentElement;
+      while (common && common !== document.body && !common.contains(attachment)) common = common.parentElement;
+      if (common && common !== document.body && !common.querySelector('article,[class*="markdown"],[data-message-author-role],[data-testid*="message"]')) { composer = common; break; }
+    }
+    const media = [...composer.querySelectorAll('img,canvas,div,span,svg image')].filter(visible).flatMap(node => {
       if (node.tagName === 'IMG') return node.currentSrc || node.src ? [{ key: node.currentSrc || node.src, loaded: node.complete && node.naturalWidth > 0 }] : [];
+      if (node.tagName.toLowerCase() === 'image') return node.href?.baseVal ? [{ key: node.href.baseVal, loaded: true }] : [];
       if (node.tagName === 'CANVAS') return [{ key: 'canvas:' + node.width + ':' + node.height, loaded: node.width > 0 && node.height > 0 }];
       const background = getComputedStyle(node).backgroundImage;
       return background && background !== 'none' ? [{ key: background, loaded: true }] : [];
@@ -54,13 +66,13 @@ const page = String.raw`(input => {
     const errorText = statusNodes.filter(node => visible(node) && !node.contains(editor) && !node.closest(excludedStatus)).map(node => (node.innerText || '').trim()).find(text => text.length <= 180 && uploadFailure.test(text));
     if (errorText) return { state: 'unsupported', message: 'DeepSeek 截图上传失败：' + errorText.slice(0, 160) };
     if (input.command === 'image-ready') {
-      const named = [...composer.querySelectorAll('[title],[aria-label],span,div')].some(node => visible(node) && (node.getAttribute('title') === input.filename || node.getAttribute('aria-label') === input.filename || node.textContent?.trim() === input.filename));
+      const named = namedAttachments.some(node => composer.contains(node));
       const receipt = input.upload;
       const thumbnail = receipt?.filename === input.filename && Array.isArray(receipt.before) && media.some(item => item.loaded && !receipt.before.includes(item.key));
       const uploading = [...composer.querySelectorAll('[role="progressbar"],[aria-busy="true"],[class*="uploading"],[class*="file-loading"],[class*="loading"],[class*="spinner"]')].some(visible);
       const send = buttons.find(node => composer.contains(node) && /^(发送|发送消息|send|send message)$/i.test((node.getAttribute('aria-label') || node.getAttribute('title') || node.innerText || '').trim()));
       const blocked = send && (send.disabled || send.getAttribute('aria-disabled') === 'true');
-      return (named || thumbnail) && !uploading && !blocked ? { state: 'ready' } : { state: 'uploading', message: 'DeepSeek 正在处理截图；如官网显示失败，请中断后重试。' };
+      return (named || thumbnail) && !uploading && !blocked ? { state: 'ready' } : { state: 'uploading', message: !(named || thumbnail) ? '正在等待本次截图预览；如附件已显示，可点击网页发送箭头继续。' : uploading ? '截图仍在上传或处理中，请稍候。' : '截图已就绪，正在等待网页启用发送按钮。' };
     }
     const files = [...document.querySelectorAll('input[type="file"]')].filter(node => !node.disabled && (!node.accept || /image|\.jpe?g|\.png/i.test(node.accept)));
     if (!files.length) return { state: 'unsupported', message: '当前 DeepSeek 页面未提供图片上传，请切换支持图片的模式或使用 Gemini。' };

@@ -44,6 +44,7 @@ test('batch UI defaults are independent; paste automatically analyzes multiple e
   const first = tree.children.flat(Infinity).find(value => value && typeof value === 'object');
   assert.match(textOf(first), /字幕标点保留/);
   assert.ok(nodes(tree).some(node => typeof node.type === 'function' && node.type.name === 'MusicUsageHistory' && node.props.scope === 'batch'));
+  findLabel(tree, '剧名').props.onChange({ target: { value: '亡妻归来' } });
   findLabel(tree, '多集完整剧本').props.onChange({ target: { value: '第1集\n[EN] A: Hello, world.\n第2集\n[EN] B: Wait...' } });
   tree = render();
   let automatic;

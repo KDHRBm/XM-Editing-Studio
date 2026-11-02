@@ -225,24 +225,26 @@ test('rate-limited website stops analysis without submitting or automatically re
   assert.equal(calls, 1); assert.equal(host.snapshot(), null);
 });
 test('a stalled page call can be cancelled without waiting for the page', { timeout: 1000 }, async () => {
-  let started;
+  let started, signal;
   const ready = new Promise(resolve => { started = resolve; });
-  const host = createWebAnalysis({ notify: () => {}, copy: async () => {}, driver: { visible: () => true, run: () => { started(); return new Promise(() => {}); } } });
+  const host = createWebAnalysis({ notify: () => {}, copy: async () => {}, driver: { visible: () => true, run: (_provider, _command, inputSignal) => { signal = inputSignal; started(); return new Promise(() => {}); } } });
   const pending = host.run({ id: 'request-123', provider: 'doubao', purpose: 'score', input });
   const rejected = assert.rejects(pending, /中断/);
   await ready;
   await host.action('request-123', 'cancel');
   await rejected;
+  assert.equal(signal.aborted, true, 'Cancellation must reach the native page operation');
   assert.equal(host.snapshot(), null);
 });
 test('a stalled fill times out without resubmission and allows manual recovery', { timeout: 1000 }, async () => {
-  let host; const calls = [], notices = [];
-  host = createWebAnalysis({ pageTimeoutMs: 10, notify: value => notices.push(value), copy: async () => {}, driver: { visible: () => true, run: (_provider, command) => { calls.push(command.command); return new Promise(() => {}); } },
+  let host, signal; const calls = [], notices = [];
+  host = createWebAnalysis({ pageTimeoutMs: 10, notify: value => notices.push(value), copy: async () => {}, driver: { visible: () => true, run: (_provider, command, inputSignal) => { signal = inputSignal; calls.push(command.command); return new Promise(() => {}); } },
     delay: async () => { await host.action('request-123', 'import', JSON.stringify(analysis)); },
   });
   const result = await host.run({ id: 'request-123', provider: 'doubao', purpose: 'library-match', input: { ...input, tracks: [] } });
   assert.equal(result.analysis.summary, analysis.summary);
   assert.deepEqual(calls, ['fill']);
+  assert.equal(signal.aborted, true, 'Timeout must cancel delayed native keyboard fallback');
   assert(notices.some(value => /响应超时/.test(value?.message)));
 });
 test('visible login and rate-limit notices prevent DOM prompt writes and sends', () => {

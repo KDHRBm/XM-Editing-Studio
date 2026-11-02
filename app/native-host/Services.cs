@@ -23,6 +23,8 @@ namespace XM.Native {
         private readonly Dictionary<string, string> aiErrors = new Dictionary<string, string>();
         private readonly HashSet<string> aiLoading = new HashSet<string>();
         private int aiLayoutGeneration;
+        private string requestedAi = "";
+        private readonly WebAIInputGate aiInput = new WebAIInputGate();
         private void InitServices() {
             http.DefaultRequestHeaders.UserAgent.ParseAdd("XM-Editing-Studio/" + Version);
             string jy = Path.Combine(BaseDir, "resources", "jianying");
@@ -37,6 +39,7 @@ namespace XM.Native {
             browserWatermark = new BrowserWatermark(ClientDir, DataDir);
         }
         private async Task StopServices() {
+            aiInput.Invalidate();
             foreach (var item in requests) item.Value.Cancel();
             browserWatermark.Dispose();
             updateClosing.Cancel();
@@ -59,7 +62,7 @@ namespace XM.Native {
                 }
                 case "http-fetch": return await Fetch(p);
                 case "http-cancel": { CancellationTokenSource token; if (requests.TryGetValue(J.Str(p, "requestId"), out token)) token.Cancel(); return null; }
-                case "choose-directory": return ChooseFolder();
+                case "choose-directory": return ChooseFolder(J.Str(p, "initialFolder"));
                 case "read-cache": return J.Obj("ok", true, "data", J.Read(CachePath(p), null));
                 case "write-cache": { string path = CachePath(p); J.Save(path, J.Get(p, "data")); return J.Obj("ok", true, "path", path); }
                 case "download-audio": return await DownloadAudio(p);
@@ -78,7 +81,7 @@ namespace XM.Native {
                 case "clipboard-text": await WriteClipboard(J.Str(p, "text"), J.Str(p, "text")); return true;
                 case "jianying-action": {
                     string action = J.Str(p, "action");
-                    if (!new[] { "status", "stop", "modal", "scan", "wizard", "export", "extract", "fonts", "unhide", "paths", "files", "preview", "rename", "settings", "select_template", "rename_template", "delete_template", "ai_result", "recording_capture_ready", "scan_capture_ready" }.Contains(action)) throw new Exception("无效的剪映操作。");
+                    if (!new[] { "status", "stop", "modal", "scan", "wizard", "export", "extract", "fonts", "unhide", "restore_punctuation", "paths", "files", "preview", "rename", "settings", "select_template", "rename_template", "delete_template", "ai_result", "recording_capture_ready", "scan_capture_ready" }.Contains(action)) throw new Exception("无效的剪映操作。");
                     jyState = await jyEngine.Call(action, J.Get(p, "args")); return jyState;
                 }
                 case "jianying-files": return ChooseFiles("视频、音频和字幕|*.mp4;*.mov;*.avi;*.mkv;*.mp3;*.wav;*.srt;*.ass|所有文件|*.*");
@@ -86,6 +89,7 @@ namespace XM.Native {
                 case "web-ai-layout": return await LayoutAI(p);
                 case "web-ai-action": return await AIAction(p);
                 case "web-ai-run": return await RunAI(p);
+                case "web-ai-cancel": aiInput.Cancel(J.Str(p, "requestId")); return null;
                 case "quick-launch": return await QuickLaunch(J.Str(p, "action"), J.Get(p, "value"));
                 case "watermark-action": return await WatermarkAction(J.Str(p, "action"), J.Get(p, "value"));
                 case "watermark-browsers": return BrowserWatermark.Discover().Select(x => J.Obj("id", J.Str(x, "id"), "name", J.Str(x, "name"), "available", J.Bool(x, "available"))).ToArray();
@@ -95,7 +99,7 @@ namespace XM.Native {
                 default: throw new Exception("未知本机操作：" + command);
             }
         }
-        private string ChooseFolder() { using (var dialog = new FolderBrowserDialog { Description = "选择文件夹", ShowNewFolderButton = true }) return dialog.ShowDialog(MainWindow) == DialogResult.OK ? dialog.SelectedPath : ""; }
+        private string ChooseFolder(string initialFolder = "") { return ModernFolderPicker.ShowDialog(MainWindow.Handle, "选择文件夹", initialFolder); }
         private string[] ChooseFiles(string filter) { using (var dialog = new OpenFileDialog { Multiselect = true, Filter = filter }) return dialog.ShowDialog(MainWindow) == DialogResult.OK ? dialog.FileNames : new string[0]; }
         private static string CachePath(object p) { string directory = J.Str(p, "directory"), name = J.Str(p, "fileName", "music-cache.json"); if (!Path.IsPathRooted(directory) || name.Length == 0 || Path.GetFileName(name) != name) throw new Exception("无效的保存路径。"); return J.Under(directory, name); }
         private async Task<object> Fetch(Dictionary<string, object> p) {
@@ -126,8 +130,13 @@ namespace XM.Native {
         }
         private async Task<object> LayoutAI(object p) {
             int generation = ++aiLayoutGeneration;
-            if (!J.Bool(p, "visible")) { foreach (var value in aiViews.Values) value.Hide(); activeAi = ""; return null; }
+            if (!J.Bool(p, "visible")) {
+                aiInput.Invalidate(); requestedAi = activeAi = "";
+                foreach (var value in aiViews.Values) BrowserInput.Hide(value, MainView);
+                return null;
+            }
             string provider = J.Str(p, "provider"); if (provider != "deepseek" && provider != "doubao") throw new Exception("无效的网页模型。");
+            if (requestedAi != provider) { requestedAi = provider; aiInput.Invalidate(); }
             WebView2 view;
             if (!aiViews.TryGetValue(provider, out view)) {
                 view = new RoundedWebView { Visible = false, DefaultBackgroundColor = Color.White }; aiViews[provider] = view; MainWindow.Controls.Add(view);
@@ -135,7 +144,7 @@ namespace XM.Native {
             }
             await aiReady[provider];
             if (generation != aiLayoutGeneration) return AIState(provider);
-            foreach (var item in aiViews.Values) if (item != view) item.Hide();
+            foreach (var item in aiViews.Values) if (item != view) BrowserInput.Hide(item, MainView);
             object bounds = J.Get(p, "bounds"); double zoom = MainView.ZoomFactor;
             using (var graphics = MainWindow.CreateGraphics()) zoom *= graphics.DpiX / 96.0;
             int x = MainView.Left + Math.Max(0, (int)Math.Round(J.Num(bounds, "x") * zoom));
@@ -146,14 +155,15 @@ namespace XM.Native {
             ((RoundedWebView)view).RadiusPixels = (int)Math.Round(Math.Max(0,Math.Min(40,J.Num(p,"cornerRadius",18))) * zoom);
             if (view.Bounds != rectangle) view.Bounds = rectangle;
             bool visible = width > 100 && height > 80, changed = view.Visible != visible || activeAi != provider;
-            if (view.Visible != visible) view.Visible = visible;
-            if (visible && changed) view.BringToFront(); activeAi = provider;
+            if (!visible) { aiInput.Invalidate(); BrowserInput.Hide(view, MainView); }
+            else if (!view.Visible) view.Show();
+            if (visible && changed) view.BringToFront(); activeAi = visible ? provider : "";
             return AIState(provider);
         }
         private async Task InitializeAI(WebView2 view, string provider) {
             aiLoading.Add(provider);
             await InitializeView(view, "official-" + provider, provider == "deepseek" ? "https://chat.deepseek.com/" : "https://www.doubao.com/chat/", false);
-            view.CoreWebView2.NavigationStarting += (s, e) => { aiLoading.Add(provider); aiErrors[provider] = ""; };
+            view.CoreWebView2.NavigationStarting += (s, e) => { if (activeAi == provider) aiInput.Invalidate(); aiLoading.Add(provider); aiErrors[provider] = ""; };
             view.CoreWebView2.NavigationCompleted += (s, e) => { aiLoading.Remove(provider); aiErrors[provider] = e.IsSuccess ? "" : "网页加载失败：" + e.WebErrorStatus + "，可刷新重试。"; };
         }
         private object AIState(string provider) { WebView2 view; string error; aiErrors.TryGetValue(provider, out error); return J.Obj("provider", provider, "loading", aiLoading.Contains(provider), "url", aiViews.TryGetValue(provider, out view) && view.CoreWebView2 != null ? view.CoreWebView2.Source : "", "error", error ?? ""); }
@@ -170,9 +180,10 @@ namespace XM.Native {
             if (activeAi != provider || !aiViews.TryGetValue(provider, out view) || !view.Visible || view.CoreWebView2 == null) throw new Exception("请在内嵌官方页面完成登录。");
             Uri uri; if (!Uri.TryCreate(view.CoreWebView2.Source, UriKind.Absolute, out uri) || uri.Scheme != "https" || !(provider == "deepseek" ? uri.Host == "chat.deepseek.com" : uri.Host == "www.doubao.com" || uri.Host == "doubao.com")) return J.Obj("state", "login", "message", "请在官网完成登录。");
             string script = J.Str(p, "script"); if (script.Length > 16 * 1024 * 1024) throw new Exception("截图内容过大。");
-            var result = J.Decode(await view.CoreWebView2.ExecuteScriptAsync(script));
-            if (J.Str(result, "state") == "enter") { OpenMain(); view.Focus(); SendKeys.SendWait("{ENTER}"); return J.Obj("state", "sent"); }
-            return result;
+            return await aiInput.Run(J.Str(p, "requestId"),
+                async () => J.Decode(await view.CoreWebView2.ExecuteScriptAsync(script)),
+                () => !Exiting && activeAi == provider && requestedAi == provider && !view.IsDisposed && view.Visible && view.CoreWebView2 != null,
+                check => WebAIInputGate.SendEnter(view.CoreWebView2, check));
         }
     }
 }

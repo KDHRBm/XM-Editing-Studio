@@ -7,11 +7,13 @@ using System.Threading.Tasks;
 using System.Diagnostics;
 using System.Text.RegularExpressions;
 using System.Collections.Generic;
+using System.Windows.Forms;
 
 namespace XM.Native {
     internal sealed partial class StudioHost {
         private Dictionary<string, object> updater = J.Obj("status", "idle", "currentVersion", Version, "latestVersion", Version, "hasUpdate", false, "progress", 0, "error", "", "sideBySide", false);
         private Task<object> updateTask;
+        private bool startupUpdateChecked;
         private readonly CancellationTokenSource updateClosing = new CancellationTokenSource();
         private object UpdateState(params object[] pairs) { foreach (var item in J.Obj(pairs)) updater[item.Key] = item.Value; Emit("bos:updater-state", updater); return updater; }
         internal static int CompareVersion(string a, string b) { System.Version x, y; if (!System.Version.TryParse(a.TrimStart('v', 'V').Split('-')[0], out x)) x = new System.Version(0, 0); if (!System.Version.TryParse(b.TrimStart('v', 'V').Split('-')[0], out y)) y = new System.Version(0, 0); return x.CompareTo(y); }
@@ -49,29 +51,39 @@ namespace XM.Native {
             if (updateTask != null) return await updateTask;
             updateTask = UpdateCore(action); try { return await updateTask; } finally { updateTask = null; }
         }
+        private async Task CheckStartupUpdate() {
+            if (startupUpdateChecked || Exiting) return;
+            startupUpdateChecked = true;
+            await UpdateAction("check");
+            Log("startup-update " + J.Str(updater, "status") + " source=" + WebsiteUpdates.Feed);
+        }
         private async Task<object> UpdateCore(string action) {
             try {
                 if (action == "check") {
-                    UpdateState("status", "checking", "error", ""); var release = await GetRelease("KDHRBm/XM-Editing-Studio");
-                    string version = J.Str(release, "tag_name", Version).TrimStart('v', 'V');
-                    var assets = J.Arr(J.Get(release, "assets")); object setup = assets.FirstOrDefault(x => Regex.IsMatch(J.Str(x, "name"), @"Setup\.exe$", RegexOptions.IgnoreCase));
-                    string hash = J.Str(setup, "digest"); hash = hash.StartsWith("sha256:") ? hash.Substring(7) : "";
-                    object sums = assets.FirstOrDefault(x => J.Str(x, "name") == "SHA256SUMS.txt");
-                    if (hash.Length == 0 && sums != null && setup != null) { var text = await http.GetStringAsync(ReleaseUrl(J.Str(sums, "browser_download_url"), "KDHRBm/XM-Editing-Studio")); foreach (string line in text.Split('\n')) { var match = Regex.Match(line.Trim(), @"^([a-fA-F0-9]{64})\s+\*?(.+)$"); if (match.Success && match.Groups[2].Value.Trim() == J.Str(setup, "name")) hash = match.Groups[1].Value; } }
-                    bool available = CompareVersion(version, Version) > 0 && setup != null;
-                    return UpdateState("status", available ? "available" : "up-to-date", "latestVersion", version, "hasUpdate", available, "releaseUrl", J.Str(release, "html_url"), "downloadUrl", J.Str(setup, "browser_download_url"), "assetName", J.Str(setup, "name"), "expectedSha256", hash, "assetSize", J.Num(setup, "size"), "installerPath", "");
+                    UpdateState("status", "checking", "error", "", "hasUpdate", false); object package;
+                    using (var cts = CancellationTokenSource.CreateLinkedTokenSource(updateClosing.Token)) { cts.CancelAfter(25000); package = await WebsiteUpdates.Check(http, Version, cts.Token); }
+                    bool available = package != null;
+                    return UpdateState("status", available ? "available" : "up-to-date", "latestVersion", available ? J.Str(package, "version") : Version, "hasUpdate", available, "releaseUrl", WebsiteUpdates.Site, "downloadUrl", J.Str(package, "url"), "assetName", J.Str(package, "name"), "expectedSha256", J.Str(package, "sha"), "assetSize", J.Num(package, "size"), "packageType", J.Str(package, "type"), "installerPath", "");
                 }
                 if (action != "download" && action != "install") throw new Exception("无效的更新操作。");
                 if (!J.Bool(updater, "hasUpdate")) throw new Exception("请先检查是否有新版本。");
                 string installer = J.Str(updater, "installerPath");
                 if (installer.Length == 0 || !File.Exists(installer)) {
-                    string name = J.Str(updater, "assetName"); if (name != Path.GetFileName(name) || !name.EndsWith("Setup.exe", StringComparison.OrdinalIgnoreCase)) throw new Exception("更新安装包名称无效。");
+                    string name = J.Str(updater, "assetName"); if (name != Path.GetFileName(name) || !(J.Str(updater, "packageType") == "incremental" ? name.EndsWith(".zip", StringComparison.OrdinalIgnoreCase) : name.EndsWith("Setup.exe", StringComparison.OrdinalIgnoreCase))) throw new Exception("更新安装包名称无效。");
                     installer = J.Under(Path.Combine(DataDir, "updates"), name); UpdateState("status", "downloading", "progress", 0, "error", "");
                     await DownloadVerified(ReleaseUrl(J.Str(updater, "downloadUrl"), "KDHRBm/XM-Editing-Studio"), installer, J.Str(updater, "expectedSha256"), (long)J.Num(updater, "assetSize"), p => UpdateState("progress", p));
                     UpdateState("status", "ready", "installerPath", installer);
                 }
                 if (action == "install") {
                     if (J.FileHash(installer) != J.Str(updater, "expectedSha256").ToLowerInvariant()) throw new Exception("安装包在下载后发生改变，请重新下载。");
+                    if (MessageBox.Show(MainWindow, "请先保存当前任务。继续将退出 XM剪辑台，并打开更新安装器。", "安装更新", MessageBoxButtons.OKCancel, MessageBoxIcon.Information) != DialogResult.OK) return updater;
+                    if (J.Str(updater, "packageType") == "incremental") {
+                        // Run outside the installation so the patch updater does not lock its target.
+                        string parent = Path.Combine(Directory.GetParent(BaseDir.TrimEnd(Path.DirectorySeparatorChar)).FullName, ".xm-updates");
+                        string patch = await Task.Run(() => WebsiteUpdates.PreparePatch(installer, parent, J.Str(updater, "latestVersion"), J.Str(updater, "expectedSha256")));
+                        updateClosing.Token.ThrowIfCancellationRequested();
+                        Process.Start(new ProcessStartInfo(patch, "--directory " + J.Quote(BaseDir)) { UseShellExecute = true, WorkingDirectory = Path.GetDirectoryName(patch) }); Quit(); return updater;
+                    }
                     // The updater swaps data with its verified migration copy. A
                     // running EXE inside data/updates would lock that directory.
                     string launchDir = Path.Combine(BaseDir, ".xiaoma-update-launch");

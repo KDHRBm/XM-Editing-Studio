@@ -20,6 +20,8 @@ for(const name of files) {
 }
 await fs.writeFile(path.join(fixture,'xiaoma-install.id'),manifest.marker);
 await fs.mkdir(path.join(fixture,'data'),{recursive:true});await fs.writeFile(path.join(fixture,'data','tasks.json'),'user task fixture');
+await fs.mkdir(path.join(fixture,'data/draft-compat/11.6.5.14523'),{recursive:true});
+await fs.writeFile(path.join(fixture,'data/draft-compat/11.6.5.14523/runtime.json'),'existing optional runtime fixture');
 const run=(target=fixture,env={},extra=[])=>spawnSync(executable,['--target',target,...extra],{encoding:'utf8',windowsHide:true,timeout:60000,env:{...process.env,...env}});
 const verifyBaseline=async()=>{for(const [name,digest] of Object.entries(snapshot))assert.equal(hash(await fs.readFile(path.join(fixture,name))),digest,name);};
 try {
@@ -47,7 +49,8 @@ try {
   for(const file of manifest.changed)assert.equal(hash(await fs.readFile(path.join(fixture,file.name))),file.after,file.name);
   for(const [name,digest] of Object.entries(manifest.retained))assert.equal(hash(await fs.readFile(path.join(fixture,name))),digest,name);
   assert.equal(await fs.readFile(path.join(fixture,'data','tasks.json'),'utf8'),'user task fixture');
+  assert.equal(await fs.readFile(path.join(fixture,'data/draft-compat/11.6.5.14523/runtime.json'),'utf8'),'existing optional runtime fixture');
   const repeat=run();assert.equal(repeat.status,0,repeat.stderr);assert.match(repeat.stdout,/无需重复/);
-  const report={passed:true,fromVersion:JSON.parse(await fs.readFile(path.join(overlayArg||baseline,'native-files.json'),'utf8')).version,changedFiles:manifest.changed.length,retainedFiles:Object.keys(manifest.retained).length,checks:['rollback-first','rollback-middle','rollback-last','corrupt-payload','missing-install','unknown-file','known-build-mixture','verify-only','upgrade','repeat','preserve-user-data']};
+  const report={passed:true,fromVersion:JSON.parse(await fs.readFile(path.join(overlayArg||baseline,'native-files.json'),'utf8')).version,changedFiles:manifest.changed.length,retainedFiles:Object.keys(manifest.retained).length,checks:['rollback-first','rollback-middle','rollback-last','corrupt-payload','missing-install','unknown-file','known-build-mixture','verify-only','upgrade','repeat','preserve-user-data','preserve-subtitle-runtime']};
   await fs.writeFile(path.join(out,'test-results.json'),JSON.stringify(report,null,2));console.log(JSON.stringify(report));
 } finally {await fs.rm(executable,{force:true});}

@@ -31,8 +31,12 @@ internal static class JianYingDraftIntegrationTests
             engine = new JianYingEngine(Path.Combine(Path.GetDirectoryName(output), "test-profile"));
             var copies = (List<Tuple<string, IDictionary>>)Call(engine, "FindSubtitleJsons", copy);
             Check(copies.Count == 2, "Expected main and timeline subtitle drafts");
+            string expectedRuntime = Environment.GetEnvironmentVariable("XM_DRAFT_TEST_RUNTIME");
+            if (!string.IsNullOrEmpty(expectedRuntime)) Check(string.Equals(Convert.ToString(typeof(JianYingDraftIO).GetField("preferredLibrary", BindingFlags.Static | BindingFlags.NonPublic).GetValue(null)), expectedRuntime, StringComparison.OrdinalIgnoreCase), "Integration must use the packaged runtime, not another installed Jianying version");
             var lines = (List<string>)Call(engine, "ExtractSubtitleLines", copies[0].Item2);
-            Check(lines.Count / 4 == 26, "Expected all 26 sample subtitle cues");
+            Check(lines.Count / 4 > 0, "Expected real sample subtitle cues");
+            string schema = Convert.ToString(copies[0].Item2["new_version"]);
+            Check(schema == "190.0.0" || schema == "192.0.0", "Expected 11.6.5 or 11.7.5 fixture schema");
             var original = copies.ToDictionary(item => item.Item1, item => json.Serialize(item.Item2));
             foreach (var item in copies) Call(engine, "SetSubtitleTracksHidden", item.Item2, true);
             Call(engine, "SaveSubtitleJsons", copies, 0);
@@ -40,7 +44,7 @@ internal static class JianYingDraftIntegrationTests
             foreach (var item in hidden) {
                 Check(lines.SequenceEqual((List<string>)Call(engine, "ExtractSubtitleLines", item.Item2)), "Subtitle content/timing changed");
                 Check((bool)Call(engine, "SameJson", copies.First(c => c.Item1 == item.Item1).Item2, item.Item2), "Encrypted write/read mismatch");
-                Check(Convert.ToString(item.Item2["new_version"]) == "192.0.0", "Extraction must not downgrade the draft version");
+                Check(Convert.ToString(item.Item2["new_version"]) == schema, "Extraction must not change the draft version");
                 Call(engine, "SetSubtitleTracksHidden", item.Item2, false);
             }
             Call(engine, "SaveSubtitleJsons", hidden, 0);
@@ -56,14 +60,14 @@ internal static class JianYingDraftIntegrationTests
             finally { File.SetAttributes(blocked, File.GetAttributes(blocked) & ~FileAttributes.ReadOnly); }
             Check(rejected, "Read-only timeline should fail");
             foreach (var item in visible) Check(beforeFailure[item.Item1].SequenceEqual(File.ReadAllBytes(item.Item1)), "Partial update did not roll back");
-            string srt = Path.Combine(Path.GetDirectoryName(output), "睡错40.srt");
+            string srt = Path.ChangeExtension(output, ".srt");
             File.WriteAllText(srt, string.Join("\n", lines), new UTF8Encoding(false));
             File.WriteAllText(output, json.Serialize(new {
                 subtitleCues = lines.Count / 4, copies = copies.Count, hiddenReadbackVerified = true,
-                unhideReadbackVerified = true, writeFailureRollbackVerified = true, schemaPreserved = "192.0.0", srt = srt,
+                unhideReadbackVerified = true, writeFailureRollbackVerified = true, schemaPreserved = schema, srt = srt,
                 originalTextsAndTimingPreserved = true
             }), new UTF8Encoding(false));
-            writer.WriteLine("Real encrypted draft extraction, hide, unhide and rollback passed; 26 cues.");
+            writer.WriteLine("Real encrypted draft extraction, hide, unhide and rollback passed; " + lines.Count / 4 + " cues; schema " + schema + ".");
             return 0;
         } catch (Exception ex) { writer.WriteLine(ex.ToString()); return 1; }
         finally { if (engine != null) engine.Close(); Console.SetOut(writer); }

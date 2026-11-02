@@ -14,7 +14,7 @@ using Microsoft.Web.WebView2.WinForms;
 
 namespace XM.Native {
     internal sealed partial class StudioHost : ApplicationContext {
-        internal const string Origin = "https://xm.local", Version = "1.4.4";
+        internal const string Origin = "https://xm.local", Version = "1.4.6";
         internal readonly string BaseDir, DataDir, ClientDir;
         internal StudioWindow MainWindow, PanelWindow;
         internal WebView2 MainView, PanelView;
@@ -36,11 +36,19 @@ namespace XM.Native {
             bridge = File.ReadAllText(Path.Combine(ClientDir, "assets", "native-bridge.js"), Encoding.UTF8);
             MainWindow = new StudioWindow(); MainView = new WebView2 { Dock = DockStyle.Fill, DefaultBackgroundColor = MainWindow.BackColor };
             MainWindow.Controls.Add(MainView);
-            var icon = Path.Combine(BaseDir, "app-icon.ico"); if (File.Exists(icon)) MainWindow.Icon = new Icon(icon);
+            MainWindow.VisibleChanged += (s, e) => { if (!MainWindow.Visible) aiInput.Invalidate(); };
+            var icon = Path.Combine(BaseDir, "app-icon.ico");
+            string executable = Application.ExecutablePath;
+            MainWindow.Icon = File.Exists(icon) ? new Icon(icon) : Icon.ExtractAssociatedIcon(executable);
+            string shellIcon = File.Exists(icon) ? icon : executable;
+            Action applyWindowIdentity = () => { try { ShellIdentity.SetWindow(MainWindow.Handle, executable, shellIcon); } catch (Exception error) { Log("window-identity " + error.GetType().Name); } };
+            MainWindow.HandleCreated += (s, e) => applyWindowIdentity();
+            if (MainWindow.IsHandleCreated) applyWindowIdentity();
+            ShellIdentity.RepairLaunchers(executable, shellIcon, DataDir, Log);
             MainWindow.FormClosing += (s, e) => { if (!Exiting && PetVisible) { e.Cancel = true; MainWindow.Hide(); } else if (!Exiting) { e.Cancel = true; Quit(); } };
             MainWindow.Shown += async (s, e) => { if (mainOpening != null) return; try { mainOpening = InitializeView(MainView, "main", Origin + "/index.html", true); await mainOpening; Log("main-ready"); } catch (Exception error) { Log(error.ToString()); MessageBox.Show(MainWindow, error.Message, "XM剪辑台启动失败"); Quit(); } };
             InitServices(); InitTray(); InitQA();
-            wakeTimer.Tick += (s, e) => { if (wake.WaitOne(0)) OpenMain(); }; wakeTimer.Start();
+            wakeTimer.Tick += (s, e) => { if (wake.WaitOne(0)) OpenMain(); BrowserInput.RecoverCursor(MainView); }; wakeTimer.Start();
             MainWindow.Show();
         }
         internal void Log(string message) { try { File.AppendAllText(Path.Combine(DataDir, "startup-native.log"), DateTime.UtcNow.ToString("o") + " " + message + Environment.NewLine); } catch {} }
@@ -88,7 +96,7 @@ namespace XM.Native {
                     } catch (Exception error) { Log("request-error " + command + " " + error.GetType().Name); if (!view.IsDisposed) core.PostWebMessageAsJson(J.Encode(J.Obj("id", id, "error", error.Message))); }
                     }));
                 };
-                core.NavigationStarting += (s, e) => { if (!e.Uri.StartsWith(Origin + "/", StringComparison.OrdinalIgnoreCase)) { e.Cancel = true; if (Http(e.Uri)) OpenPath(e.Uri); } };
+                core.NavigationStarting += (s, e) => { if (view == MainView) aiInput.Invalidate(); if (!e.Uri.StartsWith(Origin + "/", StringComparison.OrdinalIgnoreCase)) { e.Cancel = true; if (Http(e.Uri)) OpenPath(e.Uri); } };
                 core.NewWindowRequested += (s, e) => { e.Handled = true; if (Http(e.Uri)) OpenPath(e.Uri); };
                 ConfigureResources(core);
                 core.NavigationCompleted += async (s, e) => {
@@ -97,7 +105,7 @@ namespace XM.Native {
                     else if (view == progressView) { progressReady = true; if (currentProgress != null) ShowProgress(currentProgress); }
                     else {
                         Emit("bos:companion-theme", theme, view);
-                        if (view == MainView) await UpdateMainPalette();
+                        if (view == MainView) { await UpdateMainPalette(); if (core.Source == Origin + "/index.html") await CheckStartupUpdate(); }
                         if (view == PanelView) {
                             await UpdatePanelPalette();
                             if (!Exiting) PanelWindow.Show();
@@ -174,9 +182,8 @@ namespace XM.Native {
     }
     internal static class Program {
         [DllImport("user32.dll")] static extern bool SetProcessDPIAware();
-        [DllImport("shell32.dll", CharSet = CharSet.Unicode)] static extern int SetCurrentProcessExplicitAppUserModelID(string appId);
         [STAThread] static void Main(string[] args) {
-            SetProcessDPIAware(); SetCurrentProcessExplicitAppUserModelID("com.xiaoma.editing-studio");
+            SetProcessDPIAware(); try { ShellIdentity.SetProcess(); } catch {} // Shell metadata must never block startup.
             System.Net.ServicePointManager.SecurityProtocol = System.Net.SecurityProtocolType.Tls12;
             Application.EnableVisualStyles(); Application.SetCompatibleTextRenderingDefault(false);
             string profile;

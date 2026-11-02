@@ -37,6 +37,10 @@ test('DeepSeek shares the embedded page across both screenshot phases and prepar
   assert.equal(f.calls.some(x => x.command === 'fill'), false);
   assert.equal(new Set(f.calls.filter(x => x.command === 'prepare-image').map(x => x.filename)).size, 2);
   assert.ok(f.calls.filter(x => x.command === 'image-ready').every(x => x.upload.filename === x.filename));
+  for (const call of f.calls.filter(x => x.command === 'prepare-image')) {
+    assert.match(call.prompt, /coordinateSpace、imageWidth、imageHeight 必须保留在 result 对象内/);
+    assert.match(call.prompt, /禁止按OCR文字列表均分坐标/);
+  }
   assert.equal(f.driver.snapshot().kind, 'draft-scan');
   assert.equal(f.driver.snapshot().provider, 'deepseek');
   f.driver.close(); assert.equal(f.notifications.at(-1), null);

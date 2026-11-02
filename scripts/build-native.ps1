@@ -18,7 +18,7 @@ try {
     $jianyingExe = Join-Path $jianyingDir 'JianYingEngine.exe'
     & $compiler /nologo /utf8output /codepage:65001 /target:exe /platform:x64 /optimize+ `
         /r:System.Web.Extensions.dll /r:System.Drawing.dll /r:System.Windows.Forms.dll `
-        ('/out:' + $jianyingExe) (Join-Path $repoRoot 'app/native/JianYingEngine.cs') (Join-Path $repoRoot 'app/native/JianYingScan.cs') (Join-Path $repoRoot 'app/native/JianYingProgress.cs') (Join-Path $repoRoot 'app/native/JianYingDraftIO.cs')
+        ('/out:' + $jianyingExe) (Join-Path $repoRoot 'app/native/JianYingEngine.cs') (Join-Path $repoRoot 'app/native/JianYingScan.cs') (Join-Path $repoRoot 'app/native/JianYingProgress.cs') (Join-Path $repoRoot 'app/native/JianYingAutomation.cs') (Join-Path $repoRoot 'app/native/JianYingDraftIO.cs') (Join-Path $repoRoot 'app/native/JianYingPunctuation.cs')
     if ($LASTEXITCODE -ne 0 -or -not (Test-Path -LiteralPath $jianyingExe)) { throw 'Native JianYing engine compilation failed.' }
     $jianyingHash = (Get-FileHash -LiteralPath $jianyingExe -Algorithm SHA256).Hash.ToLowerInvariant()
     [IO.File]::WriteAllText((Join-Path $jianyingDir 'engine.json'), "{`"sha256`":`"$jianyingHash`"}", (New-Object Text.UTF8Encoding $false))

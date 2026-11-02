@@ -100,6 +100,7 @@ Section "安装与更新"
   CopyFiles /SILENT "$Stage\last-result.txt" "$INSTDIR\更新结果-1.4.2.txt"
   ${If} $TestMode == 0
   WriteRegStr HKCU "Software\Xiaoma\EditingStudio" "InstallLocation" "$INSTDIR"
+  SetOutPath "$INSTDIR"
   CreateShortcut "$DESKTOP\XM剪辑台.lnk" "$INSTDIR\小马剪辑台.exe" "" "$INSTDIR\app-icon.ico"
   ${EndIf}
   SetOutPath "$INSTDIR"

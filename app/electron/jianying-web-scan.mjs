@@ -37,7 +37,7 @@ export function createJianyingWebScan({ driver, notify = () => {}, copy, isBusy 
       if (!signal || signal.aborted) throw new Error('扫描已中断。');
       if (typeof input.prompt !== 'string' || !input.prompt || input.prompt.length > 150000 || typeof input.image !== 'string' || !input.image || input.image.length > 12000000 || !/^[A-Za-z0-9+/=]+$/.test(input.image)) throw new Error('草稿截图格式无效。');
       const token = uuid(), filename = `xm-drafts-${token}.jpg`;
-      const prompt = webTaskPrompt([{ content: input.prompt + '\nRead the attached screenshot visually, including layout and thumbnail positions. If the required Drafts heading is absent, return {"heading":null} instead of null. If visual understanding is unavailable, return {"error":"当前模型无法识别图片布局，请切换支持视觉的模型或使用 Gemini"}. Do not guess coordinates from OCR text alone.' }], token);
+      const prompt = webTaskPrompt([{ content: input.prompt + '\n必须根据当前截图的实际布局识别位置。找不到草稿标题时使用 heading:null，保留本次要求的坐标单位和图片尺寸。若只能读取图片文字、不能识别布局，返回 {"error":"当前模型无法识别图片布局，请切换支持视觉的模型或使用 Gemini"}，禁止按OCR文字列表均分坐标。' }], token) + '\n扫描结果额外检查：coordinateSpace、imageWidth、imageHeight 必须保留在 result 对象内，与 heading/drafts 并列；不要只返回 visibleCount 和 drafts。';
       const task = { id: token, token, prompt, report, message: '', manual: false, cancelled: false };
       pending = true; current = task;
       const check = () => { if (signal.aborted || task.cancelled || current !== task) throw new Error('扫描已中断。'); };
@@ -72,6 +72,7 @@ export function createJianyingWebScan({ driver, notify = () => {}, copy, isBusy 
           } else if (!task.manual && !attempted) {
             const attachment = await run({ command: 'image-ready', filename, upload, prompt });
             if (['limited', 'unsupported', 'draft'].includes(attachment.state)) throw new Error(attachment.message);
+            if (attachment.state === 'uploading' && attachment.message) update(task, attachment.message);
             readyCount = attachment.state === 'ready' ? readyCount + 1 : 0;
             if (readyCount >= 2) {
               attempted = true; // Never repeat an uncertain submission.

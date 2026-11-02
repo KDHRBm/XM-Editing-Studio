@@ -6,6 +6,7 @@ using System.IO;
 using System.Linq;
 using System.Reflection;
 using System.Runtime.InteropServices;
+using System.Security.Cryptography;
 using System.Text;
 using System.Text.RegularExpressions;
 using System.Threading.Tasks;
@@ -92,6 +93,28 @@ internal sealed class JianYingDraftIO
         if (File.Exists(value)) value = Path.GetDirectoryName(value);
         if (Directory.Exists(value)) roots.Add(Path.GetFullPath(value));
     }
+    internal static string CompatibilityRoot(string engineDirectory, string installData) {
+        if (!string.IsNullOrWhiteSpace(installData)) return Path.Combine(Path.GetFullPath(installData), "draft-compat");
+        // Also works when the engine is run directly or by an older launcher that
+        // does not set XM_INSTALL_DATA. Do not depend on the current user's C: cache.
+        var engine = new DirectoryInfo(Path.GetFullPath(engineDirectory));
+        if (engine.Name.Equals("jianying", StringComparison.OrdinalIgnoreCase) && engine.Parent != null &&
+            engine.Parent.Name.Equals("resources", StringComparison.OrdinalIgnoreCase) && engine.Parent.Parent != null)
+            return Path.Combine(engine.Parent.Parent.FullName, "data", "draft-compat");
+        return Path.Combine(engine.FullName, "draft-compat");
+    }
+    internal static bool IsCompatibleLibrary(string path) {
+        return Regex.IsMatch(new DirectoryInfo(Path.GetDirectoryName(path)).Name, @"^11\.6\.5(?:\.|$)");
+    }
+    internal static List<string> OrderLibraries(IEnumerable<string> files, string configured) {
+        var found = files.Distinct(StringComparer.OrdinalIgnoreCase)
+            .OrderByDescending(IsCompatibleLibrary)
+            .ThenByDescending(f => Regex.Replace(new DirectoryInfo(Path.GetDirectoryName(f)).Name, @"\d+", m => m.Value.PadLeft(8, '0')), StringComparer.Ordinal).ToList();
+        if (!string.IsNullOrWhiteSpace(configured) && File.Exists(configured)) {
+            string explicitFile = Path.GetFullPath(configured); found.RemoveAll(f => string.Equals(f, explicitFile, StringComparison.OrdinalIgnoreCase)); found.Insert(0, explicitFile);
+        }
+        return found;
+    }
     internal static List<string> FindLibraries() {
         var roots = new List<string>();
         string configured = Environment.ExpandEnvironmentVariables(Environment.GetEnvironmentVariable("JIANYING_VIDEOEDITOR_DLL") ?? "").Trim(' ', '"');
@@ -112,8 +135,8 @@ internal sealed class JianYingDraftIO
         }
         foreach (var drive in DriveInfo.GetDrives().Where(d => d.IsReady && d.DriveType == DriveType.Fixed)) foreach (var relative in new[] { "JianyingPro", @"Program Files\JianyingPro", @"Program Files (x86)\JianyingPro", @"Program Files\ByteDance\JianyingPro" }) AddRoot(roots, Path.Combine(drive.RootDirectory.FullName, relative));
         // The optional local compatibility runtime survives a Jianying upgrade.
-        string installData = Environment.GetEnvironmentVariable("XM_INSTALL_DATA");
-        if (!string.IsNullOrWhiteSpace(installData)) AddRoot(roots, Path.Combine(installData, "draft-compat"));
+        string engineDirectory = Path.GetDirectoryName(Assembly.GetExecutingAssembly().Location);
+        AddRoot(roots, CompatibilityRoot(engineDirectory, Environment.GetEnvironmentVariable("XM_INSTALL_DATA")));
         AddRoot(roots, Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), @"XM-Editing-Studio\draft-compat"));
         AddRoot(roots, Path.Combine(Path.GetDirectoryName(Assembly.GetExecutingAssembly().Location), "draft-compat"));
         var files = new List<string>();
@@ -125,9 +148,8 @@ internal sealed class JianYingDraftIO
                 try { foreach (var dir in Directory.GetDirectories(item.Item1)) if ((File.GetAttributes(dir) & FileAttributes.ReparsePoint) == 0) stack.Push(Tuple.Create(dir, item.Item2 + 1)); } catch (IOException) { } catch (UnauthorizedAccessException) { }
             }
         }
-        var found = files.Distinct(StringComparer.OrdinalIgnoreCase).OrderByDescending(f => Regex.Replace(new DirectoryInfo(Path.GetDirectoryName(f)).Name, @"\d+", m => m.Value.PadLeft(8, '0')), StringComparer.Ordinal).ToList();
-        if (File.Exists(configured)) { string explicitFile = Path.GetFullPath(configured); found.RemoveAll(f => string.Equals(f, explicitFile, StringComparison.OrdinalIgnoreCase)); found.Insert(0, explicitFile); }
-        if (found.Count == 0) throw new FileNotFoundException("未找到可用草稿读取组件，请安装剪映或准备 11.6.5 兼容组件。"); return found;
+        var found = OrderLibraries(files, configured);
+        if (found.Count == 0) throw new FileNotFoundException("未找到草稿读取组件。请安装字幕兼容组件包到 XM剪辑台安装目录；无需回退剪映版本。"); return found;
     }
     internal static int Worker(string mode, string path) {
         var json = new JavaScriptSerializer { MaxJsonLength = int.MaxValue };
@@ -156,6 +178,38 @@ internal sealed class JianYingDraftIO
         } catch (Exception ex) { Console.Out.WriteLine(json.Serialize(new { error = ex.Message })); return 1; }
     }
     private static string preferredLibrary;
+    private static readonly Dictionary<string, string> verifiedRuntimes = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+    internal static void VerifyCompatibilityRuntime(string library, Action check) {
+        string root = Path.GetDirectoryName(Path.GetFullPath(library)), manifest = Path.Combine(root, "runtime.json");
+        if (!File.Exists(manifest)) return; // Ordinary installed Jianying DLLs have no compatibility manifest.
+        var data = new JavaScriptSerializer { MaxJsonLength = int.MaxValue }.DeserializeObject(File.ReadAllText(manifest, Encoding.UTF8)) as IDictionary;
+        var files = data == null ? null : data["files"] as IDictionary;
+        if (files == null || files.Count == 0 || files.Count > 300 || !files.Contains("videoeditor.dll"))
+            throw new InvalidOperationException("字幕兼容组件清单无效，请重新安装完整兼容组件包。");
+        var entries = new List<Tuple<string, string>>(); var stamp = new StringBuilder();
+        stamp.Append(File.ReadAllText(manifest, Encoding.UTF8));
+        foreach (DictionaryEntry pair in files) {
+            check();
+            string name = Convert.ToString(pair.Key); var info = pair.Value as IDictionary;
+            if (string.IsNullOrWhiteSpace(name) || name != Path.GetFileName(name) || name.IndexOfAny(new[] { '/', '\\', ':' }) >= 0 || info == null)
+                throw new InvalidOperationException("字幕兼容组件清单包含无效文件路径。");
+            string file = Path.Combine(root, name), hash = Convert.ToString(info["sha256"]);
+            var stat = new FileInfo(file);
+            if (!stat.Exists || stat.Length != Convert.ToInt64(info["size"]) || !Regex.IsMatch(hash ?? "", "^[a-fA-F0-9]{64}$"))
+                throw new InvalidOperationException("字幕兼容组件不完整：" + name + "。请重新安装完整组件包，不能只复制 videoeditor.dll。");
+            if ((stat.Attributes & FileAttributes.ReparsePoint) != 0) throw new InvalidOperationException("字幕兼容组件不能使用文件链接。");
+            entries.Add(Tuple.Create(file, hash)); stamp.Append('|').Append(name).Append(':').Append(stat.Length).Append(':').Append(stat.LastWriteTimeUtc.Ticks);
+        }
+        string signature = stamp.ToString(), previous;
+        lock (verifiedRuntimes) { if (verifiedRuntimes.TryGetValue(root, out previous) && previous == signature) return; }
+        foreach (var entry in entries) {
+            check();
+            using (var stream = File.OpenRead(entry.Item1)) using (var sha = SHA256.Create())
+                if (!string.Equals(BitConverter.ToString(sha.ComputeHash(stream)).Replace("-", ""), entry.Item2, StringComparison.OrdinalIgnoreCase))
+                    throw new InvalidOperationException("字幕兼容组件校验失败：" + Path.GetFileName(entry.Item1) + "。请重新安装兼容组件包。");
+        }
+        check(); lock (verifiedRuntimes) verifiedRuntimes[root] = signature;
+    }
     internal static IDictionary Request(string mode, string path, string input, Action check, Action<string> log = null) {
         var libraries = FindLibraries();
         string preferred = preferredLibrary;
@@ -170,7 +224,8 @@ internal sealed class JianYingDraftIO
         check();
         if (mode == "write" && !(new JavaScriptSerializer { MaxJsonLength = int.MaxValue }.DeserializeObject(input) is IDictionary)) throw new InvalidOperationException("草稿根节点必须为对象。");
         var failures = new List<string>();
-        foreach (string library in libraries.Distinct(StringComparer.OrdinalIgnoreCase)) {
+        var candidates = libraries.Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+        foreach (string library in candidates) {
             check();
             IDictionary data;
             try { data = run("read", path, null, check, library); if (data == null) throw new InvalidOperationException("读取结果为空。"); }
@@ -182,9 +237,13 @@ internal sealed class JianYingDraftIO
             // library. SaveSubtitleJsons must restore all original copies.
             return mode == "read" ? data : run("write", path, input, check, library);
         }
-        throw new InvalidOperationException("所有可用草稿接口均读取失败，未执行写入。11.7.5 草稿可尝试 11.6.5 兼容组件；请保留 attachment_pc_common.json。" + string.Join("；", failures));
+        string guidance = candidates.Any(IsCompatibleLibrary)
+            ? "已尝试 11.6.5 兼容接口仍未成功，请保留完整草稿及 attachment_pc_common.json 供进一步检查。"
+            : "当前未检测到 11.6.5 字幕兼容组件；仅有 11.7.5 接口可能返回错误 6。请将字幕兼容组件包安装到 XM剪辑台的 data/draft-compat，剪映可继续保持 11.7.5，无需回退。";
+        throw new InvalidOperationException("所有可用草稿接口均读取失败，未执行写入。" + guidance + string.Join("；", failures));
     }
     private static IDictionary RunWorker(string mode, string path, string input, Action check, string library) {
+        VerifyCompatibilityRuntime(library, check);
         var start = new ProcessStartInfo(Assembly.GetExecutingAssembly().Location, "--draft-io-native " + mode + " \"" + Path.GetFullPath(path) + "\" \"" + Path.GetFullPath(library) + "\"") {
             UseShellExecute = false, CreateNoWindow = true, RedirectStandardInput = true, RedirectStandardOutput = true, RedirectStandardError = true,
             StandardOutputEncoding = Encoding.UTF8, StandardErrorEncoding = Encoding.UTF8

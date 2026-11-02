@@ -7,6 +7,29 @@ import { createJianyingWebScan } from '../app/electron/jianying-web-scan.mjs';
 const { chromium } = await import(process.env.XM_PLAYWRIGHT_MODULE || 'playwright');
 const pixel = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAusB9Wl6zZAAAAAASUVORK5CYII=';
 
+test('expanded composer finds a named preview outside the text scroll pane without using old conversation images', async t => {
+  const browser = await chromium.launch({ ...(process.env.XM_CHROME_PATH ? { executablePath: process.env.XM_CHROME_PATH } : {}), headless: true });
+  t.after(() => browser.close());
+  const page = await browser.newPage({ viewport: { width: 1200, height: 1000 } });
+  await page.route('https://chat.deepseek.com/**', route => route.fulfill({ contentType: 'text/html; charset=utf-8', body: `<!doctype html><meta charset="utf-8">
+    <article><button aria-label="xm-drafts-expanded.jpg">Old conversation image</button></article>
+    <div id="composer" style="height:750px;width:800px"><div id="preview"></div><div style="height:120px;overflow:auto"><textarea style="height:100px;width:760px"></textarea></div><button aria-label="发送" id="send">↑</button></div>
+    <input type="file" accept="image/*" hidden>
+    <script>window.sent=[];document.querySelector('input').onchange=e=>{const b=document.createElement('button');b.setAttribute('aria-label',e.target.files[0].name);b.textContent='preview';document.querySelector('#preview').append(b);e.target.value='';};document.querySelector('#send').onclick=()=>{sent.push(document.querySelector('textarea').value);document.querySelector('textarea').value='';};</script>` }));
+  await page.goto('https://chat.deepseek.com/');
+  const input = { host: 'chat.deepseek.com', filename: 'xm-drafts-expanded.jpg', prompt: 'Locate this screenshot', image: pixel };
+  const prepared = await page.evaluate(webAIPageScript({ ...input, command: 'prepare-image' }));
+  assert.equal(prepared.state, 'uploaded');
+  await page.locator('#preview').evaluate(node => { const hidden = document.createElement('div'); hidden.style.opacity = '0'; hidden.innerHTML = '<div class="loading-spinner" style="width:24px;height:24px">Uploading</div>'; node.append(hidden); });
+  assert.equal((await page.evaluate(webAIPageScript({ ...input, command: 'image-ready', upload: prepared.upload }))).state, 'ready');
+  await page.locator('#send').evaluate(node => node.disabled = true);
+  assert.equal((await page.evaluate(webAIPageScript({ ...input, command: 'image-ready', upload: prepared.upload }))).state, 'uploading');
+  await page.locator('#send').evaluate(node => node.disabled = false);
+  await page.locator('#preview').evaluate(node => node.replaceChildren());
+  assert.equal((await page.evaluate(webAIPageScript({ ...input, command: 'image-ready', upload: prepared.upload }))).state, 'uploading', 'old chat attachment cannot authorize submission');
+  assert.deepEqual(await page.evaluate(() => sent), []);
+});
+
 test('thumbnail-only and named attachments wait for upload, then submit the complete prompt once', async t => {
   const browser = await chromium.launch({ ...(process.env.XM_CHROME_PATH ? { executablePath: process.env.XM_CHROME_PATH } : {}), headless: true });
   t.after(() => browser.close());

@@ -68,7 +68,7 @@ test('sixth page exposes four separately collapsible panels and reuses existing 
   assert.match(textOf(tree), /已有连接/); assert.doesNotMatch(textOf(tree), /hidden-key/);
   const exportPanel = nodes(tree, node => node.props.id === 'jy-export')[0];
   const connections = nodes(tree, node => node.props.id === 'jy-settings')[0];
-  assert.match(textOf(exportPanel), /导出模式与参数/); assert.match(textOf(exportPanel), /保存等待时间/);
+  assert.match(textOf(exportPanel), /导出模式与参数/); assert.match(textOf(exportPanel), /调整等待时间参数/);
   assert.match(textOf(exportPanel), /导出 → 确认导出 → 关闭导出界面 → 关闭草稿/);
   assert.doesNotMatch(textOf(exportPanel), /F9/);
   assert.doesNotMatch(textOf(connections), /坐标模板|保存等待时间/);
@@ -85,6 +85,20 @@ test('four top stage cards select their own Jianying section and persist the cho
     tabs[index].props.onClick();
     assert.equal(saved.get('xm.jianying.stage'), stage);
   }
+});
+
+test('subtitle tools expose draft punctuation restoration with explicit backup and restart guidance', async () => {
+  const calls = [];
+  globalThis.blackObsidian = { jianyingAction: async (...args) => { calls.push(args); return {}; } };
+  try {
+    const tree = ui.JianyingStudio({ active: true, providers: [], onNavigate: () => {} });
+    const panel = nodes(tree, node => node.props.id === 'jy-subtitles')[0];
+    const button = nodes(panel, node => node.type === 'button' && textOf(node) === '检查并还原标准标点')[0];
+    assert(button); assert.equal(button.props.disabled, true, 'No operation before a draft directory and ready engine');
+    assert.match(textOf(panel), /完全退出剪映/); assert.match(textOf(panel), /自动备份/);
+    assert.match(textOf(panel), /重新打开草稿/);
+    await button.props.onClick(); assert.equal(calls[0][0], 'restore_punctuation');
+  } finally { delete globalThis.blackObsidian; }
 });
 test('workspace removes music requirements and SRT restoration while preserving direct-copy fallback', () => {
   globalThis.window = { location: { origin: 'http://127.0.0.1:37651' } };

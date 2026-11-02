@@ -6,7 +6,7 @@ import path from 'node:path';
 import { requestJianyingAI, buildJianyingAIRequest } from './jianying-ai.mjs';
 import { isDeepSeekScan } from '../shared/jianying-models.mjs';
 
-const allowed = new Set(['status', 'stop', 'modal', 'scan', 'wizard', 'export', 'extract', 'fonts', 'unhide', 'paths', 'files', 'preview', 'rename', 'settings', 'select_template', 'rename_template', 'delete_template']);
+const allowed = new Set(['status', 'stop', 'modal', 'scan', 'wizard', 'export', 'extract', 'fonts', 'unhide', 'restore_punctuation', 'paths', 'files', 'preview', 'rename', 'settings', 'select_template', 'rename_template', 'delete_template']);
 export function createJianyingHost({ appDirectory, dataDirectory, minimize = () => {}, onScanProgress = () => {}, onExportProgress = () => {}, onRecordingProgress = () => {}, beforeScanCapture = async () => {}, spawnProcess = spawn, requestAI = requestJianyingAI, webScan }) {
   let child, starting, sequence = 0, connection = null, controller = null, lastState = null;
   let scan = null, exportTask = null, recording = null, closing = false;

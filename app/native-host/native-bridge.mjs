@@ -1,8 +1,7 @@
 import { createApiService } from '../shared/api-service.mjs';
 import { createWebAnalysis } from '../electron/web-ai-analysis.mjs';
 import { createJianyingWebScan } from '../electron/jianying-web-scan.mjs';
-import { webAIPageScript } from '../electron/web-ai-dom.mjs';
-import { webAIProvider } from '../shared/web-ai.mjs';
+import { runNativeWebAI } from './web-ai-driver.mjs';
 import { webAIScriptPrompt } from '../shared/web-ai-prompts.mjs';
 import { requestJianyingAI, buildJianyingAIRequest } from '../electron/jianying-ai.mjs';
 import { isDeepSeekScan } from '../shared/jianying-models.mjs';
@@ -64,7 +63,7 @@ window.fetch = async (input, options = {}) => {
 let visibleProvider = '', jyConnection = null, jyController;
 const driver = {
   visible: id => id === visibleProvider,
-  run: (provider, input, signal) => { signal?.throwIfAborted(); return invoke('web-ai-run', { provider, script: webAIPageScript({ ...input, host: webAIProvider(provider).host }) }, 20000); },
+  run: (provider, input, signal) => runNativeWebAI(invoke, provider, input, signal),
 };
 const copy = text => invoke('clipboard-text', { text });
 const analysis = createWebAnalysis({ driver, copy, notify: task => emit('bos:web-analysis-task', task) });
@@ -133,7 +132,7 @@ window.blackObsidian = Object.freeze({
   prepareMusicDrag: value => invoke('prepare-music-drag', value), startMusicDrag: token => { void invoke('start-music-drag', { token }).catch(error => emit('bos:music-drag-error', error.message)); }, onMusicDragError: fn => on('bos:music-drag-error', fn),
   getPeriodKeeperStatus: () => invoke('period-status'), probePeriodKeeper: () => invoke('period-probe'), setPeriodKeeperEnabled: (enabled, mode) => invoke('period-enabled', { enabled, mode }), setBatchPunctuationEnabled: enabled => invoke('period-batch-enabled', { enabled }), copySubtitleText: (text, options) => invoke('period-copy', { text, options }),
   jianyingAction, chooseJianyingFiles: () => invoke('jianying-files'), quickLaunch: (action, value) => invoke('quick-launch', { action, value }), addQuickFolders: files => invoke('quick-folders-drop', {}, 60000, files),
-  chooseDirectory: () => invoke('choose-directory'), writeCache: payload => invoke('write-cache', payload), readCache: payload => invoke('read-cache', payload), downloadAudio: payload => invoke('download-audio', payload, 240000), exportScriptMaterials: exportMaterials,
+  chooseDirectory: (initialFolder = '') => invoke('choose-directory', { initialFolder }), writeCache: payload => invoke('write-cache', payload), readCache: payload => invoke('read-cache', payload), downloadAudio: payload => invoke('download-audio', payload, 240000), exportScriptMaterials: exportMaterials,
   getMusicLibrary: () => invoke('music-library-list'), connectMusicLibrary: () => invoke('music-library-connect', {}, 180000), connectDroppedMusicFolders: files => invoke('music-library-drop', {}, 180000, files), refreshMusicLibrary: () => invoke('music-library-refresh', {}, 180000), disconnectMusicLibrary: id => invoke('music-library-disconnect', { id }, 180000),
 });
 document.addEventListener('DOMContentLoaded', () => {

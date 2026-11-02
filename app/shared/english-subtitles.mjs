@@ -5,7 +5,7 @@ const marker = /^(?:\[(EN|ES(?:[-_](?:ES|MX|LA|419))?|ESP|SPA|SPANISH|ESPAÑOL|�
 const direction = /^(?:[△▲]|(?:VO|V\.O\.|OS|O\.S\.|SFX|ACTION|SCENE|NOTE|INT\.|EXT\.)\s*[:：])/i;
 const titleEnding = /\b(?:Mr|Mrs|Ms|Mx|Dr|Prof|Sr|Jr)\.$/i;
 const spanishTitleEnding = /\b(?:Sr|Sra|Srta|Dr|Dra|Ud|Uds|Prof|Profa)\.$/i;
-const scriptHeading = /^(?:第\s*[0-9零〇一二两三四五六七八九十百千]+\s*[集话回]|(?:EP(?:ISODE)?\.?\s*\d+)|\d+[-－]\d+\s)/i;
+const scriptHeading = /^(?:第\s*[0-9零〇一二两三四五六七八九十百千]+\s*[集话回]|(?:EP(?:ISODE)?\.?\s*\d+)|\d+[-－]\d+(?=[\s,，:：]))/i;
 const metadataLabel = /^(?:人物|角色|场景|地点|时间|画面|字幕|音效|配乐|备注|说明|旁白说明|CAST|CHARACTERS?|LOCATION|TIME|TITLE|EPISODE|SCENE|ACTION|NOTE|SFX|MUSIC|BGM|INT\.?|EXT\.?|English|Spanish|https?)$/i;
 
 function unmarkedDialogue(text) {
@@ -17,6 +17,7 @@ function unmarkedDialogue(text) {
     else if (!depth && /[:：]/.test(text[at])) { separator = at; break; }
   }
   if (separator < 1) return null;
+  if (/\d/.test(text[separator - 1] || '') && /\d/.test(text[separator + 1] || '') || text.slice(separator + 1, separator + 3) === '//') return null;
   const speaker = text.slice(0, separator).replace(/\([^)]*\)|（[^）]*）|\[[^\]]*\]|【[^】]*】/g, '').trim();
   if (speaker.length > 70 || metadataLabel.test(speaker) || !/\p{L}/u.test(speaker) || !/^[\p{L}\p{M}\p{N}\s.'’·/_—–-]+$/u.test(speaker)) return null;
   const dialogue = text.slice(separator + 1).split(/[△▲Δ]/, 1)[0].trim();
@@ -112,15 +113,25 @@ export function extractSubtitles(script, selectedLanguage = 'auto') {
   const rows = script.split('\n');
   // Keep the established explicit-marker format strict: unmarked directions in
   // a marked script must not unexpectedly become extra subtitles.
-  const explicit = rows.some(row => marker.test(row.trim().replace(/^[-*]\s+/, '')));
+  const markedRows = rows.map(row => row.trim().replace(/^[-*]\s+/, '').match(marker)).filter(Boolean);
+  const explicit = markedRows.length > 0;
+  const markedEnglish = markedRows.some(match => (match[1] || match[2] || match[3] || '').toUpperCase() === 'EN');
   // Untagged bilingual dialogue is accepted when the input looks like a real
   // screenplay (episode/scene heading or direction marker). This keeps short
   // arbitrary notes such as "JACK: Hello" from becoming subtitles by accident.
   const structured = rows.some(row => scriptHeading.test(row.trim()))
     || rows.some(row => /^(?:△|▲|Δ)/.test(row.trim()));
-  const plain = explicit || structured ? rows.map(row => unmarkedDialogue(row.trim())).filter(Boolean) : [];
+  const plain = rows.map(row => unmarkedDialogue(row.trim())).filter(Boolean);
   const languages = plain.map(text => latinLanguage(text, ''));
-  const fallback = languages.filter(x => x === 'es').length > languages.filter(x => x === 'en').length ? 'es' : selectedLanguage === 'es' ? 'es' : 'en';
+  const spanishCount = languages.filter(x => x === 'es').length;
+  const englishCount = languages.filter(x => x === 'en').length;
+  // Partial Spanish transcripts often omit the episode title and some [ES]
+  // labels. Require labelled dialogue plus either the explicit language choice
+  // or clear Spanish evidence; English-marker documents retain strict filtering.
+  const spanishDocument = !markedEnglish && selectedLanguage !== 'en' &&
+    (selectedLanguage === 'es' || plain.length >= 2 && spanishCount > englishCount || explicit && structured && spanishCount > 0);
+  const allowUnmarked = !explicit && structured || spanishDocument;
+  const fallback = spanishCount > englishCount || spanishDocument ? 'es' : 'en';
   const utterances = []; let current = null;
   for (const [index, raw] of rows.entries()) {
     let text = raw.trim();
@@ -138,11 +149,11 @@ export function extractSubtitles(script, selectedLanguage = 'auto') {
       if (/^[△▲]/.test(text)) { current = null; continue; }
       text = dialogueAfterSpeaker(text);
       current = { sourceLine: index + 1, language, text }; utterances.push(current);
-    } else if (!explicit && structured && unmarkedDialogue(text) !== null) {
+    } else if (allowUnmarked && unmarkedDialogue(text) !== null) {
       const dialogue = unmarkedDialogue(text), language = latinLanguage(dialogue, fallback);
       if (selectedLanguage !== 'auto' && selectedLanguage !== language) { current = null; continue; }
       current = { sourceLine: index + 1, language, text: dialogue }; utterances.push(current);
-    } else if (current && text && !direction.test(text) && !metadataLabel.test(text.split(/[:：]/, 1)[0].trim()) && !/[\p{Script=Han}△▲Δ]|^\[|^【/u.test(text) && !/^[\p{Lu}][\p{Lu} _.'()-]{0,70}[:：]/u.test(text)) {
+    } else if (current && text && unmarkedDialogue(text) === null && !direction.test(text) && !metadataLabel.test(text.split(/[:：]/, 1)[0].trim()) && !/[\p{Script=Han}△▲Δ]|^\[|^【/u.test(text) && !/^[\p{Lu}][\p{Lu} _.'()-]{0,70}[:：]/u.test(text)) {
       current.text += ' ' + text;
     } else current = null;
   }

@@ -28,3 +28,35 @@
 .bos-batch-dialog-footer-meta{display:flex;align-items:center;justify-content:space-between;gap:14px;margin-top:12px}
 @media(max-width:640px){.bos-batch-dialog{padding-bottom:52px}.bos-batch-dialog-panel{margin:0;max-height:calc(92vh - 52px)}.bos-batch-dialog.bos-script button.bos-batch-episode-nav{top:auto;bottom:0;translate:none;height:48px;width:72px;border-radius:12px}.bos-batch-episode-surface{width:64px;height:40px}.bos-batch-dialog-analysis label{min-width:110px}.bos-batch-dialog-analysis button{flex:1}.bos-batch-dialog-footer-meta small{max-width:75%;overflow-wrap:anywhere}}
 @media(prefers-reduced-motion:reduce){.bos-batch-episode-nav .bos-batch-episode-surface,.bos-batch-episode-nav:is(:hover,:active):not(:disabled) .bos-batch-episode-surface{transition:none;transform:none}}
+
+.bos-batch-drama-name{display:flex;align-items:end;flex-wrap:wrap;gap:10px;margin:14px 0}
+.bos-batch-drama-name>label{flex:1;min-width:220px;margin:0}
+.bos-batch-drama-name>small{padding-bottom:10px;color:var(--ui-muted)}
+.bos-batch-tasks.is-active-drama{border-color:var(--ui-accent)}
+.bos-batch-tasks+.bos-batch-tasks{margin-top:16px}
+.bos-batch-project-heading{gap:18px;flex-wrap:wrap}
+.bos-batch-project-heading>div:first-child{min-width:0}
+.bos-batch-project-heading h3{overflow-wrap:anywhere}
+.bos-batch-project-select{position:relative;display:flex;flex-direction:column;gap:6px;margin:0;width:260px;max-width:100%;min-width:0}
+.bos-batch-project-select>span{font-size:11px;color:var(--ui-muted)}
+.bos-script .bos-batch-project-trigger{width:100%;display:flex;align-items:center;justify-content:space-between;gap:12px;min-height:40px;padding:10px 12px;background:var(--ui-input);text-align:left;font-weight:400;font-size:12px}
+.bos-batch-project-trigger>span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.bos-batch-project-trigger>svg{flex-shrink:0;transition:transform 150ms ease}
+.bos-batch-project-trigger[aria-expanded=true]>svg{transform:rotate(180deg)}
+.bos-batch-project-menu{position:absolute;top:calc(100% + 6px);right:0;width:100%;z-index:30;border:1px solid var(--ui-border);border-radius:var(--ui-control);background:var(--ui-surface);box-shadow:0 14px 36px #0004;padding:6px;max-height:320px;overflow:auto;animation:bos-batch-appear 140ms ease-out}
+.bos-batch-project-row{display:flex;align-items:center;border-radius:6px;gap:2px}
+.bos-batch-project-row.is-current{background:var(--ui-soft)}
+.bos-script .bos-batch-project-option{flex:1;display:flex;align-items:center;gap:8px;text-align:left;min-width:0;border:0;background:transparent;padding:11px 9px;font-weight:400}
+.bos-batch-project-option>span:first-child{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1}
+.bos-batch-project-option small{white-space:nowrap;font-size:10px;color:var(--ui-muted)}
+.bos-batch-project-check{color:var(--ui-accent)}
+.bos-script .bos-batch-project-delete{flex-shrink:0;width:32px;height:32px;padding:0;margin-right:3px;border:0;background:transparent;font-size:20px;font-weight:400;color:var(--ui-muted)}
+.bos-script .bos-batch-project-delete:hover:not(:disabled){color:var(--ui-danger,#ffb4a5);background:var(--ui-danger-bg,#38251f)}
+.bos-batch-project-delete-confirm{padding:9px;overflow-wrap:anywhere}
+.bos-batch-project-delete-confirm strong{font-size:12px}
+.bos-batch-project-delete-confirm p{font-size:11px;line-height:1.8;margin:9px 0 14px}
+.bos-batch-project-delete-confirm>div{display:flex;justify-content:flex-end;gap:8px}
+.bos-script .bos-batch-project-confirm-delete{color:var(--ui-danger,#ffb4a5);background:var(--ui-danger-bg,#38251f)}
+.bos-batch-project-tools{display:flex;align-items:flex-end;justify-content:flex-end;gap:12px;flex-wrap:wrap;max-width:100%}
+@media(max-width:650px){.bos-batch-project-tools{width:100%;justify-content:flex-start}.bos-batch-project-tools .bos-batch-project-select{flex:1;min-width:160px}.bos-batch-project-heading>.bos-batch-project-select{width:100%}}
+@media(prefers-reduced-motion:reduce){.bos-batch-project-menu{animation:none}.bos-batch-project-trigger>svg{transition:none}}

@@ -3,6 +3,7 @@ import { extractChineseSubtitles } from './chinese-subtitles.mjs';
 
 export const BATCH_TEXT_LIMIT = 1000000;
 export const BATCH_TASK_LIMIT = 200;
+export const BATCH_PROJECT_LIMIT = 5;
 export const BATCH_GROUP_CHARACTERS = 60000;
 export const BATCH_GROUP_EPISODES = 12;
 const fail = message => { throw new Error(message); };
@@ -69,7 +70,7 @@ export function nextBatchGroup(tasks, onlyIds = []) {
   const episodeLimit = first.settings.segmented ? Math.min(BATCH_GROUP_EPISODES, Math.floor(24 / (first.settings.segmentCount || 3))) : BATCH_GROUP_EPISODES;
   let length = 0; const group = [];
   for (const task of pending) {
-    if (task.settings.analyzerKey !== first.settings.analyzerKey || !!task.settings.segmented !== !!first.settings.segmented || (task.settings.segmented && task.settings.segmentCount !== first.settings.segmentCount)) continue;
+    if (task.projectId !== first.projectId || task.settings.analyzerKey !== first.settings.analyzerKey || !!task.settings.segmented !== !!first.settings.segmented || (task.settings.segmented && task.settings.segmentCount !== first.settings.segmentCount)) continue;
     if (group.length && (group.length >= episodeLimit || length + task.script.length > BATCH_GROUP_CHARACTERS)) break;
     group.push(task); length += task.script.length;
   }
@@ -79,12 +80,12 @@ export function nextBatchGroup(tasks, onlyIds = []) {
 // The queue is independent of the current page; one website conversation runs at a time.
 // Providers and credentials are resolved at execution and never persisted with the scripts.
 export function createBatchAnalysisQueue({ load, save, analyze, extract = task => batchSubtitleLines(task), makeId = () => crypto.randomUUID() }) {
-  let state = { loaded: false, running: false, activeIds: [], tasks: [], error: '' };
+  let state = { loaded: false, running: false, activeIds: [], projects: [], activeProjectId: '', tasks: [], error: '' };
   let pendingSave = Promise.resolve(), run = null, controller = null, generation = 0, initializing;
   const listeners = new Set();
   const publish = patch => { state = { ...state, ...patch }; listeners.forEach(fn => fn()); };
   const persist = () => {
-    const data = { version: 1, tasks: state.tasks };
+    const data = { version: 2, projects: state.projects, activeProjectId: state.activeProjectId, tasks: state.tasks };
     pendingSave = pendingSave.catch(() => {}).then(() => save(data));
     return pendingSave.catch(error => { publish({ error: `任务保存失败：${error.message}。请先导出备份，再继续分析。` }); throw error; });
   };
@@ -92,24 +93,66 @@ export function createBatchAnalysisQueue({ load, save, analyze, extract = task =
   const initialize = () => initializing ||= (async () => {
     try {
       const data = await load();
-      if (data && (data.version !== 1 || !Array.isArray(data.tasks))) fail('任务存档格式无效，请先备份。');
-      const tasks = (data?.tasks || []).map(task => ({ ...task, status: task.status === 'analyzing' ? 'paused' : task.status }));
-      publish({ loaded: true, tasks });
+      if (data && (![1, 2].includes(data.version) || !Array.isArray(data.tasks))) fail('任务存档格式无效，请先备份。');
+      let projects = data?.version === 2 ? data.projects : [];
+      let tasks = (data?.tasks || []).map(task => ({ ...task, status: task.status === 'analyzing' ? 'paused' : task.status }));
+      if (data?.version === 1 && tasks.length) {
+        const id = makeId(); projects = [{ id, name: '未命名剧本', createdAt: new Date().toISOString() }];
+        tasks = tasks.map(task => ({ ...task, projectId: id }));
+      }
+      if (!Array.isArray(projects) || projects.length > BATCH_PROJECT_LIMIT || projects.some(p => typeof p.id !== 'string' || !p.id || typeof p.name !== 'string' || !p.name.trim()) || new Set(projects.map(p => p.id)).size !== projects.length || tasks.some(task => !projects.some(p => p.id === task.projectId))) fail('剧目分组存档无效，请先导出备份。');
+      publish({ loaded: true, tasks, projects, activeProjectId: projects.some(p => p.id === data?.activeProjectId) ? data.activeProjectId : projects[0]?.id || '' });
     } catch (error) { publish({ error: `无法读取跑量任务：${error.message}` }); }
   })();
   const assertIdle = () => { if (!state.loaded) fail('任务存档尚未加载。'); if (run || state.running) fail('请先中断当前分析，再修改任务。'); };
-  return {
+  let mutating = false;
+  const api = {
     subscribe(fn) { listeners.add(fn); return () => listeners.delete(fn); },
     snapshot: () => state,
+    backup(projectId) { return { version: 2, projects: state.projects.filter(p => !projectId || p.id === projectId), activeProjectId: projectId || state.activeProjectId, tasks: state.tasks.filter(t => !projectId || t.projectId === projectId) }; },
     initialize,
-    async import(episodes, settings) {
+    async selectProject(id) {
+      if (!state.projects.some(p => p.id === id)) fail('剧目不存在。');
+      const previous = state.activeProjectId; publish({ activeProjectId: id });
+      try { await persist(); } catch (error) { publish({ activeProjectId: previous }); throw error; }
+    },
+    async createProject(name) {
+      assertIdle(); name = String(name || '').trim();
+      if (!name || name.length > 40) fail('请输入 1–40 个字符的剧名。');
+      const existing = state.projects.find(p => p.name === name);
+      if (existing) { await this.selectProject(existing.id); return existing.id; }
+      if (state.projects.length >= BATCH_PROJECT_LIMIT) fail('最多保留 5 个剧本，请先删除不再需要的剧目。');
+      const project = { id: makeId(), name, createdAt: new Date().toISOString() };
+      const previous = { projects: state.projects, activeProjectId: state.activeProjectId };
+      publish({ projects: [...state.projects, project], activeProjectId: project.id });
+      try { await persist(); } catch (error) { publish(previous); throw error; }
+      return project.id;
+    },
+    async renameProject(id, name) {
+      assertIdle(); name = String(name || '').trim();
+      if (!name || name.length > 40 || !state.projects.some(p => p.id === id)) fail('请输入有效的剧名。');
+      if (state.projects.some(p => p.id !== id && p.name === name)) fail('已存在同名剧目，请切换对应选项卡。');
+      const previous = state.projects; publish({ projects: state.projects.map(p => p.id === id ? { ...p, name } : p) });
+      try { await persist(); } catch (error) { publish({ projects: previous }); throw error; }
+    },
+    async removeProject(id) {
+      assertIdle();
+      const previous = { projects: state.projects, activeProjectId: state.activeProjectId, tasks: state.tasks };
+      const projects = state.projects.filter(p => p.id !== id);
+      publish({ projects, tasks: state.tasks.filter(t => t.projectId !== id), activeProjectId: state.activeProjectId === id ? projects[0]?.id || '' : state.activeProjectId });
+      try { await persist(); } catch (error) { publish(previous); throw error; }
+    },
+    async import(episodes, settings, projectId = state.activeProjectId) {
       assertIdle();
       if (!episodes.length) fail('没有可导入的集数。');
       if (!settings.analyzerKey) fail('请选择分析模型。');
       if (!['auto', 'en', 'es', 'zh'].includes(settings.subtitleLanguage)) fail('请选择有效字幕语言。');
+      // Existing API callers retain their unnamed workspace; the UI asks for a title.
+      if (!projectId && !state.projects.length) projectId = await this.createProject('未命名剧本');
+      if (!state.projects.some(p => p.id === projectId)) fail('请先选择或创建剧目。');
       const batchId = makeId(), now = new Date().toISOString();
       const safeSettings = { analyzerKey: settings.analyzerKey, subtitleLanguage: settings.subtitleLanguage, ...segmentOptions(settings) };
-      const added = episodes.filter(episode => !state.tasks.some(task => task.script === episode.script && task.settings.analyzerKey === safeSettings.analyzerKey && task.settings.subtitleLanguage === safeSettings.subtitleLanguage && !!task.settings.segmented === safeSettings.segmented && (!safeSettings.segmented || task.settings.segmentCount === safeSettings.segmentCount))).map(episode => ({ ...episode, id: makeId(), batchId, settings: safeSettings, status: 'queued', createdAt: now, subtitleCount: null, result: null, error: '' }));
+      const added = episodes.filter(episode => !state.tasks.some(task => task.projectId === projectId && task.script === episode.script && task.settings.analyzerKey === safeSettings.analyzerKey && task.settings.subtitleLanguage === safeSettings.subtitleLanguage && !!task.settings.segmented === safeSettings.segmented && (!safeSettings.segmented || task.settings.segmentCount === safeSettings.segmentCount))).map(episode => ({ ...episode, id: makeId(), batchId, projectId, settings: safeSettings, status: 'queued', createdAt: now, subtitleCount: null, result: null, error: '' }));
       if (state.tasks.length + added.length > BATCH_TASK_LIMIT) fail('最多保留 200 个任务。请先导出结果并清理不再需要的任务。');
       const previous = state.tasks;
       publish({ tasks: [...state.tasks, ...added], error: '' });
@@ -117,11 +160,12 @@ export function createBatchAnalysisQueue({ load, save, analyze, extract = task =
       return added.length;
     },
     async remove(id) { assertIdle(); const previous = state.tasks; publish({ tasks: state.tasks.filter(task => task.id !== id), error: '' }); try { await persist(); } catch (error) { publish({ tasks: previous }); throw error; } },
-    async clear() { assertIdle(); const previous = state.tasks; publish({ tasks: [], error: '' }); try { await persist(); } catch (error) { publish({ tasks: previous }); throw error; } },
+    async clear(projectId) { assertIdle(); const previous = state.tasks; publish({ tasks: projectId ? state.tasks.filter(t => t.projectId !== projectId) : [], error: '' }); try { await persist(); } catch (error) { publish({ tasks: previous }); throw error; } },
     async retry(id, analyzerKey, options) { assertIdle(); const task = state.tasks.find(task => task.id === id); if (!task) return; const previous = state.tasks; update(id, { status: 'queued', error: '', settings: { ...task.settings, ...(analyzerKey ? { analyzerKey } : {}), ...(options ? segmentOptions(options) : {}) } }); try { await persist(); } catch(error) { publish({tasks:previous}); throw error; } },
     pause() { generation++; controller?.abort(); publish({ running: false }); },
     start(onlyIds = []) {
       if (run) return run;
+      if (mutating) return Promise.reject(new Error('正在保存剧目，请稍后再开始分析。'));
       if (!state.loaded) return Promise.reject(new Error('任务存档尚未加载。'));
       const token = ++generation;
       publish({ running: true, error: '' });
@@ -156,4 +200,16 @@ export function createBatchAnalysisQueue({ load, save, analyze, extract = task =
       return run;
     },
   };
+  // Serialize user mutations through persistence so a failed save cannot roll
+  // back a later tab selection or another drama's episodes.
+  const guarded = { ...api };
+  for (const method of ['selectProject', 'createProject', 'renameProject', 'removeProject', 'import', 'remove', 'clear', 'retry']) {
+    guarded[method] = async (...args) => {
+      if (mutating) fail('正在保存剧目，请稍后再操作。');
+      mutating = true;
+      try { return await api[method](...args); }
+      finally { mutating = false; }
+    };
+  }
+  return guarded;
 }

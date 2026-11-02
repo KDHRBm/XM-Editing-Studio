@@ -124,6 +124,7 @@ internal static class NativePatchUpdater {
         var title = new Label { Text="支持原版 " + Supported(manifest) + "，更新至 " + manifest.version + "。请先彻底退出软件。", AutoSize=true, Location=new Point(20,20) };
         var folder = new TextBox { Location=new Point(20,54), Width=450 };
         using (var key=Registry.CurrentUser.OpenSubKey("Software\\Xiaoma\\EditingStudio")) if(key!=null) folder.Text=Convert.ToString(key.GetValue("InstallLocation"));
+        if (args.Length == 2 && args[0] == "--directory") folder.Text = args[1];
         var browse = new Button { Text="选择目录", Location=new Point(480,52), Width=90 };
         var update = new Button { Text="开始更新", Location=new Point(450,102), Size=new Size(120,36) };
         var status = new Label { Text="只替换变更文件，更新前自动备份。", Location=new Point(20,110), Size=new Size(420,80) };
