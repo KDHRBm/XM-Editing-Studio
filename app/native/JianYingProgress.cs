@@ -15,6 +15,7 @@ internal sealed partial class JianYingEngine
         var payload = new Dictionary<string, object>(state);
         payload["event"] = channel;
         Send(payload);
+        try { Send(new Dictionary<string, object> { { "event", "state" }, { "state", Snapshot() } }); } catch { }
     }
 
     private void BeginRecordingProgress()
@@ -53,7 +54,11 @@ internal sealed partial class JianYingEngine
         lock (_lock)
         {
             if (_recState == null || _recordingCoords == null || _recordingCapture != null) return;
-            if (_recState == "popup_close" && _exportMode == "wait_close") { SyncRecordingProgress(); return; }
+            if (_recState == "popup_close" && _exportMode == "wait_close")
+            {
+                _recordingCoords["popup_close"] = null;
+                _recState = "close_btn";
+            }
             // Sampling a hovered button must not require focus or send a mouse click.
             if (!NativeWin32.GetCursorPos(out point)) { _recordingError = "无法获取鼠标位置，请重按 F8。"; EmitProgress(_recordingProgress, "recording-progress", "retry", _recordingError); return; }
             step = _recState; generation = _operationGeneration;
@@ -65,8 +70,11 @@ internal sealed partial class JianYingEngine
         ThreadPool.QueueUserWorkItem(_ => {
             try
             {
-                Send(new Dictionary<string, object> { { "event", "recording-capture" }, { "id", ack.Id }, { "token", ack.Token } });
-                WaitForCapture(ack, generation, 3);
+                if (step == "popup_close")
+                {
+                    Send(new Dictionary<string, object> { { "event", "recording-capture" }, { "id", ack.Id }, { "token", ack.Token } });
+                    WaitForCapture(ack, generation, 3);
+                }
                 lock (_lock)
                 {
                     CheckInterrupted(generation);
@@ -76,8 +84,9 @@ internal sealed partial class JianYingEngine
                     int[] color = step == "popup_close" ? GetPixelRgb(point.X, point.Y) : null;
                     _recordingCoords[step] = new[] { point.X, point.Y };
                     _recordingError = "";
-                    Log(string.Format("已录制 {0} ({1},{2})", step, point.X, point.Y));
-                    if (step == "popup_close") { _recordingColor = color; FinishRecording(); }
+                    Log(string.Format("✓ 已录制 {0} ({1},{2})", step, point.X, point.Y));
+                    if (step == "popup_close" && _exportMode == "return_home") { _recordingColor = color; FinishRecording(); }
+                    else if (step == "draft_close" && _exportMode == "wait_close") { FinishRecording(); }
                     else AdvanceRecording();
                 }
             }

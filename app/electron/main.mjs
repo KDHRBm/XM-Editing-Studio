@@ -59,7 +59,7 @@ const webAnalysis = createWebAnalysis({ driver: webAI, copy: text => periodKeepe
 const webScan = createJianyingWebScan({ BrowserWindow });
 const jianying = createJianyingHost({ appDirectory: app.getAppPath(), dataDirectory: path.join(app.getPath('userData'), 'jianying-ai'), minimize: () => mainWindow?.minimize(), webScan });
 const autoUpdater = createAutoUpdater({
-  currentVersion: app.getVersion() || '1.7.1',
+  currentVersion: app.getVersion() || '1.7.2',
   downloadDirectory: path.join(app.getPath('userData'), 'updates'),
   onQuit: () => app.quit(),
   notify: state => { if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('bos:updater-state', state); },
@@ -405,7 +405,7 @@ if (!hasSingleInstance) {
             await watermarkHost.startBatch({ sameDirectory: true });
           }
         } else if (action === 'jy-wizard') {
-          await jianying.run('wizard', {});
+          await jianying.run('wizard', value && typeof value === 'object' ? value : {});
         } else if (action === 'jy-scan') {
           const connection = value?.connection || jianying.lastConnection?.();
           if (!connection) throw new Error('请先在左侧「API 与主题」配置 Gemini 模型连接。');
@@ -415,7 +415,9 @@ if (!hasSingleInstance) {
         } else if (action === 'jy-settings') {
           await jianying.run('settings', value || {});
         } else if (action === 'jy-select-tpl') {
-          await jianying.run('select-template', { id: String(value?.id || '') });
+          await jianying.run('select_template', { id: String(value?.id || '') });
+        } else if (action === 'jy-rename-tpl') {
+          await jianying.run('rename_template', { id: String(value?.id || ''), name: String(value?.name || '') });
         } else if (action === 'jy-paths') {
           await jianying.run('paths', value || {});
         } else if (action === 'jy-pick-path') {

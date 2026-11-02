@@ -495,6 +495,13 @@ function panelHtml(acrylic) {
 
     <!-- STAGE 01: 批量导出 -->
     <div class="card" id="stageExport">
+      <div class="field">
+        <span>导出模式（切换模式自动匹配对应坐标模板）</span>
+        <div class="grid" id="jyModeBox" role="radiogroup" aria-label="导出模式选择">
+          <button type="button" class="btn active" id="jyModeReturnHome" data-mode="return_home">收起至首页 · 后台</button>
+          <button type="button" class="btn" id="jyModeWaitClose" data-mode="wait_close">等待完成 · 逐个</button>
+        </div>
+      </div>
       <div class="row">
         <div class="title"><span class="dot" id="jyDot"></span><span id="jyMeta">就绪</span></div>
         <button class="btn danger" id="jyStop" style="padding:3px 8px;font-size:10px">中断 · F10</button>
@@ -522,29 +529,29 @@ function panelHtml(acrylic) {
       </div>
 
       <details class="sub-panel" open>
-        <summary><span>导出模式、坐标模板与模型连接</span><span>⌄</span></summary>
+        <summary><span>坐标模板、模型连接与等待参数</span><span>⌄</span></summary>
         <div style="display:flex;flex-direction:column;gap:6px;margin-top:6px">
-          <div class="grid">
-            <label class="field">
-              <span>导出模式</span>
-              <select class="select" id="jyModeSelect">
-                <option value="return_home">收起至首页 · 后台</option>
-                <option value="wait_close">等待完成 · 逐个</option>
-              </select>
-            </label>
-            <label class="field">
-              <span>坐标模板 <small id="jyResLabel"></small></span>
+          <div class="field">
+            <div class="row">
+              <span>坐标模板（仅显示当前模式） <small id="jyResLabel"></small></span>
+              <button type="button" class="btn" id="jyAutoNameTpl" style="padding:2px 7px;font-size:10px" title="按导出模式+当前日期时间自动生成/修改模板名">🏷️ 自动命名</button>
+            </div>
+            <div class="path-row">
               <select class="select" id="jyTplSelect">
-                <option value="">请先录制坐标</option>
+                <option value="">请先录制当前模式坐标</option>
               </select>
-            </label>
+              <input class="input" id="jyTplNameInput" placeholder="导出模式+日期时间" style="max-width:148px" title="展开下拉框或点击自动命名可按【导出模式+日期时间】命名" />
+            </div>
           </div>
-          <label class="field">
-            <span>AI 视觉识别模型（复用主窗口连接）</span>
+          <div class="field">
+            <div class="row">
+              <span>AI 视觉识别模型（复用主窗口连接）</span>
+              <button type="button" class="btn" id="jyFetchModelsBtn" style="padding:2px 7px;font-size:10px">🔄 从 API 获取模型</button>
+            </div>
             <select class="select" id="jyModelSelect">
               <option value="">自动选用已配置的 Gemini 模型</option>
             </select>
-          </label>
+          </div>
           <button class="btn" id="jyOpenWaitsModal" type="button" style="padding:6px 10px;font-size:11px">⏱️ 调整等待时间参数</button>
         </div>
       </details>
@@ -672,7 +679,20 @@ function panelHtml(acrylic) {
   <script>
     const api = window.blackObsidian, $ = id => document.getElementById(id);
     let state = null, toastTimer = 0, currentStage = localStorage.getItem('xm.jianying.stage') || 'export';
-    let selectedDraftIdx = 0, aiRenameMode = false, renameFolder = '', waitsDirty = false, lastForceStageToken = '', showJyParams = false, lastJyNotice = '';
+    let selectedDraftIdx = 0, aiRenameMode = false, renameFolder = '', waitsDirty = false, lastForceStageToken = '', showJyParams = false, lastJyNotice = '', currentExportMode = 'return_home', fetchingCompanionModels = false;
+
+    function formatDefaultTplName(mode) {
+      const m = (mode || currentExportMode) === 'wait_close' ? '等待完成' : '收起至首页';
+      const now = new Date();
+      const pad = n => String(n).padStart(2, '0');
+      return m + '_' + now.getFullYear() + '-' + pad(now.getMonth() + 1) + '-' + pad(now.getDate()) + '_' + pad(now.getHours()) + '-' + pad(now.getMinutes()) + '-' + pad(now.getSeconds());
+    }
+
+    function updateModeButtons(mode) {
+      currentExportMode = mode === 'wait_close' ? 'wait_close' : 'return_home';
+      if ($('jyModeReturnHome')) $('jyModeReturnHome').classList.toggle('active', currentExportMode === 'return_home');
+      if ($('jyModeWaitClose')) $('jyModeWaitClose').classList.toggle('active', currentExportMode === 'wait_close');
+    }
 
     const toast = msg => {
       const t = $('toast');
@@ -744,6 +764,57 @@ function panelHtml(acrylic) {
       } catch {}
     }
     loadCachedModels();
+
+    async function fetchCompanionApiModels(silent = false) {
+      if (fetchingCompanionModels) return;
+      const btn = $('jyFetchModelsBtn');
+      try {
+        const raw = localStorage.getItem('xm.providers.cache') || localStorage.getItem('black-obsidian.providers.v1') || '[]';
+        const cached = JSON.parse(raw);
+        const withKey = Array.isArray(cached) ? cached.filter(p => p && typeof p.apiKey === 'string' && p.apiKey.trim()) : [];
+        if (!withKey.length) {
+          if (!silent) toast('请先在主窗口「接口与主题」填写 API Key');
+          return;
+        }
+        fetchingCompanionModels = true;
+        if (btn) { btn.disabled = true; btn.textContent = '⏳ 获取中…'; }
+        let updatedCount = 0;
+        for (const p of withKey) {
+          try {
+            const resp = await fetch('/api/providers/models', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ provider: p })
+            });
+            const data = await resp.json();
+            if (data && data.ok && Array.isArray(data.models) && data.models.length > 0) {
+              const filtered = p.protocol === 'gemini'
+                ? data.models.filter(m => /gemini/i.test(m) && !/embedding|embed|imagen|tts|whisper/i.test(m))
+                : data.models;
+              if (filtered.length > 0) {
+                p.models = [...new Set([...filtered, ...(p.models || [])])];
+                updatedCount += filtered.length;
+              }
+            }
+          } catch {}
+        }
+        if (updatedCount > 0) {
+          const jsonStr = JSON.stringify(cached);
+          try { localStorage.setItem('xm.providers.cache', jsonStr); } catch {}
+          try { localStorage.setItem('black-obsidian.providers.v1', jsonStr); } catch {}
+          loadCachedModels();
+          if (!silent) toast('✓ 已从 API 同步最新模型列表');
+        } else if (!silent) {
+          toast('未获取到更多模型，请检查 API Key 或网络');
+        }
+      } catch (e) {
+        if (!silent) toast('从 API 获取模型失败');
+      } finally {
+        fetchingCompanionModels = false;
+        if (btn) { btn.disabled = false; btn.textContent = '🔄 从 API 获取模型'; }
+      }
+    }
+    setTimeout(() => { void fetchCompanionApiModels(true); }, 600);
 
     const act = async (action, value, btnEl, loadingLabel) => {
       let origHtml = '';
@@ -863,15 +934,25 @@ function panelHtml(acrylic) {
         $('jyExtract').textContent = '提取字幕并隐藏轨道';
       }
 
-      if (jy.mode && document.activeElement !== $('jyModeSelect')) $('jyModeSelect').value = jy.mode;
+      if (jy.mode) updateModeButtons(jy.mode);
       if (Array.isArray(jy.resolution)) $('jyResLabel').textContent = '(' + jy.resolution.join('×') + ')';
       if (Array.isArray(jy.templates) && document.activeElement !== $('jyTplSelect')) {
         const tSel = $('jyTplSelect');
-        if (!jy.templates.length) {
-          tSel.innerHTML = '<option value="">请先录制坐标</option>';
+        const modeTemplates = jy.templates.filter(t => !t.mode || t.mode === currentExportMode);
+        if (!modeTemplates.length) {
+          tSel.innerHTML = '<option value="">请先录制当前模式坐标</option>';
+          if (document.activeElement !== $('jyTplNameInput') && !$('jyTplNameInput').value.trim()) {
+            $('jyTplNameInput').value = formatDefaultTplName(currentExportMode);
+          }
         } else {
-          tSel.innerHTML = jy.templates.map(t => '<option value="' + t.id + '">' + t.name + '</option>').join('');
-          if (jy.templateId) tSel.value = jy.templateId;
+          tSel.innerHTML = modeTemplates.map(t => '<option value="' + t.id + '">' + t.name + '</option>').join('');
+          const matched = modeTemplates.find(t => t.id === jy.templateId) || modeTemplates[0];
+          if (matched) {
+            tSel.value = matched.id;
+            if (document.activeElement !== $('jyTplNameInput')) {
+              $('jyTplNameInput').value = matched.name || formatDefaultTplName(currentExportMode);
+            }
+          }
         }
       }
       if (jy.waits && !waitsDirty) {
@@ -942,7 +1023,14 @@ function panelHtml(acrylic) {
     $('dockBtn').onclick = () => act('toggle-dock');
     $('pkSwitch').onclick = () => act('toggle-period');
     if ($('petThemeBtn')) $('petThemeBtn').onclick = () => act('toggle-pet-theme');
-    $('jyWizard').onclick = () => act('jy-wizard', null, $('jyWizard'), '录制中…');
+    $('jyWizard').onclick = () => {
+      const autoName = formatDefaultTplName(currentExportMode);
+      const inputEl = $('jyTplNameInput');
+      const curSelectedName = $('jyTplSelect')?.selectedOptions?.[0]?.textContent || '';
+      const customName = (inputEl && inputEl.value.trim() && inputEl.value.trim() !== curSelectedName) ? inputEl.value.trim() : autoName;
+      if (inputEl) inputEl.value = customName;
+      act('jy-wizard', { name: customName }, $('jyWizard'), '录制中…');
+    };
     $('jyScan').onclick = () => act('jy-scan', { modelKey: $('jyModelSelect').value }, $('jyScan'), '识别中…');
     $('jyExport').onclick = () => act('jy-export', { index: selectedDraftIdx }, $('jyExport'), '启动导出…');
     $('jyStop').onclick = () => act('jy-stop');
@@ -959,17 +1047,61 @@ function panelHtml(acrylic) {
       }
     }
 
-    $('jyModeSelect').onchange = e => {
-      const newMode = e.target.value;
-      populateWaitsInputs(newMode, state?.jianying);
-      act('jy-settings', { mode: newMode });
+    const switchExportMode = newMode => {
+      updateModeButtons(newMode);
+      populateWaitsInputs(currentExportMode, state?.jianying);
+      if ($('jyTplNameInput')) $('jyTplNameInput').value = formatDefaultTplName(currentExportMode);
+      act('jy-settings', { mode: currentExportMode });
     };
-    $('jyTplSelect').onchange = e => e.target.value && act('jy-select-tpl', { id: e.target.value });
+    if ($('jyModeReturnHome')) $('jyModeReturnHome').onclick = () => switchExportMode('return_home');
+    if ($('jyModeWaitClose')) $('jyModeWaitClose').onclick = () => switchExportMode('wait_close');
+
+    $('jyTplSelect').onmousedown = () => {
+      if ($('jyTplNameInput') && !$('jyTplNameInput').value.trim()) {
+        $('jyTplNameInput').value = formatDefaultTplName(currentExportMode);
+      }
+    };
+    $('jyTplSelect').onchange = e => {
+      const id = e.target.value;
+      const optText = e.target.selectedOptions?.[0]?.textContent || '';
+      if ($('jyTplNameInput') && optText) $('jyTplNameInput').value = optText;
+      if (id) act('jy-select-tpl', { id });
+    };
+    if ($('jyAutoNameTpl')) {
+      $('jyAutoNameTpl').onclick = () => {
+        const newName = formatDefaultTplName(currentExportMode);
+        if ($('jyTplNameInput')) $('jyTplNameInput').value = newName;
+        const activeId = $('jyTplSelect')?.value || '';
+        if (activeId) {
+          act('jy-rename-tpl', { id: activeId, name: newName }, $('jyAutoNameTpl'), '命名中…');
+          toast('已自动命名为：' + newName);
+        } else {
+          toast('已生成默认模板名：' + newName);
+        }
+      };
+    }
+    if ($('jyTplNameInput')) {
+      const commitTplRename = () => {
+        const activeId = $('jyTplSelect')?.value || '';
+        const newName = $('jyTplNameInput').value.trim();
+        const optText = $('jyTplSelect')?.selectedOptions?.[0]?.textContent || '';
+        if (activeId && newName && newName !== optText) {
+          act('jy-rename-tpl', { id: activeId, name: newName });
+        }
+      };
+      $('jyTplNameInput').onkeydown = e => { if (e.key === 'Enter') { e.preventDefault(); $('jyTplNameInput').blur(); } };
+      $('jyTplNameInput').onblur = commitTplRename;
+    }
+    if ($('jyFetchModelsBtn')) {
+      $('jyFetchModelsBtn').onclick = () => fetchCompanionApiModels(false);
+    }
+    if ($('jyModelSelect')) {
+      $('jyModelSelect').onfocus = () => { void fetchCompanionApiModels(true); };
+    }
 
     $('jyOpenWaitsModal').onclick = () => {
       waitsDirty = false;
-      const currentMode = $('jyModeSelect').value || 'return_home';
-      populateWaitsInputs(currentMode, state?.jianying);
+      populateWaitsInputs(currentExportMode, state?.jianying);
       $('waitsModalOverlay').hidden = false;
     };
     const closeWaitsModal = () => { $('waitsModalOverlay').hidden = true; waitsDirty = false; };
@@ -980,7 +1112,7 @@ function panelHtml(acrylic) {
       $('w_' + k).oninput = () => { waitsDirty = true; };
     });
     $('jySaveWaitsModal').onclick = () => {
-      const currentMode = $('jyModeSelect').value || 'return_home';
+      const currentMode = currentExportMode || 'return_home';
       const waits = {};
       ['open_draft', 'export', 'confirm', 'popup_close', 'close_btn', 'draft_close'].forEach(k => {
         waits[k] = Number($('w_' + k).value) || 1;
@@ -1222,6 +1354,8 @@ export function createCompanionDock({
         fileCount: Number(jy?.fileCount || 0),
         mode: jy?.mode || 'return_home',
         waits: jy?.waits || {},
+        waitsReturnHome: jy?.waitsReturnHome || jy?.waits || {},
+        waitsWaitClose: jy?.waitsWaitClose || jy?.waits || {},
         templates: Array.isArray(jy?.templates) ? jy.templates : [],
         templateId: jy?.templateId || '',
         resolution: Array.isArray(jy?.resolution) ? jy.resolution : [1920, 1080],

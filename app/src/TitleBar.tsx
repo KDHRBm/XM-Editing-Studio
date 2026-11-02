@@ -12,8 +12,8 @@ export interface UpdaterState {
 
 const DEFAULT_STATE: UpdaterState = {
   status: 'idle',
-  currentVersion: '1.7.1',
-  latestVersion: '1.7.1',
+  currentVersion: '1.7.2',
+  latestVersion: '1.7.2',
   hasUpdate: false,
   progress: 0,
 };

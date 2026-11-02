@@ -1705,7 +1705,7 @@ namespace XMStudioHost
 
     internal sealed class StudioAppContext : ApplicationContext
     {
-        public const string CurrentVersion = "1.7.1";
+        public const string CurrentVersion = "1.7.2";
         public const int AppPort = 37651;
         private readonly string _baseDir;
         private readonly string _userDataDir;
@@ -1875,8 +1875,28 @@ namespace XMStudioHost
                         if (stage == "complete" || stage == "error" || stage == "cancelled")
                         {
                             RestorePanelAfterScan();
-                            var unused = RefreshJianyingStatusAsync();
                         }
+                        var unused = RefreshJianyingStatusAsync();
+                    }
+                    else if (evName == "recording-progress")
+                    {
+                        string msg = ev.ContainsKey("message") ? Convert.ToString(ev["message"]) : "";
+                        string stage = ev.ContainsKey("stage") ? Convert.ToString(ev["stage"]) : "";
+                        if (!string.IsNullOrEmpty(msg))
+                        {
+                            RunOnUi(() =>
+                            {
+                                if (_orbForm != null && !_orbForm.IsDisposed)
+                                {
+                                    _orbForm.SwitchGif(stage == "complete" ? "enjoy" : "play", msg, stage == "complete" ? 5000 : 12000);
+                                }
+                            }, false);
+                        }
+                        var unused = RefreshJianyingStatusAsync();
+                    }
+                    else if (evName == "export-progress")
+                    {
+                        var unused = RefreshJianyingStatusAsync();
                     }
                     else if (evName == "recording-capture" && ev.ContainsKey("id") && ev.ContainsKey("token"))
                     {
@@ -3129,7 +3149,18 @@ namespace XMStudioHost
             if (action == "wm-start") { StartWatermarkBatch(true); return BroadcastCompanionState(); }
             if (action == "wm-cancel") { await CancelWatermarkBatchAsync(); return BroadcastCompanionState(); }
             if (action == "wm-open") { OpenExplorerPath(Convert.ToString(value)); return BroadcastCompanionState(); }
-            if (action == "jy-wizard") { await HandleJianyingActionAsync(new Dictionary<string, object> { { "action", "wizard" } }); return BroadcastCompanionState(); }
+            if (action == "jy-wizard")
+            {
+                var wArgs = value is Dictionary<string, object> ? (Dictionary<string, object>)value : new Dictionary<string, object>();
+                await HandleJianyingActionAsync(new Dictionary<string, object> { { "action", "wizard" }, { "args", wArgs } });
+                return BroadcastCompanionState();
+            }
+            if (action == "jy-rename-tpl")
+            {
+                var rArgs = value is Dictionary<string, object> ? (Dictionary<string, object>)value : new Dictionary<string, object>();
+                await HandleJianyingActionAsync(new Dictionary<string, object> { { "action", "rename_template" }, { "args", rArgs } });
+                return BroadcastCompanionState();
+            }
             if (action == "jy-scan")
             {
                 var scanPayload = new Dictionary<string, object> { { "action", "scan" } };
@@ -3412,7 +3443,14 @@ namespace XMStudioHost
         {
             var jy = _lastJianyingState;
             if (jy == null) return false;
-            try { return jy.ContainsKey("busy") && Convert.ToBoolean(jy["busy"]); } catch { return false; }
+            try
+            {
+                bool busy = jy.ContainsKey("busy") && Convert.ToBoolean(jy["busy"]);
+                bool rec = jy.ContainsKey("recording") && Convert.ToBoolean(jy["recording"]);
+                bool exp = jy.ContainsKey("exporting") && Convert.ToBoolean(jy["exporting"]);
+                return busy || rec || exp;
+            }
+            catch { return false; }
         }
 
         private async Task RefreshJianyingStatusAsync()

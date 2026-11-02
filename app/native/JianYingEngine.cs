@@ -323,6 +323,8 @@ internal sealed partial class JianYingEngine
     private int[] _closeColor = null;
     private string _activeTemplateName = null;
     private string _activeTemplatePath = "";
+    private string _templateReturnHome = "";
+    private string _templateWaitClose = "";
     private int[] _templateResolution = null;
     private bool _resolutionMismatch = false;
 
@@ -348,18 +350,7 @@ internal sealed partial class JianYingEngine
         _subtitleOutput = Directory.Exists(desktop) ? desktop : Path.Combine(_dataDir, "字幕导出");
 
         LoadConfig();
-        if (!string.IsNullOrEmpty(_activeTemplatePath) && File.Exists(_activeTemplatePath))
-        {
-            LoadCoordinateTemplate(_activeTemplatePath);
-        }
-        else
-        {
-            var records = GetCoordinateTemplateRecords();
-            if (records.Count > 0)
-            {
-                LoadCoordinateTemplate((string)records[0]["path"]);
-            }
-        }
+        EnsureModeTemplateLoaded();
         RefreshGuideBadge();
         SaveConfig();
 
@@ -486,6 +477,8 @@ internal sealed partial class JianYingEngine
             }
             string tpl = data.ContainsKey("template") ? Path.GetFileName(Convert.ToString(data["template"])) : "";
             _activeTemplatePath = !string.IsNullOrEmpty(tpl) ? Path.Combine(_dataDir, tpl) : "";
+            _templateReturnHome = data.ContainsKey("template_return_home") ? Path.GetFileName(Convert.ToString(data["template_return_home"])) : "";
+            _templateWaitClose = data.ContainsKey("template_wait_close") ? Path.GetFileName(Convert.ToString(data["template_wait_close"])) : "";
             _draftDir = data.ContainsKey("draft_dir") ? Convert.ToString(data["draft_dir"]) ?? "" : "";
             string subOut = data.ContainsKey("subtitle_output") ? Convert.ToString(data["subtitle_output"]) : "";
             if (!string.IsNullOrWhiteSpace(subOut)) _subtitleOutput = subOut;
@@ -506,6 +499,8 @@ internal sealed partial class JianYingEngine
                 { "step_waits_wait_close", _stepWaitsWaitClose },
                 { "step_waits", ActiveStepWaits },
                 { "template", !string.IsNullOrEmpty(_activeTemplatePath) ? Path.GetFileName(_activeTemplatePath) : "" },
+                { "template_return_home", _templateReturnHome ?? "" },
+                { "template_wait_close", _templateWaitClose ?? "" },
                 { "draft_dir", _draftDir ?? "" },
                 { "subtitle_output", _subtitleOutput ?? "" }
             };
@@ -550,10 +545,19 @@ internal sealed partial class JianYingEngine
             if (data == null || !data.ContainsKey("coords") || !data.ContainsKey("screen_resolution")) return null;
             string tName = data.ContainsKey("template_name") ? Convert.ToString(data["template_name"]).Trim() : Path.GetFileNameWithoutExtension(path);
             if (string.IsNullOrEmpty(tName)) tName = Path.GetFileNameWithoutExtension(path);
+            string tplMode = data.ContainsKey("export_mode") ? Convert.ToString(data["export_mode"]).Trim() : "";
+            if (tplMode != "return_home" && tplMode != "wait_close")
+            {
+                var c = NormalizeCoordinates(data["coords"]);
+                tplMode = (c["close_btn"] != null || c["draft_close"] != null) ? "wait_close" : "return_home";
+            }
+            string savedAt = data.ContainsKey("saved_at") ? Convert.ToString(data["saved_at"]) ?? "" : "";
             return new Dictionary<string, object>
             {
                 { "id", Path.GetFileName(path) },
                 { "name", tName },
+                { "mode", tplMode },
+                { "savedAt", savedAt },
                 { "path", Path.GetFullPath(path) },
                 { "data", data }
             };
@@ -606,6 +610,9 @@ internal sealed partial class JianYingEngine
             }
             _activeTemplateName = Convert.ToString(rec["name"]);
             _activeTemplatePath = Convert.ToString(rec["path"]);
+            string recMode = Convert.ToString(rec["mode"]);
+            if (recMode == "wait_close") _templateWaitClose = Path.GetFileName(_activeTemplatePath);
+            else _templateReturnHome = Path.GetFileName(_activeTemplatePath);
             int[] sysRes = GetScreenResolution();
             _resolutionMismatch = (_templateResolution[0] != sysRes[0] || _templateResolution[1] != sysRes[1]);
             RefreshGuideBadge();
@@ -617,13 +624,58 @@ internal sealed partial class JianYingEngine
         }
     }
 
+    private void EnsureModeTemplateLoaded()
+    {
+        var records = GetCoordinateTemplateRecords()
+            .Where(r => string.Equals(Convert.ToString(r["mode"]), _exportMode, StringComparison.OrdinalIgnoreCase))
+            .OrderByDescending(r => Convert.ToString(r["savedAt"] ?? ""))
+            .ThenByDescending(r => Convert.ToString(r["id"] ?? ""))
+            .ToList();
+
+        string preferredFile = _exportMode == "wait_close" ? _templateWaitClose : _templateReturnHome;
+        if (!string.IsNullOrEmpty(preferredFile))
+        {
+            string preferredPath = Path.Combine(_dataDir, Path.GetFileName(preferredFile));
+            var rec = ReadCoordinateTemplateRecord(preferredPath);
+            if (rec != null && string.Equals(Convert.ToString(rec["mode"]), _exportMode, StringComparison.OrdinalIgnoreCase))
+            {
+                if (LoadCoordinateTemplate(preferredPath)) return;
+            }
+        }
+        if (!string.IsNullOrEmpty(_activeTemplatePath) && File.Exists(_activeTemplatePath))
+        {
+            var curRec = ReadCoordinateTemplateRecord(_activeTemplatePath);
+            if (curRec != null && string.Equals(Convert.ToString(curRec["mode"]), _exportMode, StringComparison.OrdinalIgnoreCase))
+            {
+                if (LoadCoordinateTemplate(_activeTemplatePath)) return;
+            }
+        }
+        if (records.Count > 0)
+        {
+            LoadCoordinateTemplate(Convert.ToString(records[0]["path"]));
+            return;
+        }
+        _activeTemplateName = null;
+        _activeTemplatePath = "";
+        _coords = new Dictionary<string, int[]>
+        {
+            { "export", null },
+            { "confirm", null },
+            { "popup_close", null },
+            { "close_btn", null },
+            { "draft_close", null }
+        };
+        _resolutionMismatch = false;
+        RefreshGuideBadge();
+    }
+
     private bool SaveCoordinateTemplate(string templateName, string templatePath)
     {
         try
         {
             if (string.IsNullOrEmpty(templateName) || string.IsNullOrEmpty(templatePath))
             {
-                var next = NextCoordinateTemplateIdentity();
+                var next = NextCoordinateTemplateIdentity(_exportMode);
                 templateName = next.Item1;
                 templatePath = next.Item2;
             }
@@ -632,6 +684,7 @@ internal sealed partial class JianYingEngine
             {
                 { "template_version", 1 },
                 { "template_name", templateName },
+                { "export_mode", _exportMode },
                 { "screen_resolution", sysRes },
                 { "coords", _coords },
                 { "color", _closeColor },
@@ -640,6 +693,8 @@ internal sealed partial class JianYingEngine
             AtomicWriteJson(templatePath, payload);
             _activeTemplateName = templateName;
             _activeTemplatePath = Path.GetFullPath(templatePath);
+            if (_exportMode == "wait_close") _templateWaitClose = Path.GetFileName(_activeTemplatePath);
+            else _templateReturnHome = Path.GetFileName(_activeTemplatePath);
             _templateResolution = sysRes;
             _resolutionMismatch = false;
             SaveConfig();
@@ -652,14 +707,21 @@ internal sealed partial class JianYingEngine
         }
     }
 
-    private Tuple<string, string> NextCoordinateTemplateIdentity()
+    private Tuple<string, string> NextCoordinateTemplateIdentity(string mode = null)
     {
-        int n = 1;
-        while (File.Exists(Path.Combine(_dataDir, "模板" + n + ".json")))
+        string m = mode ?? _exportMode;
+        string modeLabel = m == "wait_close" ? "等待完成" : "收起至首页";
+        string stamp = DateTime.Now.ToString("yyyy-MM-dd_HH-mm-ss", CultureInfo.InvariantCulture);
+        string baseName = modeLabel + "_" + stamp;
+        string fileName = baseName + ".json";
+        int n = 2;
+        while (File.Exists(Path.Combine(_dataDir, fileName)))
         {
+            baseName = modeLabel + "_" + stamp + "_" + n;
+            fileName = baseName + ".json";
             n++;
         }
-        return Tuple.Create("模板" + n, Path.Combine(_dataDir, "模板" + n + ".json"));
+        return Tuple.Create(baseName, Path.Combine(_dataDir, fileName));
     }
 
     private bool ModeCoordsReady(string mode = null)
@@ -703,7 +765,7 @@ internal sealed partial class JianYingEngine
         lock (_lock)
         {
             var templates = GetCoordinateTemplateRecords()
-                .Select(r => new Dictionary<string, object> { { "id", r["id"] }, { "name", r["name"] } })
+                .Select(r => new Dictionary<string, object> { { "id", r["id"] }, { "name", r["name"] }, { "mode", r["mode"] } })
                 .ToList();
             string tplId = !string.IsNullOrEmpty(_activeTemplatePath) && File.Exists(_activeTemplatePath)
                 ? Path.GetFileName(_activeTemplatePath)
@@ -807,22 +869,23 @@ internal sealed partial class JianYingEngine
             if (_recState == "export")
             {
                 _recState = "confirm";
-                _guide = "2/4 点导出呼出弹窗 → 鼠标在【确认导出】上 → F8";
+                _guide = "2/4 点导出呼出弹窗 → 鼠标在【确认导出】上 → 按 F8";
             }
             else if (_recState == "confirm")
             {
-                _recState = "popup_close";
-                _guide = "等待完成关闭模式请按 F9，继续录制关闭按钮";
+                _recordingCoords["popup_close"] = null;
+                _recState = "close_btn";
+                _guide = "3/4 鼠标在导出完成后的【关闭(X)】按钮上 → 按 F8";
             }
             else if (_recState == "popup_close")
             {
                 _recState = "close_btn";
-                _guide = "3/4 鼠标在导出完成后的【关闭(X)】按钮上 → F8";
+                _guide = "3/4 鼠标在导出完成后的【关闭(X)】按钮上 → 按 F8";
             }
             else if (_recState == "close_btn")
             {
                 _recState = "draft_close";
-                _guide = "4/4 鼠标放在【关闭草稿/返回首页】上 → 按 F8结束录制并保存模板";
+                _guide = "4/4 鼠标放在【关闭草稿/返回首页】上 → 按 F8 结束录制并保存模板";
             }
             else
             {
@@ -1890,7 +1953,12 @@ internal sealed partial class JianYingEngine
             case "wizard":
                 lock (_lock)
                 {
-                    var next = NextCoordinateTemplateIdentity();
+                    var next = NextCoordinateTemplateIdentity(_exportMode);
+                    string customName = args.Contains("name") ? Convert.ToString(args["name"] ?? "").Trim() : "";
+                    if (!string.IsNullOrEmpty(customName) && customName.Length <= 40)
+                    {
+                        next = Tuple.Create(customName, next.Item2);
+                    }
                     _recordingCoords = new Dictionary<string, int[]>
                     {
                         { "export", null },
@@ -2049,7 +2117,12 @@ internal sealed partial class JianYingEngine
                 {
                     string mode = Convert.ToString(args["mode"]);
                     if (mode != "return_home" && mode != "wait_close") throw new InvalidOperationException("无法保存导出模式。");
+                    bool modeChanged = !string.Equals(_exportMode, mode, StringComparison.OrdinalIgnoreCase);
                     _exportMode = mode;
+                    if (modeChanged)
+                    {
+                        EnsureModeTemplateLoaded();
+                    }
                 }
                 if (args.Contains("waits"))
                 {
@@ -2076,6 +2149,7 @@ internal sealed partial class JianYingEngine
                 break;
 
             case "select_template":
+            case "select-template":
                 {
                     string id = Path.GetFileName(Convert.ToString(args["id"] ?? ""));
                     string path = Path.Combine(_dataDir, id);
@@ -2085,8 +2159,13 @@ internal sealed partial class JianYingEngine
                 break;
 
             case "rename_template":
+            case "rename-template":
                 {
                     string id = Path.GetFileName(Convert.ToString(args["id"] ?? ""));
+                    if (string.IsNullOrEmpty(id) && !string.IsNullOrEmpty(_activeTemplatePath))
+                    {
+                        id = Path.GetFileName(_activeTemplatePath);
+                    }
                     string newName = Convert.ToString(args["name"] ?? "").Trim();
                     if (string.IsNullOrEmpty(newName) || newName.Length > 40) throw new InvalidOperationException("请输入有效的模板名称。");
                     string path = Path.Combine(_dataDir, id);
@@ -2105,6 +2184,7 @@ internal sealed partial class JianYingEngine
                 break;
 
             case "delete_template":
+            case "delete-template":
                 {
                     string id = Path.GetFileName(Convert.ToString(args["id"] ?? ""));
                     string path = Path.Combine(_dataDir, id);
