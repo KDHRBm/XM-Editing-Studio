@@ -47,6 +47,7 @@ const legacyWorkspaceEnd = code.indexOf('function z3(props)', legacyWorkspaceSta
 if (legacyWorkspaceStart < 0 || legacyWorkspaceEnd < 0) throw new Error('Legacy workspace removal location changed.');
 code = code.slice(0, legacyWorkspaceStart) + code.slice(legacyWorkspaceEnd);
 replaceOnce('最近使用的模型、对话和音乐创作都在这里继续。', '从剧本到配乐，管理批量创作与剪映素材。');
+replaceOnce(',s.jsx("span",{className:"status-spacer"})," ",s.jsx("span",{children:"配置保存在本机浏览器，请求转发至你填写的服务地址"})', '');
 code = code.replace('if(!w.preview)throw new Error', 'if(!w.preview&&!w.ok)throw new Error');
 code = code.replace('title:"让灵感发出声音",description:"选择已接入的音乐生成模型，描述你想听到的场景与情绪，直接通过中转站发起创作。"', 'title:"让灵感，自成旋律。",description:"从一种风格，到一首完整的作品。定制声音的质感，编排音乐的起承转合。"');
 code = code.replace('{value:"custom",label:"自定义（OpenAI 兼容）"}],v3={openai:[],anthropic:[],gemini:[],custom:[]}', '{value:"custom",label:"自定义（OpenAI 兼容）"},{value:"suno",label:"Suno 异步音乐"}],v3={openai:[],anthropic:[],gemini:[],custom:[],suno:[]}');

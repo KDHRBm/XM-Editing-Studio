@@ -1,2 +1,2 @@
 84098f92fd06ee7bccf8d7dc422316d6e00f44fc2f0e3d062d2c9232e9ff69ff  XM-Editing-Studio-1.4.2-Windows-x64-Setup.exe
-327bb2c7a05c69f7553aa236a7dda333b9f290fe4790be11c9e68bbf5b20dc83  XM-Editing-Studio-1.4.2-to-1.4.6-Incremental-20261102.zip
+721fa76d390708798d0a4d85b682f3dcaee88e2eb2056a6bca2a6fe6dfaf2f23  XM-Editing-Studio-1.4.2-to-1.4.6-Incremental-20261102.zip
