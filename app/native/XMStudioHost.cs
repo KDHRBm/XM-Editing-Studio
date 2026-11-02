@@ -1705,7 +1705,7 @@ namespace XMStudioHost
 
     internal sealed class StudioAppContext : ApplicationContext
     {
-        public const string CurrentVersion = "1.6.9";
+        public const string CurrentVersion = "1.7.1";
         public const int AppPort = 37651;
         private readonly string _baseDir;
         private readonly string _userDataDir;
@@ -1996,7 +1996,7 @@ namespace XMStudioHost
             {
                 await InitWebViewAsync(_mainWebView, "main", string.Format("http://127.0.0.1:{0}/", AppPort), true);
                 await ShowCompanionAsync(false);
-                Task.Run(async () =>
+                var unusedInit = Task.Run(async () =>
                 {
                     await Task.Delay(1200);
                     if (_jianyingRpc != null)
@@ -2034,7 +2034,7 @@ namespace XMStudioHost
                     string raw = e.TryGetWebMessageAsString();
                     if (!string.IsNullOrEmpty(raw))
                     {
-                        HandleBridgeMessageAsync(wv, raw);
+                        var unusedMsg = HandleBridgeMessageAsync(wv, raw);
                     }
                 };
                 wv.CoreWebView2.NewWindowRequested += (s, e) =>

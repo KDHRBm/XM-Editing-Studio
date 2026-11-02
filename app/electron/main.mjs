@@ -59,7 +59,7 @@ const webAnalysis = createWebAnalysis({ driver: webAI, copy: text => periodKeepe
 const webScan = createJianyingWebScan({ BrowserWindow });
 const jianying = createJianyingHost({ appDirectory: app.getAppPath(), dataDirectory: path.join(app.getPath('userData'), 'jianying-ai'), minimize: () => mainWindow?.minimize(), webScan });
 const autoUpdater = createAutoUpdater({
-  currentVersion: app.getVersion() || '1.6.6',
+  currentVersion: app.getVersion() || '1.7.1',
   downloadDirectory: path.join(app.getPath('userData'), 'updates'),
   onQuit: () => app.quit(),
   notify: state => { if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('bos:updater-state', state); },

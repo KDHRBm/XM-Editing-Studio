@@ -288,9 +288,27 @@ namespace XMWatermark
                         ia.SetColorMatrix(cm, ColorMatrixFlag.Default, ColorAdjustType.Bitmap);
 
                         string resolvedImagePath = watermarkImagePath;
-                        if (string.Equals(resolvedImagePath, "builtin", StringComparison.OrdinalIgnoreCase))
+                        if (string.IsNullOrEmpty(resolvedImagePath) || string.Equals(resolvedImagePath, "builtin", StringComparison.OrdinalIgnoreCase))
                         {
-                            resolvedImagePath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "watermark.png");
+                            string baseDir = AppDomain.CurrentDomain.BaseDirectory;
+                            string[] candidates = new[]
+                            {
+                                Path.Combine(baseDir, "watermark.png"),
+                                Path.Combine(baseDir, "www", "watermark.png"),
+                                Path.Combine(baseDir, "resources", "client", "watermark.png"),
+                                Path.Combine(baseDir, "..", "..", "public", "watermark.png"),
+                                Path.Combine(baseDir, "..", "..", "dist", "client", "watermark.png"),
+                                Path.Combine(baseDir, "..", "public", "watermark.png")
+                            };
+                            foreach (string c in candidates)
+                            {
+                                try
+                                {
+                                    string full = Path.GetFullPath(c);
+                                    if (File.Exists(full)) { resolvedImagePath = full; break; }
+                                }
+                                catch { }
+                            }
                         }
 
                         if (!string.IsNullOrEmpty(resolvedImagePath) && File.Exists(resolvedImagePath))
@@ -821,25 +839,6 @@ namespace XMWatermark
             {
                 Send(new Dictionary<string, object> { { "ok", true }, { "engine", "windows-media-foundation-hw" } });
                 return 0;
-            }
-            if (args.Length >= 3 && args[0] == "--test-file")
-            {
-                MFInterop.MFStartup(MFInterop.MF_VERSION, MFInterop.MFSTARTUP_NOSOCKET);
-                try
-                {
-                    VideoTranscoder.ProcessVideo(args[1], args[2], "builtin", "", "fullscreen", 1.0, 1.0, "original", 23, pct => { }, () => false);
-                    Console.Out.WriteLine("SUCCESS");
-                    return 0;
-                }
-                catch (Exception ex)
-                {
-                    Console.Out.WriteLine("ERR: " + ex.ToString());
-                    return 1;
-                }
-                finally
-                {
-                    MFInterop.MFShutdown();
-                }
             }
 
             MFInterop.MFStartup(MFInterop.MF_VERSION, MFInterop.MFSTARTUP_NOSOCKET);

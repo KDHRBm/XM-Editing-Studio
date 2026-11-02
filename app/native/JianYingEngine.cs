@@ -141,6 +141,14 @@ internal static class NativeWin32
     {
         try
         {
+            IntPtr topHwnd = FindJianyingHwnd();
+            if (topHwnd != IntPtr.Zero)
+            {
+                if (IsIconic(topHwnd)) ShowWindow(topHwnd, 9); // SW_RESTORE
+                keybd_event(0x12, 0, 0, UIntPtr.Zero);
+                keybd_event(0x12, 0, KEYEVENTF_KEYUP, UIntPtr.Zero);
+                if (SetForegroundWindow(topHwnd)) return true;
+            }
             foreach (Process p in Process.GetProcessesByName("JianyingPro"))
             {
                 using (p)
@@ -2155,6 +2163,7 @@ internal static class Program
         NativeWin32.SetProcessDPIAware();
 
         if (args.Length == 3 && args[0] == "--draft-io") return JianYingDraftIO.Worker(args[1], args[2]);
+
         if (args.Length == 4 && args[0] == "--draft-io-native") return JianYingDraftIO.NativeWorker(args[1], args[2], args[3]);
 
         var json = new JavaScriptSerializer { MaxJsonLength = int.MaxValue };
