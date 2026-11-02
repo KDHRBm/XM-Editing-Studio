@@ -102,7 +102,7 @@ test('right quick rail is removed while the left sidebar keeps an accessible res
     assert.match(creditsText, new RegExp(name));
   }
   const titleBar = ui.TitleBar();
-  assert.match(textOf(titleBar), /v1\.7\.2/);
+  assert.match(textOf(titleBar), /v1\.7\.3/);
   assert.match(textOf(titleBar), /悬浮窗/);
   const jyTree = ui.JianyingStudio({ active: true, providers: [], onNavigate: () => {} });
   assert.match(textOf(jyTree), /剪映自动化功能请使用桌面「悬浮窗」/);
@@ -133,9 +133,12 @@ test('right quick rail is removed while the left sidebar keeps an accessible res
   assert.match(panelMarkup, /id="jyModeBox"/);
   assert.match(panelMarkup, /id="jyModeReturnHome"/);
   assert.match(panelMarkup, /id="jyModeWaitClose"/);
-  assert.match(panelMarkup, /id="jyAutoNameTpl"/);
-  assert.match(panelMarkup, /id="jyTplNameInput"/);
-  assert.match(panelMarkup, /id="jyFetchModelsBtn"/);
+  assert.match(panelMarkup, /切换模式自动匹配对应坐标/);
+  assert.match(panelMarkup, /id="jyModelSelect"/);
+  assert.doesNotMatch(panelMarkup, /id="jyTplSelect"/);
+  assert.doesNotMatch(panelMarkup, /id="jyAutoNameTpl"/);
+  assert.doesNotMatch(panelMarkup, /id="jyTplNameInput"/);
+  assert.doesNotMatch(panelMarkup, /id="jyFetchModelsBtn"/);
   assert.match(panelMarkup, /xm\.jianying\.draftDir/);
 
   const episodes = splitDramaEpisodes(

@@ -20,7 +20,7 @@ export const DEFAULT_GEMINI_BASE_URL = 'https://generativelanguage.googleapis.co
 
 export function buildJianyingAIRequest(connection, input) {
   const { provider, model } = connection || {};
-  if (!provider?.apiKey?.trim() || typeof model !== 'string' || !/gemini/i.test(model) || !['gemini', 'openai', 'custom'].includes(provider.protocol)) throw new Error('请在模型与连接中配置并选择 Gemini。');
+  if (!provider?.apiKey?.trim() || typeof model !== 'string' || !model.trim() || !['gemini', 'openai', 'anthropic', 'custom'].includes(provider.protocol || 'openai')) throw new Error('请在模型与连接中配置并选择可用模型。');
   const rawBaseUrl = provider.protocol === 'gemini' && (!provider.baseUrl || !String(provider.baseUrl).trim())
     ? DEFAULT_GEMINI_BASE_URL
     : provider.baseUrl;

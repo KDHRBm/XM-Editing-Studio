@@ -141,11 +141,15 @@ export function JianyingStudio({ active, providers, onNavigate }: { active: bool
       setTimeout(() => setCompanionBusy(false), 260);
     }
   };
-  const models = providers.flatMap(provider =>
-    (provider.models || [])
-      .filter((model: string) => isGeminiModel(provider, model))
-      .map((model: string) => ({ key: provider.id + '::' + model, provider, model }))
-  );
+  const models = providers.flatMap(provider => {
+    const rawName = String(provider?.name || '').trim();
+    const pName = (rawName && rawName !== 'Provider Select')
+      ? rawName
+      : (provider?.protocol === 'gemini' ? 'Gemini AI Studio' : String(provider?.id || 'AI'));
+    return (provider.models || [])
+      .filter((model: string) => Boolean(String(model || '').trim()))
+      .map((model: string) => ({ key: (provider.id || pName) + '::' + model, label: `${pName}-${model}`, provider, model }));
+  });
   const connection = models.find(item => item.key === modelKey) || models[0];
   const locked = pending || state.busy || state.recording || !!state.modal;
 
@@ -379,7 +383,7 @@ export function JianyingStudio({ active, providers, onNavigate }: { active: bool
               <div>
                 <h4>导出模式与参数</h4>
                 <small>
-                  {state.mode === 'wait_close' ? '等待完成' : '收起至首页'} · {state.templates.find((item: any) => item.id === state.templateId)?.name || '未选模板'}
+                  {state.mode === 'wait_close' ? '等待完成 · 逐个' : '收起至首页 · 后台'} · 切换模式自动匹配对应坐标
                 </small>
               </div>
               <button
@@ -395,27 +399,13 @@ export function JianyingStudio({ active, providers, onNavigate }: { active: bool
             <div id="bos-jy-export-options-body" hidden={exportOptionsCollapsed} className="bos-jy-export-options-body">
               <div className="bos-local-match-grid">
                 <label>
-                  <span>导出模式</span>
+                  <span>导出模式（切换自动匹配对应坐标）</span>
                   <select value={state.mode || 'return_home'} disabled={locked || !state.ready} onChange={(event: any) => run('settings', { mode: event.target.value })}>
                     <option value="return_home">收起至首页 · 后台渲染</option>
                     <option value="wait_close">等待完成 · 逐个渲染</option>
                   </select>
                 </label>
-                <label>
-                  <span>坐标模板 ({state.resolution?.join('×') || '待检测'})</span>
-                  <select value={state.templateId || ''} disabled={locked || !state.ready} onChange={(event: any) => run('select_template', { id: event.target.value })}>
-                    <option value="">请先录制坐标</option>
-                    {state.templates.map((item: any) => <option key={item.id} value={item.id}>{item.name}</option>)}
-                  </select>
-                </label>
               </div>
-              {state.templateId && (
-                <div className="bos-jy-toolbar">
-                  <input aria-label="模板新名称" maxLength={40} value={templateName} onChange={(event: any) => setTemplateName(event.target.value)} placeholder="重命名当前模板" />
-                  <button type="button" disabled={locked || !templateName.trim()} onClick={() => run('rename_template', { id: state.templateId, name: templateName })}>改名</button>
-                  <button type="button" disabled={locked} onClick={() => run('delete_template', { id: state.templateId })}>删除</button>
-                </div>
-              )}
               <div className="bos-jy-waits">
                 {Object.entries(waitsLabels).map(([key, label]) => (
                   <label key={key}>
@@ -539,8 +529,8 @@ export function JianyingStudio({ active, providers, onNavigate }: { active: bool
               disabled={locked}
               onChange={(event: any) => { setModelKey(event.target.value); localStorage.setItem('xm.jianying.model', event.target.value); }}
             >
-              {!models.length && <option value="">请先添加 Gemini 连接</option>}
-              {models.map(item => <option key={item.key} value={item.key}>{item.model} · {item.provider.name}</option>)}
+              {!models.length && <option value="">请先添加可用模型</option>}
+              {models.map(item => <option key={item.key} value={item.key}>{item.label}</option>)}
             </select>
           </label>
           <div className="bos-jy-toolbar">

@@ -274,7 +274,7 @@ code = code.slice(0, p3Start) + newP3AndS3 + code.slice(e3Start);
 // 8. Cache sync & App naming
 replaceOnce(
   'window.localStorage.setItem(u6,JSON.stringify(x))',
-  'window.localStorage.setItem(u6,JSON.stringify(x));window.localStorage.setItem("xm.providers.cache",JSON.stringify(x))'
+  'window.localStorage.setItem(u6,JSON.stringify(x));window.localStorage.setItem("xm.providers.cache",JSON.stringify(x));window.blackObsidian?.companionAction?.("sync-providers",x)'
 );
 code = code.replaceAll('黑曜信号台', 'XM剪辑台');
 

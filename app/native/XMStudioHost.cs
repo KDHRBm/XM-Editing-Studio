@@ -1705,7 +1705,7 @@ namespace XMStudioHost
 
     internal sealed class StudioAppContext : ApplicationContext
     {
-        public const string CurrentVersion = "1.7.2";
+        public const string CurrentVersion = "1.7.3";
         public const int AppPort = 37651;
         private readonly string _baseDir;
         private readonly string _userDataDir;
@@ -1737,6 +1737,8 @@ namespace XMStudioHost
         private readonly List<string> _renameFiles = new List<string>();
         private string _orbNotice = "";
         private string _orbNoticeToken = "";
+        private object _cachedProviders = null;
+        private readonly Dictionary<string, Task<CoreWebView2Environment>> _webViewEnvs = new Dictionary<string, Task<CoreWebView2Environment>>(StringComparer.OrdinalIgnoreCase);
 
         private JsonRpcChild _jianyingRpc;
         private JsonRpcChild _watermarkRpc;
@@ -1808,6 +1810,15 @@ namespace XMStudioHost
             _bridgeScript = File.Exists(bridgeFile) ? File.ReadAllText(bridgeFile, Encoding.UTF8) : "";
 
             LoadSavedSettings();
+            try
+            {
+                string pCacheFile = Path.Combine(_userDataDir, "providers-cache.json");
+                if (File.Exists(pCacheFile))
+                {
+                    _cachedProviders = _json.DeserializeObject(File.ReadAllText(pCacheFile, Encoding.UTF8));
+                }
+            }
+            catch { }
             _server = new LocalServer(_clientDir, AppPort, id =>
             {
                 string p;
@@ -2040,7 +2051,13 @@ namespace XMStudioHost
         {
             string envDir = Path.Combine(_userDataDir, "webview2", profileSubdir);
             Directory.CreateDirectory(envDir);
-            var env = await CoreWebView2Environment.CreateAsync(null, envDir);
+            Task<CoreWebView2Environment> envTask;
+            if (!_webViewEnvs.TryGetValue(profileSubdir, out envTask) || envTask.IsFaulted || envTask.IsCanceled)
+            {
+                envTask = CoreWebView2Environment.CreateAsync(null, envDir);
+                _webViewEnvs[profileSubdir] = envTask;
+            }
+            var env = await envTask;
             await wv.EnsureCoreWebView2Async(env);
             wv.CoreWebView2.Settings.AreDefaultContextMenusEnabled = false;
             wv.CoreWebView2.Settings.AreDevToolsEnabled = false;
@@ -2945,7 +2962,7 @@ namespace XMStudioHost
                 _panelWebView = new WebView2 { Dock = DockStyle.Fill, DefaultBackgroundColor = Color.Transparent };
                 _panelForm.Controls.Add(_panelWebView);
 
-                await InitWebViewAsync(_panelWebView, "panel", string.Format("http://127.0.0.1:{0}/companion-panel.html?acrylic=1", AppPort), true);
+                await InitWebViewAsync(_panelWebView, "main", string.Format("http://127.0.0.1:{0}/companion-panel.html?acrylic=1", AppPort), true);
                 tcs.TrySetResult(true);
             }));
             await tcs.Task;
@@ -2998,6 +3015,15 @@ namespace XMStudioHost
         private async Task<object> HandleCompanionActionAsync(string action, object value)
         {
             if (action == "sync") return BroadcastCompanionState();
+            if (action == "sync-providers")
+            {
+                if (value != null)
+                {
+                    _cachedProviders = value;
+                    try { File.WriteAllText(Path.Combine(_userDataDir, "providers-cache.json"), _json.Serialize(value), Encoding.UTF8); } catch { }
+                }
+                return BroadcastCompanionState();
+            }
             if (action == "show") return await ShowCompanionAsync(value != null && Convert.ToBoolean(value));
             if (action == "hide") return HideCompanion();
             if (action == "toggle")
@@ -3356,6 +3382,7 @@ namespace XMStudioHost
                 { "activeStage", _activeCompanionStage },
                 { "forceStageToken", _forceStageToken },
                 { "petTheme", _petTheme },
+                { "providers", _cachedProviders },
                 { "pendingDropCount", _pendingDropFiles.Count },
                 { "renameFiles", _renameFiles.ToArray() },
                 { "orbNotice", _orbNotice },
@@ -3370,13 +3397,17 @@ namespace XMStudioHost
                         { "recording", jy.ContainsKey("recording") && Convert.ToBoolean(jy["recording"]) },
                         { "status", jy.ContainsKey("status") ? jy["status"] : "就绪" },
                         { "guide", jy.ContainsKey("guide") ? jy["guide"] : "" },
+                        { "notice", jy.ContainsKey("notice") ? jy["notice"] : "" },
                         { "modal", jy.ContainsKey("modal") ? jy["modal"] : null },
+                        { "extractProgress", jy.ContainsKey("extractProgress") ? jy["extractProgress"] : null },
                         { "queue", queueObj },
                         { "queueCount", queueCount },
                         { "plan", jy.ContainsKey("plan") ? jy["plan"] : new object[0] },
                         { "fileCount", jy.ContainsKey("fileCount") ? jy["fileCount"] : 0 },
                         { "mode", jy.ContainsKey("mode") ? jy["mode"] : "return_home" },
                         { "waits", jy.ContainsKey("waits") ? jy["waits"] : new Dictionary<string, object>() },
+                        { "waitsReturnHome", jy.ContainsKey("waitsReturnHome") ? jy["waitsReturnHome"] : (jy.ContainsKey("waits") ? jy["waits"] : new Dictionary<string, object>()) },
+                        { "waitsWaitClose", jy.ContainsKey("waitsWaitClose") ? jy["waitsWaitClose"] : (jy.ContainsKey("waits") ? jy["waits"] : new Dictionary<string, object>()) },
                         { "templates", jy.ContainsKey("templates") ? jy["templates"] : new object[0] },
                         { "templateId", jy.ContainsKey("templateId") ? jy["templateId"] : "" },
                         { "resolution", jy.ContainsKey("resolution") ? jy["resolution"] : new int[] { 1920, 1080 } },

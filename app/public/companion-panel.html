@@ -60,8 +60,9 @@
   @keyframes bspin { to { transform: rotate(360deg); } }
 
   .field { display: flex; flex-direction: column; gap: 4px; }
-  .field > span { font-size: 10.5px; color: #b9c2ce; font-weight: 600; }
+  .field > span, .field .row > span { font-size: 10.5px; color: #b9c2ce; font-weight: 600; }
   .input, .select { width: 100%; padding: 6px 8px; border-radius: 8px; border: 1px solid rgba(255,255,255,.14); background: rgba(0,0,0,.32); color: #f5f7fa; font-size: 11px; outline: none; }
+  .select option { background: #181d24; color: #f5f7fa; padding: 4px 8px; }
   .input:focus, .select:focus { border-color: #ffcf6e; }
   .path-row { display: flex; align-items: center; gap: 5px; }
   .path-row .input { flex: 1; min-width: 0; }
@@ -182,7 +183,7 @@
     <!-- STAGE 01: 批量导出 -->
     <div class="card" id="stageExport">
       <div class="field">
-        <span>导出模式（切换模式自动匹配对应坐标模板）</span>
+        <span>导出模式（切换模式自动匹配对应坐标）</span>
         <div class="grid" id="jyModeBox" role="radiogroup" aria-label="导出模式选择">
           <button type="button" class="btn active" id="jyModeReturnHome" data-mode="return_home">收起至首页 · 后台</button>
           <button type="button" class="btn" id="jyModeWaitClose" data-mode="wait_close">等待完成 · 逐个</button>
@@ -214,33 +215,13 @@
         </table>
       </div>
 
-      <details class="sub-panel" open>
-        <summary><span>坐标模板、模型连接与等待参数</span><span>⌄</span></summary>
-        <div style="display:flex;flex-direction:column;gap:6px;margin-top:6px">
-          <div class="field">
-            <div class="row">
-              <span>坐标模板（仅显示当前模式） <small id="jyResLabel"></small></span>
-              <button type="button" class="btn" id="jyAutoNameTpl" style="padding:2px 7px;font-size:10px" title="按导出模式+当前日期时间自动生成/修改模板名">🏷️ 自动命名</button>
-            </div>
-            <div class="path-row">
-              <select class="select" id="jyTplSelect">
-                <option value="">请先录制当前模式坐标</option>
-              </select>
-              <input class="input" id="jyTplNameInput" placeholder="导出模式+日期时间" style="max-width:148px" title="展开下拉框或点击自动命名可按【导出模式+日期时间】命名" />
-            </div>
-          </div>
-          <div class="field">
-            <div class="row">
-              <span>AI 视觉识别模型（复用主窗口连接）</span>
-              <button type="button" class="btn" id="jyFetchModelsBtn" style="padding:2px 7px;font-size:10px">🔄 从 API 获取模型</button>
-            </div>
-            <select class="select" id="jyModelSelect">
-              <option value="">自动选用已配置的 Gemini 模型</option>
-            </select>
-          </div>
-          <button class="btn" id="jyOpenWaitsModal" type="button" style="padding:6px 10px;font-size:11px">⏱️ 调整等待时间参数</button>
-        </div>
-      </details>
+      <div class="field">
+        <span>AI 视觉识别模型（已配置供应商-模型）</span>
+        <select class="select" id="jyModelSelect">
+          <option value="">请先在主窗口添加可用模型</option>
+        </select>
+      </div>
+      <button class="btn" id="jyOpenWaitsModal" type="button" style="padding:6px 10px;font-size:11px">⏱️ 调整等待时间参数</button>
 
       <details class="sub-panel log-panel" open>
         <summary class="log-summary">
@@ -365,14 +346,8 @@
   <script>
     const api = window.blackObsidian, $ = id => document.getElementById(id);
     let state = null, toastTimer = 0, currentStage = localStorage.getItem('xm.jianying.stage') || 'export';
-    let selectedDraftIdx = 0, aiRenameMode = false, renameFolder = '', waitsDirty = false, lastForceStageToken = '', showJyParams = false, lastJyNotice = '', currentExportMode = 'return_home', fetchingCompanionModels = false;
-
-    function formatDefaultTplName(mode) {
-      const m = (mode || currentExportMode) === 'wait_close' ? '等待完成' : '收起至首页';
-      const now = new Date();
-      const pad = n => String(n).padStart(2, '0');
-      return m + '_' + now.getFullYear() + '-' + pad(now.getMonth() + 1) + '-' + pad(now.getDate()) + '_' + pad(now.getHours()) + '-' + pad(now.getMinutes()) + '-' + pad(now.getSeconds());
-    }
+    let selectedDraftIdx = 0, aiRenameMode = false, renameFolder = '', waitsDirty = false, lastForceStageToken = '', showJyParams = false, lastJyNotice = '', currentExportMode = 'return_home';
+    let modelOptions = [], lastModelsSignature = '';
 
     function updateModeButtons(mode) {
       currentExportMode = mode === 'wait_close' ? 'wait_close' : 'return_home';
@@ -422,85 +397,80 @@
       btn.onclick = () => switchStage(btn.dataset.stage, true);
     });
 
-    function loadCachedModels() {
+    function formatProviderLabel(p) {
+      const rawName = String(p?.name || '').trim();
+      if (rawName && rawName !== 'Provider Select') return rawName;
+      if (p?.protocol === 'gemini') return 'Gemini AI Studio';
+      if (p?.protocol === 'openai') return 'OpenAI 兼容';
+      if (p?.protocol === 'anthropic') return 'Anthropic';
+      return String(p?.id || 'AI').trim();
+    }
+
+    function loadCachedModels(providersFromState) {
       try {
-        const cached = JSON.parse(
-          localStorage.getItem('xm.providers.cache') ||
-          localStorage.getItem('black-obsidian.providers.v1') ||
-          '[]'
-        );
+        let cached = providersFromState;
+        if (!Array.isArray(cached) || !cached.length) {
+          cached = JSON.parse(
+            localStorage.getItem('black-obsidian.providers.v1') ||
+            localStorage.getItem('xm.providers.cache') ||
+            '[]'
+          );
+        } else {
+          try {
+            const jsonStr = JSON.stringify(cached);
+            localStorage.setItem('xm.providers.cache', jsonStr);
+            localStorage.setItem('black-obsidian.providers.v1', jsonStr);
+          } catch {}
+        }
         const savedKey = localStorage.getItem('xm.jianying.model') || '';
         const sel = $('jyModelSelect');
+        if (!sel) return;
         const opts = [];
-        for (const p of cached) {
-          for (const m of (p?.models || [])) {
-            if (/gemini/i.test(m) || p?.protocol === 'gemini') {
-              opts.push({ key: p.id + '::' + m, label: m + ' · ' + (p.name || p.id), provider: p, model: m });
-            }
+        for (const p of (Array.isArray(cached) ? cached : [])) {
+          const pName = formatProviderLabel(p);
+          const pid = p?.id || pName;
+          const models = Array.isArray(p?.models) ? p.models : [];
+          for (const rawM of models) {
+            const m = String(rawM || '').trim();
+            if (!m) continue;
+            opts.push({
+              key: pid + '::' + m,
+              label: pName + '-' + m,
+              provider: p,
+              model: m
+            });
           }
         }
-        if (opts.length) {
-          sel.innerHTML = opts.map(o => '<option value="' + o.key + '">' + o.label + '</option>').join('');
-          if (savedKey && opts.some(o => o.key === savedKey)) sel.value = savedKey;
-          else { sel.value = opts[0].key; localStorage.setItem('xm.jianying.model', opts[0].key); }
+        modelOptions = opts;
+        const sig = opts.map(o => o.key + '=' + o.label).join('|');
+        if (sig !== lastModelsSignature) {
+          lastModelsSignature = sig;
+          if (opts.length) {
+            sel.innerHTML = opts.map(o => '<option value="' + o.key.replace(/"/g, '&quot;') + '">' + o.label.replace(/</g, '&lt;') + '</option>').join('');
+            if (savedKey && opts.some(o => o.key === savedKey)) {
+              sel.value = savedKey;
+            } else {
+              sel.value = opts[0].key;
+              try { localStorage.setItem('xm.jianying.model', opts[0].key); } catch {}
+            }
+          } else {
+            sel.innerHTML = '<option value="">请先在主窗口添加可用模型</option>';
+          }
+        } else if (opts.length && savedKey && opts.some(o => o.key === savedKey) && sel.value !== savedKey && document.activeElement !== sel) {
+          sel.value = savedKey;
         }
         sel.onchange = () => {
-          localStorage.setItem('xm.jianying.model', sel.value);
+          try { localStorage.setItem('xm.jianying.model', sel.value); } catch {}
         };
       } catch {}
     }
     loadCachedModels();
 
-    async function fetchCompanionApiModels(silent = false) {
-      if (fetchingCompanionModels) return;
-      const btn = $('jyFetchModelsBtn');
-      try {
-        const raw = localStorage.getItem('xm.providers.cache') || localStorage.getItem('black-obsidian.providers.v1') || '[]';
-        const cached = JSON.parse(raw);
-        const withKey = Array.isArray(cached) ? cached.filter(p => p && typeof p.apiKey === 'string' && p.apiKey.trim()) : [];
-        if (!withKey.length) {
-          if (!silent) toast('请先在主窗口「接口与主题」填写 API Key');
-          return;
-        }
-        fetchingCompanionModels = true;
-        if (btn) { btn.disabled = true; btn.textContent = '⏳ 获取中…'; }
-        let updatedCount = 0;
-        for (const p of withKey) {
-          try {
-            const resp = await fetch('/api/providers/models', {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ provider: p })
-            });
-            const data = await resp.json();
-            if (data && data.ok && Array.isArray(data.models) && data.models.length > 0) {
-              const filtered = p.protocol === 'gemini'
-                ? data.models.filter(m => /gemini/i.test(m) && !/embedding|embed|imagen|tts|whisper/i.test(m))
-                : data.models;
-              if (filtered.length > 0) {
-                p.models = [...new Set([...filtered, ...(p.models || [])])];
-                updatedCount += filtered.length;
-              }
-            }
-          } catch {}
-        }
-        if (updatedCount > 0) {
-          const jsonStr = JSON.stringify(cached);
-          try { localStorage.setItem('xm.providers.cache', jsonStr); } catch {}
-          try { localStorage.setItem('black-obsidian.providers.v1', jsonStr); } catch {}
-          loadCachedModels();
-          if (!silent) toast('✓ 已从 API 同步最新模型列表');
-        } else if (!silent) {
-          toast('未获取到更多模型，请检查 API Key 或网络');
-        }
-      } catch (e) {
-        if (!silent) toast('从 API 获取模型失败');
-      } finally {
-        fetchingCompanionModels = false;
-        if (btn) { btn.disabled = false; btn.textContent = '🔄 从 API 获取模型'; }
-      }
+    function getSelectedModelConnection() {
+      const key = $('jyModelSelect')?.value || '';
+      const matched = (key ? modelOptions.find(o => o.key === key) : null) || modelOptions[0] || null;
+      return matched ? { provider: matched.provider, model: matched.model } : undefined;
     }
-    setTimeout(() => { void fetchCompanionApiModels(true); }, 600);
 
     const act = async (action, value, btnEl, loadingLabel) => {
       let origHtml = '';
@@ -543,6 +513,7 @@
     function render(s) {
       if (!s) return;
       state = s;
+      loadCachedModels(Array.isArray(s.providers) && s.providers.length ? s.providers : undefined);
       if (s.activeStage && s.forceStageToken && s.forceStageToken !== lastForceStageToken) {
         lastForceStageToken = s.forceStageToken;
         if (s.activeStage !== currentStage) {
@@ -621,26 +592,6 @@
       }
 
       if (jy.mode) updateModeButtons(jy.mode);
-      if (Array.isArray(jy.resolution)) $('jyResLabel').textContent = '(' + jy.resolution.join('×') + ')';
-      if (Array.isArray(jy.templates) && document.activeElement !== $('jyTplSelect')) {
-        const tSel = $('jyTplSelect');
-        const modeTemplates = jy.templates.filter(t => !t.mode || t.mode === currentExportMode);
-        if (!modeTemplates.length) {
-          tSel.innerHTML = '<option value="">请先录制当前模式坐标</option>';
-          if (document.activeElement !== $('jyTplNameInput') && !$('jyTplNameInput').value.trim()) {
-            $('jyTplNameInput').value = formatDefaultTplName(currentExportMode);
-          }
-        } else {
-          tSel.innerHTML = modeTemplates.map(t => '<option value="' + t.id + '">' + t.name + '</option>').join('');
-          const matched = modeTemplates.find(t => t.id === jy.templateId) || modeTemplates[0];
-          if (matched) {
-            tSel.value = matched.id;
-            if (document.activeElement !== $('jyTplNameInput')) {
-              $('jyTplNameInput').value = matched.name || formatDefaultTplName(currentExportMode);
-            }
-          }
-        }
-      }
       if (jy.waits && !waitsDirty) {
         for (const k of ['open_draft', 'export', 'confirm', 'popup_close', 'close_btn', 'draft_close']) {
           const el = $('w_' + k);
@@ -709,15 +660,8 @@
     $('dockBtn').onclick = () => act('toggle-dock');
     $('pkSwitch').onclick = () => act('toggle-period');
     if ($('petThemeBtn')) $('petThemeBtn').onclick = () => act('toggle-pet-theme');
-    $('jyWizard').onclick = () => {
-      const autoName = formatDefaultTplName(currentExportMode);
-      const inputEl = $('jyTplNameInput');
-      const curSelectedName = $('jyTplSelect')?.selectedOptions?.[0]?.textContent || '';
-      const customName = (inputEl && inputEl.value.trim() && inputEl.value.trim() !== curSelectedName) ? inputEl.value.trim() : autoName;
-      if (inputEl) inputEl.value = customName;
-      act('jy-wizard', { name: customName }, $('jyWizard'), '录制中…');
-    };
-    $('jyScan').onclick = () => act('jy-scan', { modelKey: $('jyModelSelect').value }, $('jyScan'), '识别中…');
+    $('jyWizard').onclick = () => act('jy-wizard', { mode: currentExportMode }, $('jyWizard'), '录制中…');
+    $('jyScan').onclick = () => act('jy-scan', { modelKey: $('jyModelSelect').value, connection: getSelectedModelConnection() }, $('jyScan'), '识别中…');
     $('jyExport').onclick = () => act('jy-export', { index: selectedDraftIdx }, $('jyExport'), '启动导出…');
     $('jyStop').onclick = () => act('jy-stop');
     function populateWaitsInputs(mode, waitsData) {
@@ -736,54 +680,10 @@
     const switchExportMode = newMode => {
       updateModeButtons(newMode);
       populateWaitsInputs(currentExportMode, state?.jianying);
-      if ($('jyTplNameInput')) $('jyTplNameInput').value = formatDefaultTplName(currentExportMode);
       act('jy-settings', { mode: currentExportMode });
     };
     if ($('jyModeReturnHome')) $('jyModeReturnHome').onclick = () => switchExportMode('return_home');
     if ($('jyModeWaitClose')) $('jyModeWaitClose').onclick = () => switchExportMode('wait_close');
-
-    $('jyTplSelect').onmousedown = () => {
-      if ($('jyTplNameInput') && !$('jyTplNameInput').value.trim()) {
-        $('jyTplNameInput').value = formatDefaultTplName(currentExportMode);
-      }
-    };
-    $('jyTplSelect').onchange = e => {
-      const id = e.target.value;
-      const optText = e.target.selectedOptions?.[0]?.textContent || '';
-      if ($('jyTplNameInput') && optText) $('jyTplNameInput').value = optText;
-      if (id) act('jy-select-tpl', { id });
-    };
-    if ($('jyAutoNameTpl')) {
-      $('jyAutoNameTpl').onclick = () => {
-        const newName = formatDefaultTplName(currentExportMode);
-        if ($('jyTplNameInput')) $('jyTplNameInput').value = newName;
-        const activeId = $('jyTplSelect')?.value || '';
-        if (activeId) {
-          act('jy-rename-tpl', { id: activeId, name: newName }, $('jyAutoNameTpl'), '命名中…');
-          toast('已自动命名为：' + newName);
-        } else {
-          toast('已生成默认模板名：' + newName);
-        }
-      };
-    }
-    if ($('jyTplNameInput')) {
-      const commitTplRename = () => {
-        const activeId = $('jyTplSelect')?.value || '';
-        const newName = $('jyTplNameInput').value.trim();
-        const optText = $('jyTplSelect')?.selectedOptions?.[0]?.textContent || '';
-        if (activeId && newName && newName !== optText) {
-          act('jy-rename-tpl', { id: activeId, name: newName });
-        }
-      };
-      $('jyTplNameInput').onkeydown = e => { if (e.key === 'Enter') { e.preventDefault(); $('jyTplNameInput').blur(); } };
-      $('jyTplNameInput').onblur = commitTplRename;
-    }
-    if ($('jyFetchModelsBtn')) {
-      $('jyFetchModelsBtn').onclick = () => fetchCompanionApiModels(false);
-    }
-    if ($('jyModelSelect')) {
-      $('jyModelSelect').onfocus = () => { void fetchCompanionApiModels(true); };
-    }
 
     $('jyOpenWaitsModal').onclick = () => {
       waitsDirty = false;
@@ -868,7 +768,8 @@
       folder: renameFolder,
       template: $('renameTemplate').value.trim() || '短剧名称_第1集',
       ai: aiRenameMode,
-      modelKey: $('jyModelSelect').value
+      modelKey: $('jyModelSelect').value,
+      connection: getSelectedModelConnection()
     }, $('jyPreviewRename'), aiRenameMode ? 'AI 生成中…' : '生成中…');
     $('jyExecuteRename').onclick = () => act('jy-execute-rename', null, $('jyExecuteRename'), '改名中…');
 

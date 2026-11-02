@@ -75,20 +75,30 @@ if (wv && !window.blackObsidian) {
 
   // Jianying AI Vision bridge when JianYingEngine.exe requests draft scan / AI rename
   let lastJyConnection: any = null;
+  function formatProviderLabel(p: any) {
+    const rawName = String(p?.name || '').trim();
+    if (rawName && rawName !== 'Provider Select') return rawName;
+    if (p?.protocol === 'gemini') return 'Gemini AI Studio';
+    if (p?.protocol === 'openai') return 'OpenAI 兼容';
+    if (p?.protocol === 'anthropic') return 'Anthropic';
+    return String(p?.id || 'AI').trim();
+  }
   function resolveJyConnection(reqModelKey?: string) {
     try {
       const cached = JSON.parse(
-        localStorage.getItem('xm.providers.cache') ||
         localStorage.getItem('black-obsidian.providers.v1') ||
+        localStorage.getItem('xm.providers.cache') ||
         '[]'
       );
       const savedKey = reqModelKey || localStorage.getItem('xm.jianying.model') || '';
       const models: any[] = [];
-      for (const p of cached) {
-        for (const m of p?.models || []) {
-          if (p?.protocol === 'gemini' || isGeminiModel(p, m) || /gemini/i.test(m)) {
-            models.push({ key: `${p.id}::${m}`, provider: p, model: m });
-          }
+      for (const p of (Array.isArray(cached) ? cached : [])) {
+        const pName = formatProviderLabel(p);
+        const pid = p?.id || pName;
+        for (const rawM of (Array.isArray(p?.models) ? p.models : [])) {
+          const m = String(rawM || '').trim();
+          if (!m) continue;
+          models.push({ key: `${pid}::${m}`, provider: p, model: m });
         }
       }
       const matched = (savedKey ? models.find(item => item.key === savedKey) : null) || models[0] || null;
@@ -486,6 +496,22 @@ if (wv && !window.blackObsidian) {
   // Mount native window control buttons (Min / Max / Close) and titlebar drag handler ONLY on main window (never on floating companion windows)
   window.addEventListener('DOMContentLoaded', () => {
     if (window.location.pathname.includes('companion')) return;
+    let lastSyncedProvidersJson = '';
+    const syncProvidersToHost = () => {
+      try {
+        const raw = localStorage.getItem('black-obsidian.providers.v1') || localStorage.getItem('xm.providers.cache') || '';
+        if (raw && raw !== lastSyncedProvidersJson) {
+          lastSyncedProvidersJson = raw;
+          try { localStorage.setItem('xm.providers.cache', raw); } catch {}
+          const parsed = JSON.parse(raw);
+          if (Array.isArray(parsed)) {
+            void invokeHost('companion-action', { action: 'sync-providers', value: parsed });
+          }
+        }
+      } catch {}
+    };
+    syncProvidersToHost();
+    setInterval(syncProvidersToHost, 1500);
     const bar = document.createElement('div');
     bar.className = 'bos-wv2-window-controls';
     bar.style.cssText = 'position:fixed;top:0;right:0;height:36px;width:138px;z-index:9999;display:grid;grid-template-columns:repeat(3,46px);-webkit-app-region:no-drag;user-select:none;';

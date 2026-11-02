@@ -626,6 +626,13 @@ internal sealed partial class JianYingEngine
 
     private void EnsureModeTemplateLoaded()
     {
+        var canonical = NextCoordinateTemplateIdentity(_exportMode);
+        if (File.Exists(canonical.Item2))
+        {
+            var cRec = ReadCoordinateTemplateRecord(canonical.Item2);
+            if (cRec != null && LoadCoordinateTemplate(canonical.Item2)) return;
+        }
+
         var records = GetCoordinateTemplateRecords()
             .Where(r => string.Equals(Convert.ToString(r["mode"]), _exportMode, StringComparison.OrdinalIgnoreCase))
             .OrderByDescending(r => Convert.ToString(r["savedAt"] ?? ""))
@@ -673,12 +680,9 @@ internal sealed partial class JianYingEngine
     {
         try
         {
-            if (string.IsNullOrEmpty(templateName) || string.IsNullOrEmpty(templatePath))
-            {
-                var next = NextCoordinateTemplateIdentity(_exportMode);
-                templateName = next.Item1;
-                templatePath = next.Item2;
-            }
+            var next = NextCoordinateTemplateIdentity(_exportMode);
+            if (string.IsNullOrEmpty(templateName)) templateName = next.Item1;
+            if (string.IsNullOrEmpty(templatePath)) templatePath = next.Item2;
             int[] sysRes = GetScreenResolution();
             var payload = new Dictionary<string, object>
             {
@@ -709,19 +713,10 @@ internal sealed partial class JianYingEngine
 
     private Tuple<string, string> NextCoordinateTemplateIdentity(string mode = null)
     {
-        string m = mode ?? _exportMode;
-        string modeLabel = m == "wait_close" ? "等待完成" : "收起至首页";
-        string stamp = DateTime.Now.ToString("yyyy-MM-dd_HH-mm-ss", CultureInfo.InvariantCulture);
-        string baseName = modeLabel + "_" + stamp;
-        string fileName = baseName + ".json";
-        int n = 2;
-        while (File.Exists(Path.Combine(_dataDir, fileName)))
-        {
-            baseName = modeLabel + "_" + stamp + "_" + n;
-            fileName = baseName + ".json";
-            n++;
-        }
-        return Tuple.Create(baseName, Path.Combine(_dataDir, fileName));
+        string m = (mode ?? _exportMode) == "wait_close" ? "wait_close" : "return_home";
+        string modeLabel = m == "wait_close" ? "等待完成 · 逐个" : "收起至首页 · 后台";
+        string fileName = m == "wait_close" ? "coords_wait_close.json" : "coords_return_home.json";
+        return Tuple.Create(modeLabel, Path.Combine(_dataDir, fileName));
     }
 
     private bool ModeCoordsReady(string mode = null)
@@ -746,17 +741,18 @@ internal sealed partial class JianYingEngine
     private void RefreshGuideBadge()
     {
         if (_recState != null) return;
+        string modeLabel = _exportMode == "wait_close" ? "等待完成 · 逐个" : "收起至首页 · 后台";
         if (_resolutionMismatch)
         {
-            _guide = "⚠ 当前屏幕分辨率与坐标模板不一致，请重新录制坐标";
+            _guide = "⚠ 当前屏幕分辨率与已录制的【" + modeLabel + "】坐标不一致，请重新录制坐标";
         }
         else if (ModeCoordsReady())
         {
-            _guide = "✓ 已载入坐标模板：" + (_activeTemplateName ?? Path.GetFileNameWithoutExtension(_activeTemplatePath));
+            _guide = "✓ 已自动匹配【" + modeLabel + "】模式坐标";
         }
         else
         {
-            _guide = "请先录制坐标";
+            _guide = "请先录制【" + modeLabel + "】模式坐标";
         }
     }
 
@@ -1953,12 +1949,12 @@ internal sealed partial class JianYingEngine
             case "wizard":
                 lock (_lock)
                 {
-                    var next = NextCoordinateTemplateIdentity(_exportMode);
-                    string customName = args.Contains("name") ? Convert.ToString(args["name"] ?? "").Trim() : "";
-                    if (!string.IsNullOrEmpty(customName) && customName.Length <= 40)
+                    if (args.Contains("mode"))
                     {
-                        next = Tuple.Create(customName, next.Item2);
+                        string reqMode = Convert.ToString(args["mode"]);
+                        if (reqMode == "return_home" || reqMode == "wait_close") _exportMode = reqMode;
                     }
+                    var next = NextCoordinateTemplateIdentity(_exportMode);
                     _recordingCoords = new Dictionary<string, int[]>
                     {
                         { "export", null },
@@ -1973,7 +1969,7 @@ internal sealed partial class JianYingEngine
                     _recState = "export";
                     string firstStep = _exportMode == "wait_close" ? "[1/4]" : "[1/3]";
                     _guide = firstStep + " 鼠标放在【导出】上 → 按 F8";
-                    Log("向导开始，完成后将保存为本地坐标模板【" + next.Item1 + "】");
+                    Log("向导开始，完成后将自动匹配并保存【" + next.Item1 + "】模式坐标");
                 }
                 BeginRecordingProgress();
                 break;
@@ -2117,12 +2113,8 @@ internal sealed partial class JianYingEngine
                 {
                     string mode = Convert.ToString(args["mode"]);
                     if (mode != "return_home" && mode != "wait_close") throw new InvalidOperationException("无法保存导出模式。");
-                    bool modeChanged = !string.Equals(_exportMode, mode, StringComparison.OrdinalIgnoreCase);
                     _exportMode = mode;
-                    if (modeChanged)
-                    {
-                        EnsureModeTemplateLoaded();
-                    }
+                    EnsureModeTemplateLoaded();
                 }
                 if (args.Contains("waits"))
                 {

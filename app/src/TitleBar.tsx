@@ -1,4 +1,4 @@
-﻿declare const i: any;
+declare const i: any;
 
 export interface UpdaterState {
   status: 'idle' | 'checking' | 'available' | 'up-to-date' | 'downloading' | 'ready' | 'error';
@@ -12,8 +12,8 @@ export interface UpdaterState {
 
 const DEFAULT_STATE: UpdaterState = {
   status: 'idle',
-  currentVersion: '1.7.2',
-  latestVersion: '1.7.2',
+  currentVersion: '1.7.3',
+  latestVersion: '1.7.3',
   hasUpdate: false,
   progress: 0,
 };
