@@ -3,7 +3,7 @@ import { useScriptProjects } from './ScriptProjects.jsx';
 
 declare const i: any;
 
-export function WebAIStudio({ active, onNavigate }: { active: boolean; onNavigate: (tab: string) => void }) {
+export function WebAIStudio({ active, onNavigate }: { active: boolean; onNavigate: (tab: string) => void; providers?: any[]; automation?: any }) {
   const [manualProvider, setProvider] = i.useState(() => {
     try {
       return WEB_AI_PROVIDERS.some((p: any) => p.id === localStorage.getItem('xm.web-ai.provider'))
@@ -33,21 +33,13 @@ export function WebAIStudio({ active, onNavigate }: { active: boolean; onNavigat
     if (opened) setOpened(value);
     setStatus(null);
     setError('');
-    try { localStorage.setItem('xm.web-ai.provider', value); } catch { /* session only */ }
+    try { localStorage.setItem('xm.web-ai.provider', value); } catch { /* selection works for this session */ }
   };
 
   i.useEffect(() => {
     if (!ready) return;
     if (!visible) { void api.layoutWebAI({ visible: false }).catch(() => {}); return; }
-    let live = true, frame = 0, last = '', lastStatus = '', polling = false;
-    const updateStatus = (value: any) => {
-      const nextJson = JSON.stringify(value);
-      if (nextJson !== lastStatus) {
-        lastStatus = nextJson;
-        setStatus(value);
-      }
-      setError('');
-    };
+    let live = true, frame = 0, last = '', polling = false;
     setStatus(null); setError(''); setNotice('');
     const sync = () => {
       frame = 0;
@@ -57,11 +49,12 @@ export function WebAIStudio({ active, onNavigate }: { active: boolean; onNavigat
       const viewport = { left: 0, top: 0, right: window.innerWidth, bottom: window.innerHeight };
       const bounds = clipWebAISlot(rect, viewport, slot.current.closest('.main-scroll')?.getBoundingClientRect(), rail?.width || 0);
       const modal = [...document.querySelectorAll('[role=dialog],.modal-backdrop')].some(node => node.getClientRects().length && !node.closest('[hidden],.bos-web-ai'));
-      const input = { provider, visible: !modal && bounds.width > 100 && bounds.height > 80, bounds };
+      const cornerRadius = Math.max(0, (parseFloat(getComputedStyle(slot.current).borderTopLeftRadius) || 20) - 2);
+      const input = { provider, visible: !modal && bounds.width > 100 && bounds.height > 80, bounds, cornerRadius };
       const signature = JSON.stringify(input);
       if (signature === last) return;
       last = signature;
-      void api.layoutWebAI(input).then((value: any) => { if (live && value) updateStatus(value); }).catch((err: any) => { if (live) { last = ''; setError(err.message); } });
+      void api.layoutWebAI(input).then((value: any) => { if (live && value) { setStatus((previous: any) => ({ ...previous, ...value })); setError(''); } }).catch((err: any) => { if (live) { last = ''; setError(err.message); } });
     };
     const schedule = () => { if (!frame) frame = requestAnimationFrame(sync); };
     const resize = new ResizeObserver(schedule);
@@ -76,7 +69,7 @@ export function WebAIStudio({ active, onNavigate }: { active: boolean; onNavigat
         if (!polling) {
           polling = true;
           void api.webAIAction(provider, 'page-status')
-            .then((value: any) => { if (live) updateStatus(value); })
+            .then((value: any) => { if (live) { setStatus(value); setError(''); } })
             .catch((err: any) => { if (live) setError(err.message); })
             .finally(() => { polling = false; });
         }
@@ -122,28 +115,26 @@ export function WebAIStudio({ active, onNavigate }: { active: boolean; onNavigat
     try {
       setError('');
       await api.webAnalysisAction(task.id, name, manualReply);
-      if (name === 'copy') setNotice('任务已完整复制，请在网页粘贴并发送。');
+      if (name === 'copy') setNotice('任务已完整复制。请在网页粘贴并发送。');
     } catch (err: any) {
       setError(err.message);
     }
   };
-
   const action = async (name: string) => {
     setError('');
     try {
       const value = await api.webAIAction(provider, name);
-      if (!value?.external) setStatus(value);
+      if (!value.external) setStatus(value);
     } catch (err: any) {
       setError(err.message);
     }
   };
-
   const copyTask = async (purpose: string) => {
     setError(''); setNotice('');
     try {
       if (!api?.copyWebAITask) throw new Error('请更新桌面程序后使用剧本复制。');
       await api.copyWebAITask(projects.project.draft, purpose);
-      setNotice('已完整复制当前剧本和任务指令，请粘贴到下方网页发送。');
+      setNotice('已完整复制当前剧本和任务指令，保留原始标点。请粘贴到下方网页，确认后发送。');
     } catch (err: any) {
       setError(err.message || '复制失败，请重试。');
     }
@@ -153,33 +144,23 @@ export function WebAIStudio({ active, onNavigate }: { active: boolean; onNavigat
     <section className={`bos-script bos-web-ai${task || opened ? ' bos-web-ai-overlay' : ''}`} hidden={!visible} aria-label="国内 AI 官方网页版">
       {(task || opened) && (
         <div className="bos-web-ai-task-heading">
-          <div className="bos-web-ai-live-badge">
-            <span className="bos-pulse-dot" />
-            <strong>{task ? `${current.name} · ${task.stage}` : `${current.name} · 官方网页登录`}</strong>
-          </div>
+          <strong>{task ? `${current.name} · ${task.stage}` : `${current.name} · 官方网页登录`}</strong>
           <button type="button" onClick={() => task ? taskAction('cancel') : setOpened('')}>
-            {task ? '中断分析' : '返回工作空间'}
+            {task?.kind === 'draft-scan' ? '中断扫描 · F10' : task ? '中断分析' : '返回工作空间'}
           </button>
         </div>
       )}
       {task && (
         <div className="bos-web-ai-task">
-          <div className="bos-web-ai-task-row">
-            <p role="status">{task.message}</p>
+          <p role="status">{task.message}</p>
+          <div className="bos-script-actions">
             <button type="button" onClick={() => taskAction('copy')}>复制当前任务</button>
+            <small>网页回答会自动读取并接回原任务，无需 API 配置。</small>
           </div>
           <details>
-            <summary>手动粘贴 JSON 回答兜底</summary>
-            <textarea
-              aria-label="网页分析结果"
-              value={manualReply}
-              onChange={(event: any) => setManualReply(event.target.value)}
-              rows={3}
-              placeholder="粘贴网页返回的完整 JSON 回答"
-            />
-            <button type="button" className="bos-script-primary" disabled={!manualReply.trim()} onClick={() => taskAction('import')}>
-              导入结果并继续
-            </button>
+            <summary>网页无法自动读取时，粘贴回答继续</summary>
+            <textarea aria-label="网页分析结果" value={manualReply} onChange={(event: any) => setManualReply(event.target.value)} rows={3} placeholder="粘贴网页返回的完整 JSON 回答" />
+            <button type="button" disabled={!manualReply.trim()} onClick={() => taskAction('import')}>导入结果并继续</button>
           </details>
         </div>
       )}
@@ -187,21 +168,14 @@ export function WebAIStudio({ active, onNavigate }: { active: boolean; onNavigat
         <div className="bos-web-ai-toolbar">
           <div className="bos-source-choice" role="group" aria-label="选择国内 AI">
             {WEB_AI_PROVIDERS.map((item: any) => (
-              <button
-                type="button"
-                key={item.id}
-                disabled={!!task}
-                aria-pressed={provider === item.id}
-                onClick={() => changeProvider(item.id)}
-              >
+              <button type="button" key={item.id} disabled={!!task} aria-pressed={provider === item.id} onClick={() => changeProvider(item.id)}>
                 {item.name}
               </button>
             ))}
           </div>
-          <div className="bos-web-ai-url-pill" title={status?.url || current.url}>
-            <span className={`bos-status-dot${status?.loading ? '' : ' is-online'}`} />
-            <span>{current.name} 官方网页 · 无需 API 密钥</span>
-            <small>{status?.loading ? '加载中…' : (status?.url || current.url)}</small>
+          <div className="bos-web-ai-meta" title={status?.url || current.url}>
+            <strong>{current.name} 官方网页 · 无需 API 密钥</strong>
+            <small>{status?.loading ? '正在加载…' : status?.url || current.url}</small>
           </div>
           <div className="bos-script-actions">
             <button type="button" disabled={!ready} onClick={() => action('login')}>登录</button>
@@ -216,7 +190,7 @@ export function WebAIStudio({ active, onNavigate }: { active: boolean; onNavigat
               <span>剧本快捷指令 · 自行粘贴</span>
               <small>{projects.project.draft.script.trim() ? `已载入 ${projects.project.draft.script.length} 字 · ${projects.project.draft.segmented ? '分段模式' : '整篇模式'}` : '未填写剧本'}</small>
             </summary>
-            <div className="bos-script-actions" style={{ marginTop: '10px' }}>
+            <div className="bos-script-actions">
               <button type="button" disabled={!projects.project.draft.script.trim()} onClick={() => copyTask('keywords')}>复制剧本关键词任务</button>
               <button type="button" disabled={!projects.project.draft.script.trim()} onClick={() => copyTask('suno')}>复制 Suno 提示词任务</button>
               <button type="button" onClick={() => onNavigate('workspace')}>前往工作空间</button>
@@ -228,13 +202,9 @@ export function WebAIStudio({ active, onNavigate }: { active: boolean; onNavigat
       {notice && <p className="bos-script-message" role="status">{notice}</p>}
       {(error || status?.error) && <p className="bos-script-warning" role="alert">{error || status.error}</p>}
       {status?.pageNotice && <p className="bos-script-warning" role="status">{status.pageNotice}</p>}
-      {!ready && (
-        <p className="bos-script-warning">
-          请使用桌面程序加载内嵌网页，或访问官网：<a href={current.url} target="_blank" rel="noreferrer">{current.name}</a>
-        </p>
-      )}
+      {!ready && <p className="bos-script-warning">请更新桌面程序后使用内嵌网页。也可通过官网访问：<a href={current.url} target="_blank" rel="noreferrer">{current.name}</a></p>}
       <div ref={slot} className="bos-web-ai-slot" aria-label={`${current.name} 网页显示区域`}>
-        <span>正在连接 {current.name} 官方网页…</span>
+        <span>正在准备 {current.name} 官方网页…</span>
       </div>
     </section>
   );

@@ -36,6 +36,23 @@ internal static class NativeWin32
     [DllImport("user32.dll")]
     public static extern bool SetProcessDPIAware();
 
+    [DllImport("user32.dll")] private static extern bool SetProcessDpiAwarenessContext(IntPtr context);
+    [DllImport("user32.dll")] private static extern uint GetDpiForWindow(IntPtr handle);
+    [DllImport("user32.dll")] public static extern IntPtr WindowFromPoint(POINT point);
+    [DllImport("user32.dll")] public static extern IntPtr GetAncestor(IntPtr handle, uint flags);
+
+    public static void ConfigureDpi()
+    {
+        try { if (SetProcessDpiAwarenessContext(new IntPtr(-4))) return; } catch (EntryPointNotFoundException) { }
+        SetProcessDPIAware();
+    }
+    public static int WindowDpi(IntPtr handle) { try { uint dpi = GetDpiForWindow(handle); return dpi > 0 ? (int)dpi : 96; } catch (EntryPointNotFoundException) { return 96; } }
+    public static bool IsJianyingWindow(IntPtr handle)
+    {
+        uint pid; GetWindowThreadProcessId(handle, out pid);
+        try { using (var p = Process.GetProcessById((int)pid)) return string.Equals(p.ProcessName, "JianyingPro", StringComparison.OrdinalIgnoreCase); } catch { return false; }
+    }
+
     [DllImport("user32.dll")]
     public static extern bool GetWindowRect(IntPtr hWnd, out RECT lpRect);
 
@@ -63,6 +80,56 @@ internal static class NativeWin32
     [DllImport("user32.dll")]
     public static extern uint GetWindowThreadProcessId(IntPtr hWnd, out uint lpdwProcessId);
 
+    [DllImport("user32.dll")]
+    public static extern bool SetForegroundWindow(IntPtr hWnd);
+
+    [DllImport("user32.dll")]
+    public static extern bool ShowWindow(IntPtr hWnd, int nCmdShow);
+
+    public delegate bool EnumWindowCallback(IntPtr window, IntPtr unused);
+    [DllImport("user32.dll")] public static extern bool EnumWindows(EnumWindowCallback callback, IntPtr unused);
+    [DllImport("user32.dll")] public static extern bool IsWindowVisible(IntPtr window);
+
+    // Qt/CEF processes do not always expose Process.MainWindowHandle.
+    // Discover visible top-level windows without changing foreground focus.
+    public static IntPtr FindJianyingWindow()
+    {
+        var ids = new HashSet<uint>();
+        foreach (var process in Process.GetProcessesByName("JianyingPro"))
+            using (process) { try { ids.Add((uint)process.Id); } catch (InvalidOperationException) { } }
+        IntPtr best = IntPtr.Zero, foreground = GetForegroundWindow(); long bestScore = -1;
+        if (ids.Count == 0) return best;
+        EnumWindows((window, unused) => {
+            uint pid; GetWindowThreadProcessId(window, out pid); RECT rect;
+            if (!ids.Contains(pid) || !IsWindowVisible(window) || !GetWindowRect(window, out rect)) return true;
+            int width = rect.Right - rect.Left, height = rect.Bottom - rect.Top;
+            if (width < 300 || height < 200) return true;
+            long score = (long)width * height;
+            if (!IsIconic(window)) score += 1000000000L;
+            if (window == foreground) score += 2000000000L;
+            if (score > bestScore) { best = window; bestScore = score; }
+            return true;
+        }, IntPtr.Zero);
+        return best;
+    }
+
+    public static bool ActivateJianyingWindow()
+    {
+        try
+        {
+            IntPtr topHwnd = FindJianyingWindow();
+            if (topHwnd != IntPtr.Zero)
+            {
+                if (IsIconic(topHwnd)) ShowWindow(topHwnd, 9);
+                keybd_event(0x12, 0, 0, UIntPtr.Zero);
+                keybd_event(0x12, 0, KEYEVENTF_KEYUP, UIntPtr.Zero);
+                if (SetForegroundWindow(topHwnd)) return true;
+            }
+        }
+        catch { }
+        return false;
+    }
+
     public const uint MOUSEEVENTF_LEFTDOWN = 0x0002;
     public const uint MOUSEEVENTF_LEFTUP = 0x0004;
     public const uint KEYEVENTF_KEYUP = 0x0002;
@@ -70,102 +137,6 @@ internal static class NativeWin32
     public const int VK_F8 = 0x77;
     public const int VK_F9 = 0x78;
     public const int VK_F10 = 0x79;
-
-    [DllImport("user32.dll")]
-    public static extern bool SetForegroundWindow(IntPtr hWnd);
-
-    [DllImport("user32.dll")]
-    public static extern bool ShowWindow(IntPtr hWnd, int nCmdShow);
-
-    [DllImport("user32.dll")]
-    public static extern bool AllowSetForegroundWindow(int dwProcessId);
-
-    public delegate bool EnumWindowsProc(IntPtr hWnd, IntPtr lParam);
-
-    [DllImport("user32.dll")]
-    public static extern bool EnumWindows(EnumWindowsProc lpEnumFunc, IntPtr lParam);
-
-    [DllImport("user32.dll")]
-    public static extern bool IsWindowVisible(IntPtr hWnd);
-
-    public static IntPtr FindJianyingHwnd()
-    {
-        try
-        {
-            var pids = new HashSet<uint>();
-            foreach (var p in Process.GetProcessesByName("JianyingPro"))
-            {
-                try { pids.Add((uint)p.Id); } catch { }
-                try { p.Dispose(); } catch { }
-            }
-            if (pids.Count == 0) return IntPtr.Zero;
-
-            IntPtr bestHwnd = IntPtr.Zero;
-            int bestArea = 0;
-
-            EnumWindows(delegate(IntPtr hWnd, IntPtr lParam)
-            {
-                if (!IsWindowVisible(hWnd)) return true;
-                uint pid;
-                GetWindowThreadProcessId(hWnd, out pid);
-                if (pids.Contains(pid))
-                {
-                    RECT r;
-                    if (GetWindowRect(hWnd, out r))
-                    {
-                        int w = r.Right - r.Left;
-                        int h = r.Bottom - r.Top;
-                        if (w > 300 && h > 200)
-                        {
-                            int area = w * h;
-                            if (area > bestArea)
-                            {
-                                bestArea = area;
-                                bestHwnd = hWnd;
-                            }
-                        }
-                    }
-                }
-                return true;
-            }, IntPtr.Zero);
-
-            return bestHwnd;
-        }
-        catch
-        {
-            return IntPtr.Zero;
-        }
-    }
-
-    public static bool ActivateJianyingWindow()
-    {
-        try
-        {
-            IntPtr topHwnd = FindJianyingHwnd();
-            if (topHwnd != IntPtr.Zero)
-            {
-                if (IsIconic(topHwnd)) ShowWindow(topHwnd, 9); // SW_RESTORE
-                keybd_event(0x12, 0, 0, UIntPtr.Zero);
-                keybd_event(0x12, 0, KEYEVENTF_KEYUP, UIntPtr.Zero);
-                if (SetForegroundWindow(topHwnd)) return true;
-            }
-            foreach (Process p in Process.GetProcessesByName("JianyingPro"))
-            {
-                using (p)
-                {
-                    IntPtr hwnd = p.MainWindowHandle;
-                    if (hwnd == IntPtr.Zero) continue;
-                    if (IsIconic(hwnd)) ShowWindow(hwnd, 9); // SW_RESTORE
-                    // 模拟一次 Alt 键以解除前台锁定限制，再激活窗口。
-                    keybd_event(0x12, 0, 0, UIntPtr.Zero);
-                    keybd_event(0x12, 0, KEYEVENTF_KEYUP, UIntPtr.Zero);
-                    return SetForegroundWindow(hwnd);
-                }
-            }
-        }
-        catch { }
-        return false;
-    }
 
     public static string GetForegroundProcessName()
     {
@@ -191,35 +162,26 @@ internal static class NativeWin32
     {
         try
         {
-            var procs = Process.GetProcessesByName("JianyingPro");
-            try
+            IntPtr hwnd = FindJianyingWindow();
+            if (hwnd != IntPtr.Zero)
             {
-                foreach (var p in procs)
+                RECT r;
+                if (!GetWindowRect(hwnd, out r)) throw new InvalidOperationException("剪映窗口已关闭。");
+                int w = r.Right - r.Left;
+                int h = r.Bottom - r.Top;
+                if (w <= 0 || h <= 0) throw new InvalidOperationException("剪映窗口尺寸无效。");
+                bool minimized = IsIconic(hwnd);
+                bool fg = GetForegroundWindow() == hwnd;
+                return new Dictionary<string, object>
                 {
-                    IntPtr hwnd = p.MainWindowHandle;
-                    if (hwnd == IntPtr.Zero) continue;
-                    RECT r;
-                    if (!GetWindowRect(hwnd, out r)) continue;
-                    int w = r.Right - r.Left;
-                    int h = r.Bottom - r.Top;
-                    if (w <= 0 || h <= 0) continue;
-                    bool minimized = IsIconic(hwnd);
-                    bool fg = GetForegroundWindow() == hwnd;
-                    return new Dictionary<string, object>
-                    {
-                        { "found", true },
-                        { "minimized", minimized },
-                        { "foreground", fg },
-                        { "x", r.Left },
-                        { "y", r.Top },
-                        { "width", w },
-                        { "height", h }
-                    };
-                }
-            }
-            finally
-            {
-                foreach (var p in procs) { try { p.Dispose(); } catch { } }
+                    { "found", true },
+                    { "minimized", minimized },
+                    { "foreground", fg },
+                    { "x", r.Left },
+                    { "y", r.Top },
+                    { "width", w },
+                    { "height", h }
+                };
             }
         }
         catch { }
@@ -235,13 +197,15 @@ internal static class NativeWin32
         };
     }
 
-    public static void ClickAt(int x, int y)
+    public static void ClickAt(int x, int y, Action check)
     {
-        SetCursorPos(x, y);
+        check();
+        if (!SetCursorPos(x, y)) throw new InvalidOperationException("无法移动鼠标到剪映目标位置。");
         Thread.Sleep(25);
-        mouse_event(MOUSEEVENTF_LEFTDOWN, (uint)x, (uint)y, 0, UIntPtr.Zero);
-        Thread.Sleep(25);
-        mouse_event(MOUSEEVENTF_LEFTUP, (uint)x, (uint)y, 0, UIntPtr.Zero);
+        check();
+        mouse_event(MOUSEEVENTF_LEFTDOWN, 0, 0, 0, UIntPtr.Zero);
+        try { Thread.Sleep(25); }
+        finally { mouse_event(MOUSEEVENTF_LEFTUP, 0, 0, 0, UIntPtr.Zero); }
     }
 
     public static void PressEnter()
@@ -289,7 +253,10 @@ internal sealed partial class JianYingEngine
     private string _recordingTemplatePath = null;
 
     private string _exportMode = "return_home";
-    private readonly Dictionary<string, double> _stepWaitsReturnHome = new Dictionary<string, double>
+    private readonly Dictionary<string, double> _stepWaitsReturnHome = DefaultStepWaits();
+    private readonly Dictionary<string, double> _stepWaitsWaitClose = DefaultStepWaits();
+    private Dictionary<string, double> ActiveStepWaits { get { return _exportMode == "wait_close" ? _stepWaitsWaitClose : _stepWaitsReturnHome; } }
+    private static Dictionary<string, double> DefaultStepWaits() { return new Dictionary<string, double>
     {
         { "open_draft", 8.0 },
         { "export", 3.0 },
@@ -297,20 +264,7 @@ internal sealed partial class JianYingEngine
         { "popup_close", 1.5 },
         { "close_btn", 2.0 },
         { "draft_close", 1.5 }
-    };
-    private readonly Dictionary<string, double> _stepWaitsWaitClose = new Dictionary<string, double>
-    {
-        { "open_draft", 8.0 },
-        { "export", 3.0 },
-        { "confirm", 1.0 },
-        { "popup_close", 1.5 },
-        { "close_btn", 2.0 },
-        { "draft_close", 1.5 }
-    };
-    private Dictionary<string, double> ActiveStepWaits
-    {
-        get { return _exportMode == "wait_close" ? _stepWaitsWaitClose : _stepWaitsReturnHome; }
-    }
+    }; }
 
     private Dictionary<string, int[]> _coords = new Dictionary<string, int[]>
     {
@@ -425,56 +379,10 @@ internal sealed partial class JianYingEngine
             string mode = data.ContainsKey("export_mode") ? Convert.ToString(data["export_mode"]) : "";
             _exportMode = (mode == "return_home" || mode == "wait_close") ? mode : "return_home";
 
-            if (data.ContainsKey("step_waits_return_home") && data["step_waits_return_home"] is IDictionary)
-            {
-                var waits = (IDictionary)data["step_waits_return_home"];
-                foreach (var key in _stepWaitsReturnHome.Keys.ToList())
-                {
-                    if (waits.Contains(key))
-                    {
-                        double val;
-                        if (double.TryParse(Convert.ToString(waits[key], CultureInfo.InvariantCulture), NumberStyles.Float, CultureInfo.InvariantCulture, out val)
-                            && !double.IsNaN(val) && !double.IsInfinity(val) && val >= 0.1 && val <= 600.0)
-                        {
-                            _stepWaitsReturnHome[key] = Math.Round(val, 1);
-                        }
-                    }
-                }
-            }
-            if (data.ContainsKey("step_waits_wait_close") && data["step_waits_wait_close"] is IDictionary)
-            {
-                var waits = (IDictionary)data["step_waits_wait_close"];
-                foreach (var key in _stepWaitsWaitClose.Keys.ToList())
-                {
-                    if (waits.Contains(key))
-                    {
-                        double val;
-                        if (double.TryParse(Convert.ToString(waits[key], CultureInfo.InvariantCulture), NumberStyles.Float, CultureInfo.InvariantCulture, out val)
-                            && !double.IsNaN(val) && !double.IsInfinity(val) && val >= 0.1 && val <= 600.0)
-                        {
-                            _stepWaitsWaitClose[key] = Math.Round(val, 1);
-                        }
-                    }
-                }
-            }
-            else if (data.ContainsKey("step_waits") && data["step_waits"] is IDictionary)
-            {
-                var waits = (IDictionary)data["step_waits"];
-                foreach (var key in _stepWaitsReturnHome.Keys.ToList())
-                {
-                    if (waits.Contains(key))
-                    {
-                        double val;
-                        if (double.TryParse(Convert.ToString(waits[key], CultureInfo.InvariantCulture), NumberStyles.Float, CultureInfo.InvariantCulture, out val)
-                            && !double.IsNaN(val) && !double.IsInfinity(val) && val >= 0.1 && val <= 600.0)
-                        {
-                            double rounded = Math.Round(val, 1);
-                            _stepWaitsReturnHome[key] = rounded;
-                            _stepWaitsWaitClose[key] = rounded;
-                        }
-                    }
-                }
-            }
+            IDictionary legacy = data.ContainsKey("step_waits") ? data["step_waits"] as IDictionary : null;
+            LoadWaits(_stepWaitsReturnHome, legacy); LoadWaits(_stepWaitsWaitClose, legacy);
+            LoadWaits(_stepWaitsReturnHome, data.ContainsKey("step_waits_return_home") ? data["step_waits_return_home"] as IDictionary : null);
+            LoadWaits(_stepWaitsWaitClose, data.ContainsKey("step_waits_wait_close") ? data["step_waits_wait_close"] as IDictionary : null);
             string tpl = data.ContainsKey("template") ? Path.GetFileName(Convert.ToString(data["template"])) : "";
             _activeTemplatePath = !string.IsNullOrEmpty(tpl) ? Path.Combine(_dataDir, tpl) : "";
             _templateReturnHome = data.ContainsKey("template_return_home") ? Path.GetFileName(Convert.ToString(data["template_return_home"])) : "";
@@ -488,6 +396,16 @@ internal sealed partial class JianYingEngine
         }
     }
 
+    private static void LoadWaits(Dictionary<string, double> target, IDictionary values)
+    {
+        if (values == null) return;
+        foreach (string key in target.Keys.ToArray()) {
+            double number;
+            if (values.Contains(key) && double.TryParse(Convert.ToString(values[key], CultureInfo.InvariantCulture), NumberStyles.Float, CultureInfo.InvariantCulture, out number)
+                && !double.IsNaN(number) && !double.IsInfinity(number) && number >= .1 && number <= 600) target[key] = Math.Round(number, 1);
+        }
+    }
+
     private bool SaveConfig()
     {
         try
@@ -495,9 +413,9 @@ internal sealed partial class JianYingEngine
             var payload = new Dictionary<string, object>
             {
                 { "export_mode", _exportMode },
+                { "step_waits", ActiveStepWaits },
                 { "step_waits_return_home", _stepWaitsReturnHome },
                 { "step_waits_wait_close", _stepWaitsWaitClose },
-                { "step_waits", ActiveStepWaits },
                 { "template", !string.IsNullOrEmpty(_activeTemplatePath) ? Path.GetFileName(_activeTemplatePath) : "" },
                 { "template_return_home", _templateReturnHome ?? "" },
                 { "template_wait_close", _templateWaitClose ?? "" },
@@ -600,6 +518,8 @@ internal sealed partial class JianYingEngine
         {
             var data = (Dictionary<string, object>)rec["data"];
             _coords = NormalizeCoordinates(data["coords"]);
+            LoadAutomationTemplate(data);
+            _closeColor = null;
             var resList = data["screen_resolution"] as IList;
             if (resList == null || resList.Count != 2) return false;
             _templateResolution = new int[] { Convert.ToInt32(resList[0]), Convert.ToInt32(resList[1]) };
@@ -672,6 +592,8 @@ internal sealed partial class JianYingEngine
             { "close_btn", null },
             { "draft_close", null }
         };
+        _buttonImages = new Dictionary<string, string>();
+        _coordinateFrames = new Dictionary<string, int[]>();
         _resolutionMismatch = false;
         RefreshGuideBadge();
     }
@@ -692,6 +614,8 @@ internal sealed partial class JianYingEngine
                 { "screen_resolution", sysRes },
                 { "coords", _coords },
                 { "color", _closeColor },
+                { "button_images", _buttonImages },
+                { "coordinate_frames", _coordinateFrames },
                 { "saved_at", DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss", CultureInfo.InvariantCulture) }
             };
             AtomicWriteJson(templatePath, payload);
@@ -801,21 +725,18 @@ internal sealed partial class JianYingEngine
 
     private void HotkeyLoop()
     {
-        bool prevF8 = false, prevF9 = false, prevF10 = false;
+        bool prevF8 = false, prevF10 = false;
         while (!_disposed)
         {
             try
             {
                 bool f8 = (NativeWin32.GetAsyncKeyState(NativeWin32.VK_F8) & 0x8000) != 0;
-                bool f9 = (NativeWin32.GetAsyncKeyState(NativeWin32.VK_F9) & 0x8000) != 0;
                 bool f10 = (NativeWin32.GetAsyncKeyState(NativeWin32.VK_F10) & 0x8000) != 0;
 
                 if (f10 && !prevF10) OnKeyF10();
                 if (f8 && !prevF8) OnKeyF8();
-                if (f9 && !prevF9) OnKeyF9();
 
                 prevF8 = f8;
-                prevF9 = f9;
                 prevF10 = f10;
             }
             catch { }
@@ -826,19 +747,6 @@ internal sealed partial class JianYingEngine
     private void OnKeyF10()
     {
         StopOperation("F10");
-    }
-
-    private void OnKeyF9()
-    {
-        lock (_lock)
-        {
-            if (_recState == "popup_close" && _exportMode == "wait_close" && _recordingCoords != null && _recordingCapture == null)
-            {
-                _recordingCoords["popup_close"] = null;
-                Log("  ↪ 已跳过收起至首页坐标，继续录制后续步骤");
-                AdvanceRecording();
-            }
-        }
     }
 
     private void AdvanceRecording()
@@ -853,7 +761,7 @@ internal sealed partial class JianYingEngine
             else if (_recState == "confirm")
             {
                 _recState = "popup_close";
-                _guide = "3/3 鼠标放在【收起至首页】上 → F8 结束录制保存模板";
+                _guide = "3/3 点击确认导出后，鼠标放在【收起至首页】上 → F8 保存";
             }
             else
             {
@@ -865,23 +773,17 @@ internal sealed partial class JianYingEngine
             if (_recState == "export")
             {
                 _recState = "confirm";
-                _guide = "2/4 点导出呼出弹窗 → 鼠标在【确认导出】上 → 按 F8";
+                _guide = "2/4 点导出呼出弹窗 → 鼠标在【确认导出】上 → F8";
             }
             else if (_recState == "confirm")
             {
-                _recordingCoords["popup_close"] = null;
                 _recState = "close_btn";
-                _guide = "3/4 鼠标在导出完成后的【关闭(X)】按钮上 → 按 F8";
-            }
-            else if (_recState == "popup_close")
-            {
-                _recState = "close_btn";
-                _guide = "3/4 鼠标在导出完成后的【关闭(X)】按钮上 → 按 F8";
+                _guide = "3/4 点击确认导出并等待完成，鼠标放在【关闭导出界面】上 → F8";
             }
             else if (_recState == "close_btn")
             {
                 _recState = "draft_close";
-                _guide = "4/4 鼠标放在【关闭草稿/返回首页】上 → 按 F8 结束录制并保存模板";
+                _guide = "4/4 先点击关闭导出界面，再移到【关闭草稿/返回首页】上 → F8 保存";
             }
             else
             {
@@ -895,6 +797,8 @@ internal sealed partial class JianYingEngine
     {
         _coords = _recordingCoords;
         _closeColor = _recordingColor;
+        _buttonImages = _recordingImages;
+        _coordinateFrames = _recordingFrames;
         string tName = _recordingTemplateName;
         string tPath = _recordingTemplatePath;
         _recState = null;
@@ -1006,7 +910,6 @@ internal sealed partial class JianYingEngine
                     _busy = false;
                     _exportActive = false;
                 }
-                // 后台任务结束时主动推送最新状态，避免宿主的 busy 标志永远停留在 true（识别截图卡住）。
                 try { Send(new Dictionary<string, object> { { "event", "state" }, { "state", Snapshot() } }); } catch { }
             }
         });
@@ -1031,7 +934,6 @@ internal sealed partial class JianYingEngine
         string proc = NativeWin32.GetForegroundProcessName();
         if (!string.Equals(proc, "jianyingpro.exe", StringComparison.OrdinalIgnoreCase))
         {
-            // 悬浮窗（小马剪辑台.exe）可能处于前台：先尝试主动激活正在运行的剪映主窗口再复查。
             if (NativeWin32.ActivateJianyingWindow())
             {
                 Thread.Sleep(250);
@@ -1077,14 +979,20 @@ internal sealed partial class JianYingEngine
         }
     }
 
-    private static string CaptureScreenJpegBase64()
+    private static string CaptureScreenJpegBase64(Rectangle bounds, out string proofImage)
     {
-        Rectangle bounds = Screen.PrimaryScreen != null ? Screen.PrimaryScreen.Bounds : new Rectangle(0, 0, 1920, 1080);
         using (Bitmap screen = new Bitmap(bounds.Width, bounds.Height, PixelFormat.Format24bppRgb))
         {
             using (Graphics g = Graphics.FromImage(screen))
             {
                 g.CopyFromScreen(bounds.Left, bounds.Top, 0, 0, bounds.Size);
+            }
+            // Local verification keeps the original pixels, including small episode
+            // digits on high-DPI screens. Only the image sent to AI is resized/JPEG.
+            using (var proof = new MemoryStream())
+            {
+                screen.Save(proof, ImageFormat.Png);
+                proofImage = Convert.ToBase64String(proof.ToArray());
             }
             Bitmap target = screen;
             try
@@ -1188,6 +1096,7 @@ internal sealed partial class JianYingEngine
             BeginExportProgress(startIndex, mode, drafts, coords);
             CheckInterrupted(gen);
             ValidateDraftQueue();
+            ValidateExportCoordinates(mode);
             string modeName = mode == "return_home" ? "收起至首页" : "等待完成关闭";
             Log(string.Format("开始导出【{0}】：共 {1} 个", modeName, count));
             InterruptibleWait(0.8, gen);
@@ -1202,32 +1111,45 @@ internal sealed partial class JianYingEngine
                 lock (_lock) { _status = string.Format("导出 {0}/{1}", i - startIndex + 1, count); }
                 Log(string.Format("[{0}/{1}] {2}", i + 1, total, d.Item3));
 
-                SafeClick(d.Item1, d.Item2, gen);
+                ExportPhase("第 1 步：等待首页就绪并核对草稿 · " + d.Item3);
+                Point draftPoint = ResolveDraftPoint(d, gen);
+                ExportPhase("第 1 步：打开草稿 · " + d.Item3);
+                SafeClick(draftPoint.X, draftPoint.Y, gen, () => {
+                    if (_homeWindow() != _draftScope.Window || TranslatePoint(new Point(d.Item1, d.Item2), _draftScope.WindowBounds, _homeFrame(_draftScope.Window)) != draftPoint)
+                        throw new InvalidOperationException("剪映首页在点击前发生切换或移动，已停止，请返回首页后继续。");
+                });
                 InterruptibleWait(waits["open_draft"], gen);
 
-                SafeClick(coords["export"][0], coords["export"][1], gen);
+                ExportPhase("第 2 步：打开导出窗口");
+                ClickButton("export", coords, gen);
                 InterruptibleWait(waits["export"], gen);
 
-                SafeClick(coords["confirm"][0], coords["confirm"][1], gen);
+                ExportPhase("第 2 步：确认导出");
+                ClickButton("confirm", coords, gen);
                 InterruptibleWait(waits["confirm"], gen);
 
                 CheckInterrupted(gen);
                 RequireJianyingForeground();
                 NativeWin32.PressEnter();
 
-                WaitExportDone(mode, coords, gen);
+                ExportPhase(mode == "return_home" ? "第 3 步：等待收起至首页按钮" : "第 3 步：等待导出完成及关闭按钮");
+                Point ready = WaitExportDone(mode, coords, gen);
                 CheckInterrupted(gen);
 
                 if (mode == "return_home")
                 {
-                    SafeClick(coords["popup_close"][0], coords["popup_close"][1], gen);
+                    ExportPhase("第 3 步：点击收起至首页");
+                    SafeClick(ready.X, ready.Y, gen);
                     InterruptibleWait(waits["popup_close"], gen);
                 }
                 else
                 {
-                    SafeClick(coords["close_btn"][0], coords["close_btn"][1], gen);
+                    ExportPhase("第 3 步：关闭导出界面");
+                    SafeClick(ready.X, ready.Y, gen);
                     InterruptibleWait(waits["close_btn"], gen);
-                    SafeClick(coords["draft_close"][0], coords["draft_close"][1], gen);
+                    WaitForExportDialogClosed(ready, gen);
+                    ExportPhase("第 4 步：关闭草稿并返回首页");
+                    ClickButton("draft_close", coords, gen);
                     InterruptibleWait(waits["draft_close"], gen);
                 }
                 UpdateQueueStatus(i, "完成");
@@ -1243,50 +1165,50 @@ internal sealed partial class JianYingEngine
         }
     }
 
-    private void WaitExportDone(string mode, Dictionary<string, int[]> coords, int gen)
+    private Point WaitExportDone(string mode, Dictionary<string, int[]> coords, int gen)
     {
         InterruptibleWait(0.5, gen);
         Stopwatch sw = Stopwatch.StartNew();
         int streak = 0;
+        Point? previous = null;
+        Point? avoided = null;
+        string step = mode == "return_home" ? "popup_close" : "close_btn";
         while (sw.Elapsed.TotalSeconds < 1800)
         {
             CheckInterrupted(gen);
-            if (mode == "return_home" && coords["popup_close"] != null)
+            RequireJianyingForeground();
+            Point point = ResolveButton(step, coords);
+            if (!avoided.HasValue || avoided.Value != point) { AvoidExportTarget(point, gen); avoided = point; }
+            Point? candidate = LocateRecordedButton(step, point);
+            // Legacy templates have no image. Sample the entire local button structure,
+            // never a single text/background pixel. New templates use their recorded image.
+            if (!_buttonImages.ContainsKey(step))
             {
-                int px = coords["popup_close"][0];
-                int py = coords["popup_close"][1];
-                int[] rgb = GetPixelRgb(px, py);
-                if (rgb[0] < 80 && rgb[1] > 130 && rgb[2] > 130)
-                {
-                    return;
-                }
+                using (var patch = CaptureArea(new Rectangle(point.X - 20, point.Y - 8, 41, 17)))
+                    if (LegacyButtonReady(mode, patch)) candidate = point;
             }
-            else if (mode == "wait_close" && coords["close_btn"] != null)
+            if (candidate.HasValue)
             {
-                int cx = coords["close_btn"][0];
-                int cy = coords["close_btn"][1];
-                int[] rgb = GetPixelRgb(cx, cy);
-                int maxB = Math.Max(rgb[0], Math.Max(rgb[1], rgb[2]));
-                if (maxB > 140)
-                {
-                    streak++;
-                    if (streak >= 2) return;
-                }
-                else
-                {
-                    streak = 0;
-                }
+                streak = previous.HasValue && Math.Abs(previous.Value.X - candidate.Value.X) <= 3 && Math.Abs(previous.Value.Y - candidate.Value.Y) <= 3 ? streak + 1 : 1;
+                previous = candidate;
+                if (streak >= 2) { Log("已识别按钮：" + step + " (" + candidate.Value.X + "," + candidate.Value.Y + ")"); return candidate.Value; }
             }
-            InterruptibleWait(1.0, gen);
+            else { streak = 0; previous = null; }
+            InterruptibleWait(0.5, gen);
         }
         throw new TimeoutException("等待导出完成超时（30 分钟）");
     }
 
-    private void SafeClick(int x, int y, int gen)
+    private void SafeClick(int x, int y, int gen, Action validateTarget = null)
     {
         CheckInterrupted(gen);
         RequireJianyingForeground();
-        NativeWin32.ClickAt(x, y);
+        NativeWin32.ClickAt(x, y, () => {
+            CheckInterrupted(gen); RequireJianyingForeground();
+            if (validateTarget != null) validateTarget();
+            if (!NativeWin32.IsJianyingWindow(NativeWin32.WindowFromPoint(new NativeWin32.POINT { X = x, Y = y })))
+                throw new InvalidOperationException("目标位置不属于剪映，已停止点击。请移开遮挡窗口并重新扫描或录制。");
+        });
     }
 
     private void UpdateQueueStatus(int index, string status)
@@ -1368,10 +1290,9 @@ internal sealed partial class JianYingEngine
 
     private void RegexPreview(string folder, string template)
     {
-        bool useSelected = string.IsNullOrWhiteSpace(folder) && _selectedFiles != null && _selectedFiles.Count > 0;
-        if (!useSelected && (string.IsNullOrWhiteSpace(folder) || !Directory.Exists(folder)))
+        if (string.IsNullOrWhiteSpace(folder) ? _selectedFiles.Count == 0 : !Directory.Exists(folder))
         {
-            throw new InvalidOperationException("请先拖入/选择文件，或选择存在的目标文件夹。");
+            throw new InvalidOperationException("请选择存在的目标文件夹或拖入待改名文件。");
         }
         Match m = Regex.Match(template ?? "", @"\d+");
         if (!m.Success)
@@ -1380,50 +1301,34 @@ internal sealed partial class JianYingEngine
         }
         string prefix = template.Substring(0, m.Index);
         string suffix = template.Substring(m.Index + m.Length);
-        int startEp;
-        if (!int.TryParse(m.Value, out startEp)) startEp = 1;
         string[] exts = new[] { ".mp4", ".srt", ".mp3", ".wav", ".mkv" };
 
-        IEnumerable<FileInfo> source = useSelected
-            ? _selectedFiles.Where(File.Exists).Select(f => new FileInfo(f))
-            : Directory.GetFiles(folder).Select(f => new FileInfo(f)).Where(fi => exts.Contains(fi.Extension.ToLowerInvariant()));
-        var files = source
+        var files = (string.IsNullOrWhiteSpace(folder) ? _selectedFiles.ToArray() : Directory.GetFiles(folder))
+            .Select(f => new FileInfo(f))
+            .Where(fi => exts.Contains(fi.Extension.ToLowerInvariant()))
             .OrderBy(fi => Regex.IsMatch(Path.GetFileNameWithoutExtension(fi.Name), @"\(\d+\)\s*$") ? 1 : 0)
             .ThenBy(fi => fi.Name, StringComparer.OrdinalIgnoreCase)
             .ToList();
-        if (useSelected && files.Count == 0)
-        {
-            throw new InvalidOperationException("拖入的文件已不存在，请重新选择。");
-        }
 
         var plan = new List<Dictionary<string, object>>();
         var usedTargets = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        for (int idx = 0; idx < files.Count; idx++)
+        foreach (var fi in files)
         {
-            var fi = files[idx];
             string stem = Path.GetFileNameWithoutExtension(fi.Name);
             int? ep = ExtractEpisodeNumber(stem);
-            string newName = ep.HasValue ? (prefix + ep.Value + suffix + fi.Extension) : null;
-            string targetKey = newName == null ? null : Path.Combine(fi.DirectoryName, newName);
-            if (newName == null || usedTargets.Contains(targetKey))
-            {
-                // 拖入文件模式：未提取到集数或集数冲突时，按模板起始数字顺序递增，保证每个文件都有预览项。
-                if (!useSelected) continue;
-                int candidate = startEp + idx;
-                newName = prefix + candidate + suffix + fi.Extension;
-                targetKey = Path.Combine(fi.DirectoryName, newName);
-                while (usedTargets.Contains(targetKey))
-                {
-                    candidate++;
-                    newName = prefix + candidate + suffix + fi.Extension;
-                    targetKey = Path.Combine(fi.DirectoryName, newName);
-                }
+            string newName = ep.HasValue ? prefix + ep.Value + suffix + fi.Extension : null;
+            if (newName == null || usedTargets.Contains(Path.Combine(fi.DirectoryName, newName))) {
+                if (!string.IsNullOrWhiteSpace(folder)) continue;
+                int first; if (!int.TryParse(m.Value, out first)) throw new InvalidOperationException("模板起始数字过大。");
+                int candidate = checked(first + plan.Count);
+                do { newName = prefix + candidate + suffix + fi.Extension; candidate = checked(candidate + 1); }
+                while (usedTargets.Contains(Path.Combine(fi.DirectoryName, newName)) || File.Exists(Path.Combine(fi.DirectoryName, newName)) && !string.Equals(fi.FullName, Path.Combine(fi.DirectoryName, newName), StringComparison.OrdinalIgnoreCase));
             }
-            usedTargets.Add(targetKey);
+            usedTargets.Add(Path.Combine(fi.DirectoryName, newName));
             plan.Add(new Dictionary<string, object>
             {
                 { "source", fi.FullName },
-                { "target", targetKey },
+                { "target", Path.Combine(fi.DirectoryName, newName) },
                 { "old_name", fi.Name },
                 { "new_name", newName },
                 { "mode", "正则匹配" }
@@ -1436,87 +1341,49 @@ internal sealed partial class JianYingEngine
 
     private void FillAiRename(IList data)
     {
-        if (data == null || data.Count > 2000) throw new InvalidOperationException("AI 改名方案无效。");
-        var mapping = new Dictionary<string, string>(StringComparer.Ordinal);
-        var stemMapping = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
-        foreach (string f in _selectedFiles)
-        {
-            string baseName = Path.GetFileName(f);
-            if (mapping.ContainsKey(baseName)) throw new InvalidOperationException("所选文件含同名文件，请分文件夹处理。");
-            mapping[baseName] = f;
-            string stem = Path.GetFileNameWithoutExtension(f);
-            if (!stemMapping.ContainsKey(stem)) stemMapping[stem] = f;
+        if (data == null || data.Count == 0 || data.Count > 2000) throw new InvalidOperationException("AI 改名方案无效。");
+        // Reject ambiguous stems rather than guessing between a video and its subtitle.
+        var names = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        var stems = new Dictionary<string, List<string>>(StringComparer.OrdinalIgnoreCase);
+        foreach (string file in _selectedFiles) {
+            string name = Path.GetFileName(file), stem = Path.GetFileNameWithoutExtension(file);
+            if (names.ContainsKey(name)) throw new InvalidOperationException("所选文件含同名文件，请分文件夹处理。");
+            names[name] = file;
+            if (!stems.ContainsKey(stem)) stems[stem] = new List<string>();
+            stems[stem].Add(file);
         }
         var plan = new List<Dictionary<string, object>>();
-        var seenSources = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        var targetNamesSeen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        foreach (object itemObj in data)
-        {
-            var item = itemObj as IDictionary;
+        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var targets = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (object obj in data) {
+            var item = obj as IDictionary;
             if (item == null) throw new InvalidOperationException("AI 改名方案无效。");
             string oldName = item.Contains("old") ? Convert.ToString(item["old"]) : "";
             string newName = item.Contains("new") ? Convert.ToString(item["new"]) : "";
-            if (string.IsNullOrEmpty(oldName) || string.IsNullOrEmpty(newName))
-            {
-                throw new InvalidOperationException("AI 返回未知、重复或不合法文件名。");
+            if (!ValidFilename(oldName) || !ValidFilename(newName)) throw new InvalidOperationException("AI 返回不合法文件名。");
+            string source;
+            if (!names.TryGetValue(oldName, out source)) {
+                List<string> matches;
+                if (!stems.TryGetValue(oldName, out matches) || matches.Count != 1) throw new InvalidOperationException("AI 原文件名不明确，请使用完整文件名：" + oldName);
+                source = matches[0];
             }
-
-            string source = null;
-            if (mapping.ContainsKey(oldName))
-            {
-                source = mapping[oldName];
+            if (!seen.Add(source)) throw new InvalidOperationException("AI 返回重复的原文件名：" + oldName);
+            string extension = Path.GetExtension(source), returnedExtension = Path.GetExtension(newName);
+            if (returnedExtension.Length == 0) newName += extension;
+            else if (!string.Equals(returnedExtension, extension, StringComparison.OrdinalIgnoreCase)) throw new InvalidOperationException("改名不能改变文件扩展名。");
+            string stem = Path.GetFileNameWithoutExtension(newName), candidate = newName;
+            int number = 2; string target;
+            while (true) {
+                target = Path.Combine(Path.GetDirectoryName(source), candidate);
+                if (!targets.Contains(target) && (!File.Exists(target) || string.Equals(source, target, StringComparison.OrdinalIgnoreCase))) break;
+                candidate = stem + "_" + number++ + extension;
             }
-            else
-            {
-                string oldStem = Path.GetFileNameWithoutExtension(oldName);
-                if (stemMapping.ContainsKey(oldStem))
-                {
-                    source = stemMapping[oldStem];
-                }
-                else if (stemMapping.ContainsKey(oldName))
-                {
-                    source = stemMapping[oldName];
-                }
-            }
-            if (source == null || !seenSources.Add(source))
-            {
-                throw new InvalidOperationException("AI 返回未知或重复的原文件名：" + oldName);
-            }
-
-            // 自动保留源文件扩展名，防止大模型未输出扩展名导致报错
-            string ext = Path.GetExtension(source);
-            string newStem = Path.GetFileNameWithoutExtension(newName);
-            if (string.IsNullOrEmpty(newStem)) newStem = newName;
-            newName = newStem + ext;
-
-            if (!ValidFilename(newName))
-            {
-                throw new InvalidOperationException("AI 生成的文件名不合法：" + newName);
-            }
-
-            // 避免目标文件名重复
-            string baseTargetName = Path.GetFileNameWithoutExtension(newName);
-            string targetCandidate = newName;
-            int counter = 2;
-            while (targetNamesSeen.Contains(Path.Combine(Path.GetDirectoryName(source), targetCandidate).ToLowerInvariant()))
-            {
-                targetCandidate = string.Format("{0}_{1}{2}", baseTargetName, counter++, ext);
-            }
-            newName = targetCandidate;
-            string targetPath = Path.Combine(Path.GetDirectoryName(source), newName);
-            targetNamesSeen.Add(targetPath.ToLowerInvariant());
-
-            plan.Add(new Dictionary<string, object>
-            {
-                { "source", source },
-                { "target", targetPath },
-                { "old_name", Path.GetFileName(source) },
-                { "new_name", newName },
-                { "mode", "AI重命名" }
-            });
+            if (!ValidFilename(candidate)) throw new InvalidOperationException("生成的文件名过长或无效。");
+            targets.Add(target);
+            plan.Add(new Dictionary<string, object> { { "source", source }, { "target", target }, { "old_name", Path.GetFileName(source) }, { "new_name", candidate }, { "mode", "AI重命名" } });
         }
-        _plan = plan;
-        ValidateRenamePlan(true);
+        var previous = _plan; _plan = plan;
+        try { ValidateRenamePlan(true); } catch { _plan = previous; throw; }
         Log(string.Format("已生成 {0} 个文件的改名预览。", _plan.Count));
     }
 
@@ -1695,7 +1562,7 @@ internal sealed partial class JianYingEngine
         return tracks.Count;
     }
 
-    private List<Tuple<string, IDictionary>> FindSubtitleJsons(string draftDir)
+    private static IEnumerable<string> SubtitleJsonPaths(string draftDir)
     {
         var candidates = new List<string> { Path.Combine(draftDir, "draft_content.json") };
         string timelinesDir = Path.Combine(draftDir, "Timelines");
@@ -1706,8 +1573,13 @@ internal sealed partial class JianYingEngine
                 candidates.Add(Path.Combine(sub, "draft_content.json"));
             }
         }
+        return candidates;
+    }
+
+    private List<Tuple<string, IDictionary>> FindSubtitleJsons(string draftDir)
+    {
         var results = new List<Tuple<string, IDictionary>>();
-        foreach (string file in candidates)
+        foreach (string file in SubtitleJsonPaths(draftDir))
         {
             if (!File.Exists(file)) continue;
             try
@@ -1735,35 +1607,50 @@ internal sealed partial class JianYingEngine
 
     private void SaveSubtitleJsons(List<Tuple<string, IDictionary>> items, int gen)
     {
-        string stamp = DateTime.Now.ToString("yyyyMMdd_HHmmss_fff", CultureInfo.InvariantCulture);
+        SaveSubtitleJsonsChecked(items, gen, null, null, "subtitle");
+    }
+
+    private void SaveSubtitleJsonsChecked(List<Tuple<string, IDictionary>> items, int gen, IDictionary<string, string> expected, Action guard, string purpose)
+    {
+        string stamp = DateTime.Now.ToString("yyyyMMdd_HHmmss_fff", CultureInfo.InvariantCulture) + "_" + Guid.NewGuid().ToString("N").Substring(0, 8);
         var backups = new List<Tuple<string, string>>();
+        var attempted = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        Action<string> check = file => {
+            CheckInterrupted(gen); if (guard != null) guard();
+            if (expected != null && (!expected.ContainsKey(file) || Sha256(file) != expected[file]))
+                throw new InvalidOperationException("草稿在操作期间发生变化，请重新检查：" + file);
+        };
         try
         {
             foreach (var item in items)
             {
-                CheckInterrupted(gen);
-                string bak = item.Item1 + ".before_subtitle_" + stamp + ".bak";
-                File.Copy(item.Item1, bak, true);
+                check(item.Item1);
+                string bak = item.Item1 + ".before_" + purpose + "_" + stamp + ".bak";
+                File.Copy(item.Item1, bak, false);
                 backups.Add(Tuple.Create(item.Item1, bak));
+                if (expected != null && Sha256(bak) != expected[item.Item1]) throw new InvalidOperationException("备份校验失败，未写入草稿：" + item.Item1);
             }
             foreach (var item in items)
             {
-                CheckInterrupted(gen);
+                check(item.Item1);
                 IDictionary verified;
-                if (_encryptedDrafts.Contains(item.Item1)) verified = JianYingDraftIO.Request("write", item.Item1, _json.Serialize(item.Item2), () => CheckInterrupted(gen), null);
+                attempted.Add(item.Item1);
+                if (_encryptedDrafts.Contains(item.Item1)) verified = JianYingDraftIO.Request("write", item.Item1, _json.Serialize(item.Item2), () => CheckInterrupted(gen));
                 else { AtomicWriteJson(item.Item1, item.Item2); verified = _json.DeserializeObject(File.ReadAllText(item.Item1, Encoding.UTF8)) as IDictionary; }
                 if (!SameJson(item.Item2, verified)) throw new InvalidOperationException("草稿写入后校验不一致，已回滚：" + item.Item1);
             }
         }
-        catch
+        catch (Exception failure)
         {
+            var failedRestores = new List<string>();
             foreach (var b in backups)
             {
-                if (File.Exists(b.Item2))
+                if (attempted.Contains(b.Item1) && File.Exists(b.Item2))
                 {
-                    try { File.Copy(b.Item2, b.Item1, true); } catch { }
+                    try { File.Copy(b.Item2, b.Item1, true); } catch { failedRestores.Add(b.Item2); }
                 }
             }
+            if (failedRestores.Count > 0) throw new InvalidOperationException("草稿写入失败，部分文件需从备份恢复：" + string.Join("；", failedRestores) + "；原因：" + failure.Message, failure);
             throw;
         }
     }
@@ -1964,6 +1851,8 @@ internal sealed partial class JianYingEngine
                         { "draft_close", null }
                     };
                     _recordingColor = null;
+                    _recordingImages = new Dictionary<string, string>();
+                    _recordingFrames = new Dictionary<string, int[]>();
                     _recordingTemplateName = next.Item1;
                     _recordingTemplatePath = next.Item2;
                     _recState = "export";
@@ -1979,6 +1868,7 @@ internal sealed partial class JianYingEngine
                     int idx = args.Contains("index") ? Convert.ToInt32(args["index"]) : 0;
                     if (_resolutionMismatch) throw new InvalidOperationException("显示分辨率与模板不同，请重新录制坐标。");
                     if (!ModeCoordsReady()) throw new InvalidOperationException("请先录制完整坐标。");
+                    ValidateExportCoordinates(_exportMode);
                     if (_drafts.Count == 0) throw new InvalidOperationException("请先 AI 扫描首页。");
                     ValidateDraftQueue();
                     if (idx < 0 || idx >= _drafts.Count) idx = 0;
@@ -2011,16 +1901,22 @@ internal sealed partial class JianYingEngine
                 AskYesNo("安全确认", "确定执行？此操作将解除所有草稿的字幕隐藏", () => BeginOperation(RunUnhideTracks));
                 break;
 
+            case "restore_punctuation":
+            case "punctuation":
+                RequirePunctuationIdle();
+                BeginOperation(RunPunctuationPreview);
+                break;
+
             case "paths":
                 if (args.Contains("draftDir"))
                 {
-                    string val = Convert.ToString(args["draftDir"]);
+                    string val = Convert.ToString(args["draftDir"]).Trim().Trim('"');
                     if (!Path.IsPathRooted(val) || !Directory.Exists(val)) throw new InvalidOperationException("请选择存在的本地文件夹。");
                     _draftDir = Path.GetFullPath(val);
                 }
                 if (args.Contains("subtitleOutput"))
                 {
-                    string val = Convert.ToString(args["subtitleOutput"]);
+                    string val = Convert.ToString(args["subtitleOutput"]).Trim().Trim('"');
                     if (!Path.IsPathRooted(val) || !Directory.Exists(val)) throw new InvalidOperationException("请选择存在的本地文件夹。");
                     _subtitleOutput = Path.GetFullPath(val);
                 }
@@ -2109,35 +2005,33 @@ internal sealed partial class JianYingEngine
                 break;
 
             case "settings":
-                if (args.Contains("mode"))
                 {
-                    string mode = Convert.ToString(args["mode"]);
+                    string mode = args.Contains("mode") ? Convert.ToString(args["mode"]) : _exportMode;
                     if (mode != "return_home" && mode != "wait_close") throw new InvalidOperationException("无法保存导出模式。");
-                    _exportMode = mode;
-                    EnsureModeTemplateLoaded();
-                }
-                if (args.Contains("waits"))
-                {
-                    var w = args["waits"] as IDictionary;
-                    if (w == null) throw new InvalidOperationException("等待时间应为 0.1–600 秒。");
-                    string targetMode = args.Contains("targetMode") ? Convert.ToString(args["targetMode"]) : _exportMode;
-                    var targetDict = targetMode == "wait_close" ? _stepWaitsWaitClose : _stepWaitsReturnHome;
-                    foreach (var key in targetDict.Keys.ToList())
-                    {
-                        if (w.Contains(key))
-                        {
-                            double val;
-                            if (!double.TryParse(Convert.ToString(w[key], CultureInfo.InvariantCulture), NumberStyles.Float, CultureInfo.InvariantCulture, out val)
-                                || double.IsNaN(val) || double.IsInfinity(val) || val < 0.1 || val > 600.0)
-                            {
-                                throw new InvalidOperationException("等待时间应为 0.1–600 秒。");
-                            }
-                            targetDict[key] = Math.Round(val, 1);
+                    string waitsMode = args.Contains("waitsMode")
+                        ? Convert.ToString(args["waitsMode"])
+                        : (args.Contains("targetMode") ? Convert.ToString(args["targetMode"]) : mode);
+                    if (waitsMode != "return_home" && waitsMode != "wait_close") throw new InvalidOperationException("无法保存等待时间所属模式。");
+                    var target = waitsMode == "wait_close" ? _stepWaitsWaitClose : _stepWaitsReturnHome;
+                    var next = new Dictionary<string, double>(target);
+                    if (args.Contains("waits")) {
+                        var values = args["waits"] as IDictionary;
+                        if (values == null) throw new InvalidOperationException("等待时间应为 0.1–600 秒。");
+                        foreach (string key in next.Keys.ToArray()) if (values.Contains(key)) {
+                            double number;
+                            if (!double.TryParse(Convert.ToString(values[key], CultureInfo.InvariantCulture), NumberStyles.Float, CultureInfo.InvariantCulture, out number)
+                                || double.IsNaN(number) || double.IsInfinity(number) || number < .1 || number > 600) throw new InvalidOperationException("等待时间应为 0.1–600 秒。");
+                            next[key] = Math.Round(number, 1);
                         }
                     }
+                    // Validate the whole request before mutating either profile.
+                    foreach (var pair in next) target[pair.Key] = pair.Value;
+                    bool modeChanged = _exportMode != mode;
+                    _exportMode = mode;
+                    if (modeChanged) EnsureModeTemplateLoaded();
+                    SaveConfig();
+                    RefreshGuideBadge();
                 }
-                SaveConfig();
-                RefreshGuideBadge();
                 break;
 
             case "select_template":
@@ -2232,10 +2126,9 @@ internal static class Program
     {
         Console.InputEncoding = new UTF8Encoding(false);
         Console.OutputEncoding = new UTF8Encoding(false);
-        NativeWin32.SetProcessDPIAware();
+        NativeWin32.ConfigureDpi();
 
         if (args.Length == 3 && args[0] == "--draft-io") return JianYingDraftIO.Worker(args[1], args[2]);
-
         if (args.Length == 4 && args[0] == "--draft-io-native") return JianYingDraftIO.NativeWorker(args[1], args[2], args[3]);
 
         var json = new JavaScriptSerializer { MaxJsonLength = int.MaxValue };

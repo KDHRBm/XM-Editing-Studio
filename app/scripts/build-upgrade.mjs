@@ -66,9 +66,10 @@ code = code.replace(',s.jsx("div",{className:"brand-kicker",children:"聚合多�
 replaceOnce('d==="workspace"&&s.jsx(z3,{models:Zl,onNavigate:T})', 'd==="workspace"&&s.jsx(z3,{models:Zl,onNavigate:T,providers:x,automation:bosAutomation})');
 replaceOnce('{id:"providers",label:"模型与连接",sub:"配置供应商与模型",Icon:Ec}', '{id:"providers",label:"接口与主题",sub:"API 配置 · 视觉主题",Icon:Ec}');
 replaceOnce('s.jsxs("div",{className:"sidebar-foot",children:[s.jsx("div",{className:"side-rule"}),s.jsx("p",{children:"多重协议 · 一站接入"}),s.jsxs("p",{className:"muted",children:["让全球的模型能力",s.jsx("br",{}),"为你的创意所用。"]}),s.jsxs("div",{className:"local-mode",children:[s.jsx("span",{className:"status-dot"})," 本机 API 代理"]})]})', 's.jsx(BOSMusicUpgrade.SidebarCredits,{})');
-replaceOnce('{id:"workspace",label:"工作空间",sub:"我的创作与灵感",Icon:P8}]', '{id:"workspace",label:"工作空间",sub:"字幕 · 曲库 · 配乐队列",Icon:P8},{id:"jianying",label:"剪映自动化",sub:"导出 · 字幕 · 改名 · 水印",Icon:P8},{id:"webai",label:"国内 AI",sub:"DeepSeek · 豆包免 Key",Icon:P8}]');
-replaceOnce('workspace:{eyebrow:"工作空间"', 'webai:{eyebrow:"WEB AI STUDIO",title:"国内 AI 免密工作台",description:"内嵌 DeepSeek 与豆包官方网页，登录账号即可协同分析剧本与生成提示词。"},jianying:{eyebrow:"JIANYING AUTOMATION",title:"剪映自动化与样片水印",description:"无人值守草稿批量导出、SRT 字幕提取、AI 视频批量改名与原版红薯样片硬件加速水印合成。"},watermark:{eyebrow:"NATIVE HW WATERMARK",title:"样片批量水印",description:"基于 Windows Media Foundation 原生 C# 硬件加速引擎，高速批量合成红薯样片水印。"},workspace:{eyebrow:"WORKSPACE"');
-replaceOnce('d==="workspace"&&s.jsx(z3,{models:Zl,onNavigate:T,providers:x,automation:bosAutomation})', 'd==="workspace"&&s.jsx(z3,{models:Zl,onNavigate:T,providers:x,automation:bosAutomation}),s.jsx(BOSMusicUpgrade.JianyingStudio,{active:d==="jianying"||d==="watermark",providers:x,onNavigate:T}),s.jsx(BOSMusicUpgrade.WebAIStudio,{active:d==="webai",providers:x,automation:bosAutomation,onNavigate:T})');
+replaceOnce('{id:"workspace",label:"工作空间",sub:"我的创作与灵感",Icon:P8}]', '{id:"batch",label:"跑量剪辑流",sub:"多集字幕与本地配乐",Icon:props=>i.createElement(BOSMusicUpgrade.BatchNavIcon,props)},{id:"workspace",label:"工作空间",sub:"字幕 · 曲库 · 配乐队列",Icon:P8},{id:"jianying",label:"剪映自动化",sub:"导出 · 字幕 · 改名 · 水印",Icon:props=>i.createElement(BOSMusicUpgrade.JianyingNavIcon,props)},{id:"webai",label:"国内 AI",sub:"DeepSeek · 豆包免 Key",Icon:props=>i.createElement(BOSMusicUpgrade.WebAiNavIcon,props)}]');
+replaceOnce('workspace:{eyebrow:"工作空间"', 'batch:{eyebrow:"跑量剪辑流",title:"多集剧本，一起整理。",description:"自动识别集数，批量分析剧情；字幕与本地音乐按集保存。"},webai:{eyebrow:"WEB AI STUDIO",title:"国内 AI 免密工作台",description:"内嵌 DeepSeek 与豆包官方网页，登录账号即可协同分析剧本与生成提示词。"},jianying:{eyebrow:"JIANYING AUTOMATION",title:"剪映自动化与样片水印",description:"无人值守草稿批量导出、SRT 字幕提取、AI 视频批量改名与原版红薯样片硬件加速水印合成。"},watermark:{eyebrow:"NATIVE HW WATERMARK",title:"样片批量水印",description:"基于 Windows Media Foundation 原生 C# 硬件加速引擎，高速批量合成红薯样片水印。"},workspace:{eyebrow:"WORKSPACE"');
+replaceOnce('d==="workspace"&&s.jsx(z3,{models:Zl,onNavigate:T,providers:x,automation:bosAutomation})', 'd==="workspace"&&s.jsx(z3,{models:Zl,onNavigate:T,providers:x,automation:bosAutomation}),s.jsx(BOSMusicUpgrade.JianyingStudio,{active:d==="jianying"||d==="watermark",providers:x,onNavigate:T}),s.jsx(BOSMusicUpgrade.WebAIStudio,{active:d==="webai",providers:x,automation:bosAutomation,onNavigate:T}),s.jsx(BOSMusicUpgrade.BatchAnalysis,{active:d==="batch",providers:x,onNavigate:T})');
+replaceOnce(',s.jsx("span",{className:"status-spacer"})," ",s.jsx("span",{children:"配置保存在本机浏览器，请求转发至你填写的服务地址"})', '');
 replaceOnce('className:`app-shell ${d==="chat"?"chat-open":""}`', 'className:`app-shell ${d==="chat"?"chat-open":d==="music"?"music-open":d==="webai"?"webai-open":""}`,"data-bos-theme":bosGlobalTheme');
 replaceOnce('function z3({models:d,onNavigate:T})', 'function BOSOriginalWorkspace({models:d,onNavigate:T})');
 replaceOnce('Ys.createRoot(document.getElementById("root"))', 'function z3(props){return i.createElement("section",{className:"bos-workspace"},i.createElement(BOSMusicUpgrade.ScriptAutomation,props))}\nYs.createRoot(document.getElementById("root"))');
@@ -290,7 +291,9 @@ const css = [
   fs.readFileSync(path.join(original, cssName), 'utf8'),
   fs.readFileSync(path.join(root, 'src/music-studio.css'), 'utf8'),
   fs.readFileSync(path.join(root, 'src/global-themes.css'), 'utf8'),
-  fs.readFileSync(path.join(root, 'src/script-automation.css'), 'utf8')
+  fs.readFileSync(path.join(root, 'src/script-automation.css'), 'utf8'),
+  fs.readFileSync(path.join(root, 'src/batch-analysis.css'), 'utf8'),
+  fs.readFileSync(path.join(root, 'src/release-140.css'), 'utf8')
 ].join('\n');
 fs.writeFileSync(path.join(root, 'dist/client/assets/music-studio.css'), css);
 

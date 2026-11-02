@@ -1705,7 +1705,7 @@ namespace XMStudioHost
 
     internal sealed class StudioAppContext : ApplicationContext
     {
-        public const string CurrentVersion = "1.7.3";
+        public const string CurrentVersion = "1.7.4";
         public const int AppPort = 37651;
         private readonly string _baseDir;
         private readonly string _userDataDir;
@@ -2759,7 +2759,7 @@ namespace XMStudioHost
                 {
                     if (!visible)
                     {
-                        if (_aiWebView != null) _aiWebView.Visible = false;
+                        if (_aiWebView != null) BrowserInput.Hide(_aiWebView, _mainWebView);
                         tcs.TrySetResult(null);
                         return;
                     }
@@ -2773,7 +2773,7 @@ namespace XMStudioHost
                     int h = Convert.ToInt32(b["height"]);
                     if (w < 100 || h < 80)
                     {
-                        if (_aiWebView != null) _aiWebView.Visible = false;
+                        if (_aiWebView != null) BrowserInput.Hide(_aiWebView, _mainWebView);
                         tcs.TrySetResult(null);
                         return;
                     }
@@ -3250,6 +3250,7 @@ namespace XMStudioHost
             }
             if (action == "jy-extract") { await HandleJianyingActionAsync(new Dictionary<string, object> { { "action", "extract" } }); return BroadcastCompanionState(); }
             if (action == "jy-fonts") { await HandleJianyingActionAsync(new Dictionary<string, object> { { "action", "fonts" } }); return BroadcastCompanionState(); }
+            if (action == "jy-punctuation") { await HandleJianyingActionAsync(new Dictionary<string, object> { { "action", "restore_punctuation" } }); return BroadcastCompanionState(); }
             if (action == "jy-unhide") { await HandleJianyingActionAsync(new Dictionary<string, object> { { "action", "unhide" } }); return BroadcastCompanionState(); }
             if (action == "jy-pick-rename-dir")
             {
@@ -3426,6 +3427,7 @@ namespace XMStudioHost
 
         private void TickCompanion()
         {
+            try { BrowserInput.RecoverCursor(_mainWebView); } catch { }
             // 引擎后台任务（如识别截图）进行中时主动轮询状态，防止 busy 标志卡死。
             if (IsJianyingBusy()) { var unused = RefreshJianyingStatusAsync(); }
             else if (_panelHiddenForScan) RestorePanelAfterScan();
@@ -3855,6 +3857,67 @@ namespace XMStudioHost
             try { if (_watermarkRpc != null) _watermarkRpc.Dispose(); } catch { }
             try { if (_server != null) _server.Dispose(); } catch { }
             ExitThread();
+        }
+    }
+
+    internal static class BrowserInput
+    {
+        private static Point? _lastPointer;
+        [StructLayout(LayoutKind.Sequential)]
+        private struct CursorInfo { internal int Size, Flags; internal IntPtr Cursor; internal Point Position; }
+        [DllImport("user32.dll")] private static extern bool GetCursorInfo(ref CursorInfo info);
+        [DllImport("user32.dll")] private static extern IntPtr WindowFromPoint(Point point);
+        [DllImport("user32.dll")] private static extern IntPtr GetForegroundWindow();
+        [DllImport("user32.dll")] private static extern bool IsChild(IntPtr parent, IntPtr child);
+        [DllImport("user32.dll")] private static extern IntPtr GetCapture();
+        [DllImport("user32.dll")] private static extern bool ReleaseCapture();
+        [DllImport("user32.dll")] private static extern IntPtr SetCursor(IntPtr cursor);
+        [DllImport("user32.dll")] private static extern IntPtr GetCursor();
+
+        private static bool Owns(Control control, IntPtr handle)
+        {
+            return handle != IntPtr.Zero && control != null && !control.IsDisposed && control.IsHandleCreated && (handle == control.Handle || IsChild(control.Handle, handle));
+        }
+
+        internal static void Hide(Control page, Control main)
+        {
+            if (page == null || page.IsDisposed || !page.Visible) return;
+            var window = main != null ? main.FindForm() : null;
+            bool returnFocus = page.ContainsFocus && window != null && GetForegroundWindow() == window.Handle;
+            if (Owns(page, GetCapture())) ReleaseCapture();
+            page.Hide();
+            if (returnFocus && main != null && main.Visible && main.CanFocus) main.Focus();
+            RecoverCursor(main);
+        }
+
+        internal static bool RecoverCursor(Control main)
+        {
+            var info = new CursorInfo { Size = Marshal.SizeOf(typeof(CursorInfo)) };
+            if (!GetCursorInfo(ref info)) return false;
+            bool moved = _lastPointer.HasValue && _lastPointer.Value != info.Position;
+            _lastPointer = info.Position;
+            if (main == null || main.IsDisposed || !main.IsHandleCreated || !main.Visible) return false;
+            var window = main.FindForm();
+            if (window == null || !window.IsHandleCreated || GetForegroundWindow() != window.Handle) return false;
+            if ((info.Flags & 2) != 0 || !Owns(main, WindowFromPoint(info.Position))) return false;
+            if (GetCapture() != IntPtr.Zero) return false;
+            if ((info.Flags & 1) != 0 && info.Cursor != IntPtr.Zero) return false;
+            if (GetCursor() != IntPtr.Zero && !moved) return false;
+            SetCursor(Cursors.Default.Handle);
+            return true;
+        }
+
+        internal static async Task SendEnterAsync(CoreWebView2 core)
+        {
+            if (core == null) return;
+            Exception failure = null;
+            try
+            {
+                await core.CallDevToolsProtocolMethodAsync("Input.dispatchKeyEvent", "{\"type\":\"keyDown\",\"key\":\"Enter\",\"code\":\"Enter\",\"windowsVirtualKeyCode\":13,\"text\":\"\\r\"}");
+            }
+            catch (Exception error) { failure = error; }
+            await core.CallDevToolsProtocolMethodAsync("Input.dispatchKeyEvent", "{\"type\":\"keyUp\",\"key\":\"Enter\",\"code\":\"Enter\",\"windowsVirtualKeyCode\":13}");
+            if (failure != null) throw failure;
         }
     }
 

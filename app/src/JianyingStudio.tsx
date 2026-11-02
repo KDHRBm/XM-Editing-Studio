@@ -473,12 +473,16 @@ export function JianyingStudio({ active, providers, onNavigate }: { active: bool
               {pendingAct === 'fonts' && <span className="bos-btn-spinner" aria-hidden="true" />}
               统一 Noto Sans Bold
             </button>
+            <button type="button" className={pendingAct === 'restore_punctuation' ? 'is-loading' : ''} disabled={locked || !state.draftDir} onClick={() => run('restore_punctuation')}>
+              {pendingAct === 'restore_punctuation' && <span className="bos-btn-spinner" aria-hidden="true" />}
+              检查并还原标准标点
+            </button>
             <button type="button" className={pendingAct === 'unhide' ? 'is-loading' : ''} disabled={locked || !state.draftDir} onClick={() => run('unhide')}>
               {pendingAct === 'unhide' && <span className="bos-btn-spinner" aria-hidden="true" />}
               恢复字幕显示
             </button>
           </div>
-          <small>操作前请先退出剪映，写入前自动创建安全备份。</small>
+          <small>检查并还原标准标点可将保护标点（․ ﹒ ‚ ﹐）还原为标准英文 . 与 , 且保持花字样式与时间轴不变。操作前请先退出剪映，写入前自动创建安全备份。</small>
         </ToolPanel>
 
         <ToolPanel id="rename" number="03" title="批量改名" detail="支持集数模板或 AI 语义对齐，先预览后执行" hiddenStage={stage !== 'rename'}>

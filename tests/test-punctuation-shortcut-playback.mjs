@@ -14,47 +14,47 @@ function clipboardFixture() {
   return { guard, get value() { return value; }, set value(v) { value = v; }, get reads() { return reads; }, get writes() { return writes; }, tick: () => tick?.(), get polling() { return !!tick; }, set formats(f) { formats = f; } };
 }
 test('explicit standard mode keeps ASCII comma/dot, three-dot ellipses and never polls unrelated clipboard', async () => {
-  const f = clipboardFixture(); f.guard.configure(true, 'standard');
+  const f = clipboardFixture(); await f.guard.configure(true, 'standard');
   assert.equal(f.reads, 0); assert.equal(f.writes, 0); assert.equal(f.polling, false);
   const copied = await f.guard.copy('Yes, go. Wait...');
   assert.equal(f.value, 'Yes, go. Wait...'); assert.equal(copied.clipboardProtected, false);
   assert.equal(f.guard.status().punctuationMode, 'standard');
 });
-test('compatible mode protects both commas and periods immediately and for newly copied text', () => {
-  const f = clipboardFixture(); f.guard.configure(true, 'compatible');
-  assert.equal(f.value, 'Hello‚ world․ Wait...'); assert.equal(f.polling, true);
-  const writes = f.writes; f.tick(); assert.equal(f.writes, writes);
-  f.value = 'Second, text. ...'; f.tick(); assert.equal(f.value, 'Second‚ text․ ...');
-  f.guard.configure(false); assert.equal(f.value, 'Second, text. ...'); assert.equal(f.polling, false);
-  f.value = 'No, guard.'; f.tick(); assert.equal(f.value, 'No, guard.');
+test('compatible mode protects both commas and periods immediately and for newly copied text', async () => {
+  const f = clipboardFixture(); await f.guard.configure(true, 'compatible');
+  assert.equal(f.value, 'Hello‚ world․ Wait․․․'); assert.equal(f.polling, true);
+  const writes = f.writes; await f.tick(); assert.equal(f.writes, writes);
+  f.value = 'Second, text. ...'; await f.tick(); assert.equal(f.value, 'Second‚ text․ ․․․');
+  await f.guard.configure(false); assert.equal(f.value, 'Second, text. ...'); assert.equal(f.polling, false);
+  f.value = 'No, guard.'; await f.tick(); assert.equal(f.value, 'No, guard.');
 });
-test('switching back restores only owned clipboard; disposal preserves a newer unrelated copy', () => {
-  const f = clipboardFixture(); f.guard.configure(true, 'compatible'); f.guard.configure(true, 'standard');
+test('switching back restores only owned clipboard; disposal preserves a newer unrelated copy', async () => {
+  const f = clipboardFixture(); await f.guard.configure(true, 'compatible'); await f.guard.configure(true, 'standard');
   assert.equal(f.value, 'Hello, world. Wait...'); assert.equal(f.polling, false);
-  f.guard.configure(true, 'compatible'); f.value = 'A newer copy.'; f.guard.dispose();
+  await f.guard.configure(true, 'compatible'); f.value = 'A newer copy.'; await f.guard.dispose();
   assert.equal(f.value, 'A newer copy.');
-  f.guard.configure(true, 'compatible'); f.formats = ['image/png']; f.value = 'image description.'; f.tick();
-  assert.equal(f.value, 'image description.'); f.guard.dispose();
-  f.formats = ['text/plain']; f.guard.configure(true, 'compatible');
-  f.formats = ['image/png']; const before = f.writes; f.guard.dispose();
+  await f.guard.configure(true, 'compatible'); f.formats = ['image/png']; f.value = 'image description.'; await f.tick();
+  assert.equal(f.value, 'image description.'); await f.guard.dispose();
+  f.formats = ['text/plain']; await f.guard.configure(true, 'compatible');
+  f.formats = ['image/png']; const before = f.writes; await f.guard.dispose();
   assert.equal(f.writes, before, 'a newer image copy is preserved even with identical text');
 });
 test('upstream protection is reversible, idempotent and adds no invisible joins or broken ellipses', () => {
   const plain = 'Yes, go. Wait ... 中文，继续。 3.5, finish...';
   const protectedText = protectPunctuation(plain);
-  assert.equal(protectedText, 'Yes‚ go․ Wait ... 中文﹐继续﹒ 3․5‚ finish...');
+  assert.equal(protectedText, 'Yes‚ go․ Wait ․․․ 中文﹐继续﹒ 3․5‚ finish․․․');
   assert.equal(protectPunctuation(protectedText), protectedText);
   assert.equal(restoreProtectedPunctuation(protectedText), plain);
   assert.doesNotMatch(protectedText, /\u2060|\u0000/);
 });
 
 test('default upstream copy keeps all 1500 lines, words, accents, CJK and both punctuation types', async () => {
-  const f = clipboardFixture(); f.guard.configure(true);
+  const f = clipboardFixture(); await f.guard.configure(true);
   const original = Array.from({ length: 1500 }, (_, n) => `Line ${n + 1}, señor. 中文台词, Wait...`).join('\n');
   const result = await f.guard.copy(original);
   assert.equal(result.copyVerified, true); assert.equal(result.copiedLines, 1500);
   assert.equal(restoreProtectedPunctuation(f.value).replace(/\r\n/g, '\n'), original);
-  assert.match(f.value, /Line 1500‚ señor․ 中文台词‚ Wait\.\.\.$/);
+  assert.match(f.value, /Line 1500‚ señor․ 中文台词‚ Wait․․․$/);
   assert.equal(f.value.split('\r\n').length, 1500);
 });
 
@@ -68,12 +68,12 @@ test('partial clipboard writes retry the complete text and reject persistent tru
 });
 
 test('NUL artifacts cannot truncate the rest and a newer clipboard copy is never overwritten by retry', async () => {
-  const f = clipboardFixture(); f.guard.configure(true);
+  const f = clipboardFixture(); await f.guard.configure(true);
   await f.guard.copy('First.\0\nSecond, complete.');
   assert.equal(f.value, 'First․\r\nSecond‚ complete․');
   let value = '', tick;
-  const guard = createPunctuationClipboard({ clipboard: { readText: () => value, writeText: text => { value = text.slice(0, 3); } }, schedule: fn => { tick = fn; return 1; }, cancel: () => {}, retryDelay: async () => { tick(); value = 'User copied something else'; } });
-  guard.configure(true);
+  const guard = createPunctuationClipboard({ clipboard: { readText: () => value, writeText: text => { value = text.slice(0, 3); } }, schedule: fn => { tick = fn; return 1; }, cancel: () => {}, retryDelay: async () => { await tick(); value = 'User copied something else'; } });
+  await guard.configure(true);
   await assert.rejects(guard.copy('All, words.'), /其他复制操作/);
   assert.equal(value, 'User copied something else');
 });

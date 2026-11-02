@@ -22,7 +22,7 @@ test('Chinese, bilingual, lowercase and accented speaker labels are omitted', ()
 
 test('only the first speaker separator is removed, preserving dialogue colons and times', () => {
   assert.deepEqual(splitScript('[EN] CARL VIKTOR-卡尔维克托: My rule: leave at 10:30.').map(line => line.text), ['My rule: leave at 10:30.']);
-  assert.deepEqual(splitScript('[EN] JACK (VO: whispering): Mr. Harris... wait.').map(line => line.text), ['Mr Harris...', 'wait.']);
+  assert.deepEqual(splitScript('[EN] JACK (VO: whispering): Mr. Harris... wait.').map(line => line.text), ['Mr. Harris...', 'wait.']);
   assert.deepEqual(splitScript('[EN] JACK（语气：低沉）：Wait.').map(line => line.text), ['Wait.']);
   assert.deepEqual(splitScript('[EN] It is 10:30.\n[EN] Hello.').map(line => line.text), ['It is 10:30.', 'Hello.']);
 });

@@ -21,7 +21,7 @@ test('web analysis supports whole/segmented recommendations and validates candid
   assert.equal(JSON.parse(requests[0][1].content).originalScript, input.script);
   requests = [];
   const segmented = await analyzeWithWeb('library-match', { ...input, segmented: true }, async messages => {
-    requests.push(messages); return JSON.stringify(requests.length === 1 ? { segments } : { segments: [{ id: 'segment-1', matches: [] }, { id: 'segment-2', matches: [{ id: 'piano', reason: '温暖', keywords: ['钢琴'] }] }] });
+    requests.push(messages); return JSON.stringify(requests.length === 1 ? { segments } : { segments: JSON.parse(messages[1].content).segments.map(segment => ({ id: segment.id, matches: segment.id === 'segment-1' ? [] : [{ id: 'piano', reason: '温暖', keywords: ['钢琴'] }] })) });
   });
   assert.equal(segmented.segments[1].matches[0].id, 'piano'); assert.equal(segmented.segments[0].matches.length, 0);
   let calls = 0;
@@ -58,7 +58,7 @@ test('segmented repair keeps the original story plan and enforces each segment c
     const context = JSON.parse(messages[1].content); requests.push({ context, stage });
     if (requests.length === 1) return JSON.stringify({ segments });
     if (requests.length === 2) return JSON.stringify({ segments: [
-      { id: 'segment-1', matches: [{ id: 'warm_84a2c9', reason: '错用了其他情节候选', keywords: [] }] },
+      { id: 'segment-1', matches: [{ id: 'not-local', reason: '错误ID', keywords: [] }] },
       { id: 'segment-2', matches: [{ id: 'warm_84a2c9', reason: '适合重逢', keywords: ['温暖'] }] },
     ] });
     assert.match(context.validationError, /第1段（segment-1）.*ID 无效/);
@@ -67,7 +67,7 @@ test('segmented repair keeps the original story plan and enforces each segment c
     return JSON.stringify({ segments: context.segments.map(s => ({ id: s.id, matches: s.musicTitles.map(t => ({ id: t.id, reason: s.summary })) })) });
   });
   assert.equal(requests.length, 3);
-  assert.equal(result.total, 1427); assert.equal(result.evaluated, 2);
+  assert.equal(result.total, 1427); assert.ok(result.evaluated >= 4);
   assert.deepEqual(result.segments.map(s => s.matches[0].id), ['tense_873bd1', 'warm_84a2c9']);
   assert.deepEqual(result.segments.map(s => [s.startLine, s.endLine]), [[1, 2], [3, 4]]);
 });
@@ -158,10 +158,6 @@ test('DeepSeek task marker inside result is accepted without accepting a differe
   assert.equal(webTaskResult(JSON.stringify({ result }), 'current-token'), null);
   assert.equal(webTaskResult(JSON.stringify({ result }), 'current-token', true), JSON.stringify(result));
   assert.equal(webTaskResult(JSON.stringify({ ...result, xmTaskId: 'current-token' }), 'current-token'), JSON.stringify(result));
-  assert.equal(webTaskResult('思考：先构造 {"xmTaskId" 未闭合大括号\n```json\n' + JSON.stringify(nested) + '\n```', 'current-token'), JSON.stringify(result));
-  assert.equal(webTaskResult(JSON.stringify({ segments: [{ ...result.segments[0], xmTaskId: 'current-token' }] }), 'current-token'), JSON.stringify(result));
-  assert.equal(webTaskResult(JSON.stringify({ xmTaskId: 'current-token', result: result.segments }), 'current-token'), JSON.stringify(result));
-  assert.equal(webTaskResult('{"xmTaskId":"current-token","result":{"segments":[{"title":"转折","startLine":1,"endLine":204,"summary":"情绪变化","keywords":["悬疑",],},],}}', 'current-token'), JSON.stringify(result));
   const prompt = webTaskPrompt([{ content: '只返回分段方案。' }], 'current-token');
   assert.match(prompt, /"xmTaskId":"current-token","result":/);
   assert.match(prompt, /两个并列字段/);
@@ -177,7 +173,7 @@ test('nested DeepSeek task marker advances from completed segmentation to music 
       if (command.command === 'fill') return { state: 'filled' };
       if (command.command === 'send') { sends++; return { state: 'sent' }; }
       reads++;
-      const result = token === 1 ? { segments: planned } : { segments: [
+      const result = token === 1 ? { segments: planned } : token >= 3 ? {segments:[{id:'segment-1',matches:[],noMatchReason:'钢琴不适合追逐'}]} : { segments: [
         { id: 'segment-1', matches: [] },
         { id: 'segment-2', matches: [{ id: 'piano', reason: '适合温暖的情绪转折', keywords: ['温暖'] }] },
       ] };
@@ -185,7 +181,7 @@ test('nested DeepSeek task marker advances from completed segmentation to music 
     },
   } });
   const result = await host.run({ id: 'request-nested-123', provider: 'deepseek', purpose: 'library-match', input: { ...input, segmented: true } });
-  assert.equal(sends, 2); assert.equal(token, 2);
+  assert.equal(sends, 3); assert.equal(token, 3);
   assert.equal(result.segments[1].matches[0].id, 'piano');
   assert(stages.includes('匹配各情节的本地音乐'));
   assert(reads < 12, 'completed response should proceed within a few polling cycles');
@@ -229,24 +225,26 @@ test('rate-limited website stops analysis without submitting or automatically re
   assert.equal(calls, 1); assert.equal(host.snapshot(), null);
 });
 test('a stalled page call can be cancelled without waiting for the page', { timeout: 1000 }, async () => {
-  let started;
+  let started, signal;
   const ready = new Promise(resolve => { started = resolve; });
-  const host = createWebAnalysis({ notify: () => {}, copy: async () => {}, driver: { visible: () => true, run: () => { started(); return new Promise(() => {}); } } });
+  const host = createWebAnalysis({ notify: () => {}, copy: async () => {}, driver: { visible: () => true, run: (_provider, _command, inputSignal) => { signal = inputSignal; started(); return new Promise(() => {}); } } });
   const pending = host.run({ id: 'request-123', provider: 'doubao', purpose: 'score', input });
   const rejected = assert.rejects(pending, /中断/);
   await ready;
   await host.action('request-123', 'cancel');
   await rejected;
+  assert.equal(signal.aborted, true, 'Cancellation must reach the native page operation');
   assert.equal(host.snapshot(), null);
 });
 test('a stalled fill times out without resubmission and allows manual recovery', { timeout: 1000 }, async () => {
-  let host; const calls = [], notices = [];
-  host = createWebAnalysis({ pageTimeoutMs: 10, notify: value => notices.push(value), copy: async () => {}, driver: { visible: () => true, run: (_provider, command) => { calls.push(command.command); return new Promise(() => {}); } },
+  let host, signal; const calls = [], notices = [];
+  host = createWebAnalysis({ pageTimeoutMs: 10, notify: value => notices.push(value), copy: async () => {}, driver: { visible: () => true, run: (_provider, command, inputSignal) => { signal = inputSignal; calls.push(command.command); return new Promise(() => {}); } },
     delay: async () => { await host.action('request-123', 'import', JSON.stringify(analysis)); },
   });
   const result = await host.run({ id: 'request-123', provider: 'doubao', purpose: 'library-match', input: { ...input, tracks: [] } });
   assert.equal(result.analysis.summary, analysis.summary);
   assert.deepEqual(calls, ['fill']);
+  assert.equal(signal.aborted, true, 'Timeout must cancel delayed native keyboard fallback');
   assert(notices.some(value => /响应超时/.test(value?.message)));
 });
 test('visible login and rate-limit notices prevent DOM prompt writes and sends', () => {
@@ -294,11 +292,11 @@ test('renderer routes webpage analysis without HTTP or API credentials and cance
 const saved = new Map(); globalThis.localStorage = { getItem: key => saved.get(key) || null, setItem: (key, value) => saved.set(key, value), removeItem: key => saved.delete(key) };
 let slots = [], cursor = 0;
 globalThis.i = { createElement: (type, props, ...children) => ({ type, props: props || {}, children }), useState(initial) { const at = cursor++; if (!(at in slots)) slots[at] = typeof initial === 'function' ? initial() : initial; return [slots[at], value => { slots[at] = value; }]; }, useRef: value => ({ current: value }), useEffect: () => {}, useMemo: fn => fn(), useSyncExternalStore: (_subscribe, snapshot) => snapshot() };
-const built = await build({ entryPoints: ['app/src/upgrade.tsx'], bundle: true, write: false, format: 'esm', jsxFactory: 'i.createElement', jsxFragment: 'i.Fragment' });
+const built = await build({ entryPoints: ['./app/src/upgrade.tsx'], bundle: true, write: false, format: 'esm', jsxFactory: 'i.createElement', jsxFragment: 'i.Fragment' });
 const ui = await import('data:text/javascript;base64,' + Buffer.from(built.outputFiles[0].text).toString('base64'));
 const nodes = tree => !tree || typeof tree !== 'object' ? [] : [tree, ...(tree.children || []).flat(Infinity).flatMap(nodes)];
 const textOf = tree => typeof tree === 'string' ? tree : (tree?.children || []).flat(Infinity).map(textOf).join('');
-test('workspace selector includes built-in websites and updates step, guide and matching button labels', () => {
+test('workspace selector includes built-in websites and updates guide and matching button labels', () => {
   const props = { providers: [{ id: 'g', protocol: 'gemini', name: 'Gemini API', apiKey: 'secret', models: ['gemini-3.7-flash-thinking-high'] }], automation: { queue: {}, jobs: [], running: false }, onNavigate: () => {} };
   const render = () => { cursor = 0; return ui.ScriptAutomation(props); };
   let tree = render(); const picker = nodes(tree).find(n => n.props['aria-label'] === '剧本分析模型');

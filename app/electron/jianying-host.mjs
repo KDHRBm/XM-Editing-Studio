@@ -6,7 +6,7 @@ import path from 'node:path';
 import { requestJianyingAI, buildJianyingAIRequest } from './jianying-ai.mjs';
 import { isDeepSeekScan } from '../shared/jianying-models.mjs';
 
-const allowed = new Set(['status', 'stop', 'modal', 'scan', 'wizard', 'export', 'extract', 'fonts', 'unhide', 'paths', 'files', 'preview', 'rename', 'settings', 'select_template', 'rename_template', 'delete_template']);
+const allowed = new Set(['status', 'stop', 'modal', 'scan', 'wizard', 'export', 'extract', 'fonts', 'restore_punctuation', 'punctuation', 'unhide', 'paths', 'files', 'preview', 'rename', 'settings', 'select_template', 'rename_template', 'delete_template']);
 const WARMING_STATE = {
   ready: false,
   status: '引擎预热中…',

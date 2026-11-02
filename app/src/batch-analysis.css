@@ -1,0 +1,63 @@
+.bos-batch{max-width:1600px;margin-inline:auto}.bos-batch-preserve{display:flex;align-items:center;justify-content:space-between;gap:18px;background:var(--ui-soft);border:1px solid var(--ui-border);border-radius:var(--ui-radius);padding:16px 20px;margin-bottom:28px}.bos-batch-preserve strong,.bos-batch-preserve small{display:block}.bos-batch-preserve strong{font-size:13px;margin-bottom:4px}.bos-batch .bos-batch-switch{display:flex;align-items:center;gap:8px;flex-shrink:0}.bos-batch-switch>span{display:inline-block;width:26px;height:16px;border-radius:20px;background:var(--ui-muted);position:relative}.bos-batch-switch>span:before{content:'';position:absolute;inset:3px auto 3px 3px;width:10px;background:white;border-radius:50%;transition:transform 180ms ease}.bos-batch-switch[aria-checked=true]>span{background:var(--ui-accent)}.bos-batch-switch[aria-checked=true]>span:before{transform:translateX(10px)}.bos-batch-settings{display:grid;grid-template-columns:1.5fr 1fr auto;gap:14px;align-items:end}.bos-batch-model-tools{margin-bottom:16px}.bos-batch-input textarea{min-height:190px}.bos-batch-library{display:flex;justify-content:space-between;align-items:center;gap:18px;padding:20px 22px;margin:18px 0;border:1px solid var(--ui-border);border-radius:var(--ui-radius);background:var(--ui-surface)}.bos-batch-library>div:first-child{min-width:0}.bos-batch-library strong{font-size:13px}.bos-batch-library small{display:block;overflow-wrap:anywhere}.bos-batch-library p{margin:4px 0}.bos-batch-filter{display:flex;gap:8px;flex-wrap:wrap;margin:0 0 18px}.bos-batch button[aria-pressed=true],.bos-batch-dialog button[aria-pressed=true]{background:var(--ui-soft);border-color:var(--ui-accent);color:var(--ui-accent)}.bos-batch-cards{display:grid;grid-template-columns:repeat(auto-fill,minmax(min(100%,235px),1fr));gap:14px}.bos-batch-card{position:relative;border:1px solid var(--ui-border);border-radius:var(--ui-control);background:var(--ui-input);transition:transform 180ms ease,box-shadow 180ms ease,border-color 180ms ease;min-width:0}.bos-batch-card:hover{transform:translateY(-2px);box-shadow:var(--ui-shadow);border-color:var(--ui-accent)}.bos-batch-card[data-status=analyzing]{border-color:var(--ui-accent)}.bos-batch .bos-batch-card-open{display:flex;flex-direction:column;gap:13px;width:100%;height:100%;min-height:172px;text-align:left;border:0;background:transparent;padding:22px 18px 16px}.bos-batch-card-top{display:flex;align-items:center;gap:12px;padding-right:17px;flex-wrap:wrap}.bos-batch-card-top>strong{font-size:21px;font-weight:600}.bos-batch-card-title{display:block;max-width:100%;font-size:12px;color:var(--ui-muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.bos-batch-card-link{font-size:11px;color:var(--ui-accent);margin-top:auto}.bos-batch-card-error{display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;font-size:11px;color:var(--ui-warning);overflow-wrap:anywhere}.bos-batch .bos-batch-card-close{position:absolute;top:6px;right:6px;border:0;background:transparent;width:28px;height:28px;padding:0;line-height:1;font-size:20px;color:var(--ui-muted)}.bos-batch-card[data-status=complete] .bos-script-state{color:var(--ui-success);background:var(--ui-success-bg)}.bos-batch-dialog{padding:0;margin:auto;width:min(940px,92vw);max-height:88vh;border:1px solid var(--ui-border);border-radius:var(--ui-radius,20px);background:var(--ui-surface);color:var(--ui-text);box-shadow:0 24px 100px #0006;overflow:hidden}.bos-batch-dialog[open]{display:flex;flex-direction:column;animation:bos-batch-appear 160ms ease-out}.bos-batch-dialog::backdrop{background:#070c1966;backdrop-filter:blur(5px)}.bos-batch-dialog-heading{display:flex;align-items:start;justify-content:space-between;gap:20px;padding:24px 28px 10px}.bos-batch-dialog h2{font-size:23px;overflow-wrap:anywhere}.bos-batch-dialog .bos-batch-dialog-close{font-size:25px;line-height:1;padding:5px 10px;background:transparent}.bos-batch-dialog-tabs{display:flex;gap:8px;padding:0 28px 16px;border-bottom:1px solid var(--ui-border);flex-wrap:wrap}.bos-batch-dialog-body{min-height:180px;overflow:auto;padding:22px 28px}.bos-batch-subtitle-text{white-space:pre-wrap;overflow-wrap:anywhere;line-height:2;font-family:Arial,sans-serif;font-size:14px;padding:18px;background:var(--ui-input);border:1px solid var(--ui-border);border-radius:var(--ui-control);user-select:text}.bos-batch-dialog-body audio{width:100%;height:36px;margin:10px 0}.bos-batch-dialog-footer{display:flex;align-items:center;gap:10px;padding:16px 28px;border-top:1px solid var(--ui-border)}.bos-batch-dialog-footer>small{margin-right:auto}.bos-batch-dialog h4{font-size:14px;line-height:1.7;margin:12px 0 5px}@keyframes bos-batch-appear{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:translateY(0)}}@media(max-width:800px){.bos-batch-settings{grid-template-columns:1fr 1fr}.bos-batch-model-tools{grid-column:1/-1}.bos-batch-library{align-items:flex-start;flex-direction:column}.bos-batch-dialog-heading,.bos-batch-dialog-body{padding:18px}.bos-batch-dialog-tabs,.bos-batch-dialog-footer{padding:12px 18px}.bos-batch-preserve{padding:14px}.bos-batch h2{font-size:24px}}@media(prefers-reduced-motion:reduce){.bos-batch-card,.bos-batch-switch>span:before{transition:none}.bos-batch-dialog[open]{animation:none}}
+
+.bos-batch-segment-settings{display:flex;gap:16px;align-items:center;flex-wrap:wrap;margin-bottom:14px}.bos-batch-segment-settings label{min-width:180px}.bos-batch-segment-settings small{flex:1;min-width:200px}.bos-batch-music-section{margin-top:24px;padding-top:18px;border-top:1px solid var(--ui-border)}
+
+.bos-batch-task-actions{justify-content:flex-start;flex-wrap:wrap;margin-bottom:18px}.bos-batch-tasks>.bos-script-section-title>.bos-panel-toggle{flex-shrink:0}
+
+/* Keep navigation in the modal top layer, outside the scrolling episode panel. */
+.bos-batch-dialog{width:min(1052px,calc(100vw - 16px));max-height:92vh;border:0;border-radius:0;background:transparent;box-shadow:none;overflow:visible}
+.bos-batch-dialog[open]{display:block}
+.bos-batch-dialog-panel{display:flex;flex-direction:column;max-height:88vh;margin:0 56px;overflow:hidden;border:1px solid var(--ui-border);border-radius:var(--ui-radius,20px);background:var(--ui-surface);box-shadow:0 24px 100px #0006}
+.bos-batch-dialog-heading,.bos-batch-dialog-tabs,.bos-batch-dialog-footer{flex-shrink:0}
+.bos-batch-dialog-body{min-height:0;flex:1}
+.bos-batch-dialog.bos-script button.bos-batch-episode-nav{display:grid;place-items:center;position:absolute;top:50%;translate:0 -50%;transform:none;width:48px;height:72px;padding:0;border-radius:16px;background:transparent;border:0;color:var(--ui-text);box-shadow:none;outline:none;line-height:1;transition:none;touch-action:manipulation;user-select:none}
+/* Animate only the surface; the hit target must not move or shrink under the pointer. */
+.bos-batch-dialog.bos-script button.bos-batch-episode-nav:active:not(:disabled){transform:none}
+.bos-batch-episode-surface{display:grid;place-items:center;width:42px;height:64px;border:1px solid var(--ui-border);border-radius:inherit;background:var(--ui-surface);box-shadow:var(--ui-shadow);pointer-events:none;transform:scale(1);transition:transform 160ms cubic-bezier(.2,.7,.2,1),background-color 160ms,border-color 160ms,color 160ms}
+.bos-batch-episode-nav svg{display:block;flex:none}
+.bos-batch-episode-prev{left:0}.bos-batch-episode-next{right:0}
+.bos-batch-episode-nav:hover:not(:disabled) .bos-batch-episode-surface{transform:scale(1.05);background:var(--ui-soft);border-color:var(--ui-accent);color:var(--ui-accent)}
+.bos-batch-episode-nav:active:not(:disabled) .bos-batch-episode-surface{transform:scale(.94);transition-duration:80ms}
+.bos-batch-episode-nav:focus-visible .bos-batch-episode-surface{outline:2px solid var(--ui-accent);outline-offset:4px}
+.bos-batch-dialog .bos-batch-episode-nav:disabled{opacity:.3;cursor:default}
+.bos-batch-dialog-footer{display:block}
+.bos-batch-dialog-analysis{display:flex;align-items:end;gap:12px;flex-wrap:wrap}
+.bos-batch-dialog-analysis label{margin:0;min-width:130px;flex:1}
+.bos-batch-dialog-analysis label:nth-child(2){min-width:100px;flex:0 1 120px}
+.bos-batch-dialog-analysis button{margin:0;min-height:39px}
+.bos-batch-dialog-footer-meta{display:flex;align-items:center;justify-content:space-between;gap:14px;margin-top:12px}
+@media(max-width:640px){.bos-batch-dialog{padding-bottom:52px}.bos-batch-dialog-panel{margin:0;max-height:calc(92vh - 52px)}.bos-batch-dialog.bos-script button.bos-batch-episode-nav{top:auto;bottom:0;translate:none;height:48px;width:72px;border-radius:12px}.bos-batch-episode-surface{width:64px;height:40px}.bos-batch-dialog-analysis label{min-width:110px}.bos-batch-dialog-analysis button{flex:1}.bos-batch-dialog-footer-meta small{max-width:75%;overflow-wrap:anywhere}}
+@media(prefers-reduced-motion:reduce){.bos-batch-episode-nav .bos-batch-episode-surface,.bos-batch-episode-nav:is(:hover,:active):not(:disabled) .bos-batch-episode-surface{transition:none;transform:none}}
+
+.bos-batch-drama-name{display:flex;align-items:end;flex-wrap:wrap;gap:10px;margin:14px 0}
+.bos-batch-input{margin-bottom:22px}
+.bos-batch-drama-name>label{flex:1;min-width:220px;margin:0}
+.bos-batch-drama-name>small{padding-bottom:10px;color:var(--ui-muted)}
+.bos-batch-tasks.is-active-drama{border-color:var(--ui-accent)}
+.bos-batch-tasks+.bos-batch-tasks{margin-top:16px}
+.bos-batch-project-heading{gap:18px;flex-wrap:wrap}
+.bos-batch-project-heading>div:first-child{min-width:0}
+.bos-batch-project-heading h3{overflow-wrap:anywhere}
+.bos-batch-project-select{position:relative;display:flex;flex-direction:column;gap:6px;margin:0;width:260px;max-width:100%;min-width:0}
+.bos-batch-project-select>span{font-size:11px;color:var(--ui-muted)}
+.bos-script .bos-batch-project-trigger{width:100%;display:flex;align-items:center;justify-content:space-between;gap:12px;min-height:40px;padding:10px 12px;background:var(--ui-input);text-align:left;font-weight:400;font-size:12px}
+.bos-batch-project-trigger>span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.bos-batch-project-trigger>svg{flex-shrink:0;transition:transform 150ms ease}
+.bos-batch-project-trigger[aria-expanded=true]>svg{transform:rotate(180deg)}
+.bos-batch-project-menu{position:absolute;top:calc(100% + 6px);right:0;width:100%;z-index:30;border:1px solid var(--ui-border);border-radius:var(--ui-control);background:var(--ui-surface);box-shadow:0 14px 36px #0004;padding:6px;max-height:320px;overflow:auto;animation:bos-batch-appear 140ms ease-out}
+.bos-batch-project-row{display:flex;align-items:center;border-radius:6px;gap:2px}
+.bos-batch-project-row.is-current{background:var(--ui-soft)}
+.bos-script .bos-batch-project-option{flex:1;display:flex;align-items:center;gap:8px;text-align:left;min-width:0;border:0;background:transparent;padding:11px 9px;font-weight:400}
+.bos-batch-project-option>span:first-child{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1}
+.bos-batch-project-option small{white-space:nowrap;font-size:10px;color:var(--ui-muted)}
+.bos-batch-project-check{color:var(--ui-accent)}
+.bos-script .bos-batch-project-delete{flex-shrink:0;width:32px;height:32px;padding:0;margin-right:3px;border:0;background:transparent;font-size:20px;font-weight:400;color:var(--ui-muted)}
+.bos-script .bos-batch-project-delete:hover:not(:disabled){color:var(--ui-danger,#ffb4a5);background:var(--ui-danger-bg,#38251f)}
+.bos-batch-project-delete-confirm{padding:9px;overflow-wrap:anywhere}
+.bos-batch-project-delete-confirm strong{font-size:12px}
+.bos-batch-project-delete-confirm p{font-size:11px;line-height:1.8;margin:9px 0 14px}
+.bos-batch-project-delete-confirm>div{display:flex;justify-content:flex-end;gap:8px}
+.bos-script .bos-batch-project-confirm-delete{color:var(--ui-danger,#ffb4a5);background:var(--ui-danger-bg,#38251f)}
+.bos-batch-project-tools{display:flex;align-items:flex-end;justify-content:flex-end;gap:12px;flex-wrap:wrap;max-width:100%}
+@media(max-width:650px){.bos-batch-project-tools{width:100%;justify-content:flex-start}.bos-batch-project-tools .bos-batch-project-select{flex:1;min-width:160px}.bos-batch-project-heading>.bos-batch-project-select{width:100%}}
+@media(prefers-reduced-motion:reduce){.bos-batch-project-menu{animation:none}.bos-batch-project-trigger>svg{transition:none}}

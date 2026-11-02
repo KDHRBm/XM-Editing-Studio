@@ -18,16 +18,48 @@ function fixture() {
     isDestroyed() { return this.destroyed; }
   }
   class View {
-    constructor(options) { this.options = options; this.webContents = new Contents(); this.borderRadius = 0; this.bgColor = ''; views.push(this); }
+    constructor(options) { this.options = options; this.webContents = new Contents(); views.push(this); }
     setBounds(bounds) { this.bounds = bounds; }
-    setBorderRadius(r) { this.borderRadius = r; }
-    setBackgroundColor(c) { this.bgColor = c; }
   }
   const win = { destroyed: false, zoom: 1, isDestroyed() { return this.destroyed; }, getContentSize: () => [1440, 900], webContents: { getZoomFactor: () => win.zoom }, contentView: { addChildView: view => attached.add(view), removeChildView: view => attached.delete(view) } };
   const host = createWebAIHost({ View, getWindow: () => win, shell: { openExternal: async url => opened.push(url) } });
   return { host, win, views, attached, opened, Contents };
 }
 const layout = provider => ({ provider, visible: true, bounds: { x: 270, y: 300, width: 800, height: 500 } });
+
+test('Enter fallback sends one full key sequence only on the visible official page', async () => {
+  const f = fixture(); f.host.layout(layout('deepseek'));
+  const contents = f.views[0].webContents, events = [];
+  let focused = false; f.win.focus = () => { focused = true; };
+  contents.getURL = () => 'https://chat.deepseek.com/';
+  contents.executeJavaScript = async () => ({ state: 'enter' });
+  contents.focus = () => {};
+  contents.sendInputEvent = event => events.push(event);
+  assert.equal((await f.host.run('deepseek', { command: 'send' })).state, 'sent');
+  assert.equal(focused, true);
+  assert.deepEqual(events, [{ type: 'keyDown', keyCode: 'Enter' }, { type: 'char', keyCode: '\r' }, { type: 'keyUp', keyCode: 'Enter' }]);
+  contents.executeJavaScript = async () => ({ state: 'sent' });
+  await f.host.run('deepseek', { command: 'send' }); assert.equal(events.length, 3);
+  f.host.layout({ visible: false });
+  await assert.rejects(f.host.run('deepseek', { command: 'send' }), /登录/);
+  assert.equal(events.length, 3); f.host.dispose();
+});
+
+test('cancelled or switched pages cannot receive a delayed Enter fallback', async () => {
+  const f = fixture(); f.host.layout(layout('deepseek'));
+  const contents = f.views[0].webContents, events = [];
+  contents.getURL = () => 'https://chat.deepseek.com/';
+  contents.focus = () => {}; contents.sendInputEvent = event => events.push(event);
+  let finish;
+  contents.executeJavaScript = () => new Promise(resolve => { finish = resolve; });
+  const controller = new AbortController();
+  const pending = f.host.run('deepseek', { command: 'send' }, controller.signal);
+  controller.abort(); finish({ state: 'enter' });
+  await assert.rejects(pending); assert.equal(events.length, 0);
+  const second = f.host.run('deepseek', { command: 'send' });
+  f.host.layout(layout('doubao')); finish({ state: 'enter' });
+  await assert.rejects(second, /网页已切换/); assert.equal(events.length, 0); f.host.dispose();
+});
 test('only known providers and HTTPS pages are allowed; lookalike domains are not official', () => {
   assert.equal(WEB_AI_PROVIDERS.length, 2);
   assert.throws(() => webAIProvider('https://example.com'), /请选择/);
@@ -53,8 +85,6 @@ test('webviews create lazily, keep independent login partitions and reuse conten
   assert.equal(f.views.length, 2); assert.deepEqual([...f.attached], [f.views[1]]);
   for (let n = 0; n < 2; n++) {
     const view = f.views[n], prefs = view.options.webPreferences;
-    assert.equal(view.borderRadius, 14);
-    assert.equal(view.bgColor, '#00000000');
     assert.deepEqual(view.webContents.loaded, [WEB_AI_PROVIDERS[n].url]);
     assert.equal(prefs.partition, 'persist:xm-official-ai-' + WEB_AI_PROVIDERS[n].id);
     assert.equal(prefs.nodeIntegration, false); assert.equal(prefs.sandbox, true); assert.equal(prefs.contextIsolation, true); assert.equal(prefs.webSecurity, true); assert.equal(prefs.devTools, false); assert.equal(prefs.preload, undefined);
@@ -95,6 +125,20 @@ test('load failures are visible, reload can recover, and external opens use fixe
   f.win.destroyed = true; f.host.dispose();
 });
 
+test('screenshot analysis runs on the already attached DeepSeek view and pauses on the login page', async () => {
+  const f = fixture(); f.host.layout(layout('deepseek'));
+  const contents = f.views[0].webContents, scripts = [];
+  contents.getURL = () => 'https://chat.deepseek.com/a/chat/existing';
+  contents.executeJavaScript = async source => { scripts.push(source); return { state: 'uploaded' }; };
+  const result = await f.host.run('deepseek', { command: 'prepare-image', prompt: 'question', image: 'YWJj', filename: 'xm-drafts-test.jpg' });
+  assert.equal(result.state, 'uploaded'); assert.equal(f.views.length, 1);
+  assert.deepEqual(contents.loaded, ['https://chat.deepseek.com/']);
+  assert.equal(f.views[0].options.webPreferences.backgroundThrottling, false);
+  contents.getURL = () => 'about:blank';
+  assert.equal((await f.host.run('deepseek', { command: 'prepare-image' })).state, 'login');
+  assert.equal(scripts.length, 1); f.host.dispose();
+});
+
 const draft = { script: '△ 雨夜追逐\n[EN] JACK: Run, now...\n△ 第二天重逢\n[ES] MIA: Hola, señor.', customKeywords: '悬疑,钢琴', durationSeconds: 60, segmentCount: 3, geminiKey: 'do-not-export', sunoKey: 'do-not-export', apiKey: 'do-not-export' };
 const taskData = prompt => { const normalized = prompt.replace(/\r\n/g, '\n'); return JSON.parse(normalized.slice(normalized.lastIndexOf('\n\n') + 2)); };
 test('manual web prompts preserve full script and user options without exporting credentials', () => {
@@ -111,13 +155,13 @@ test('manual web prompts preserve full script and user options without exporting
 test('web task copy remains complete and valid JSON with subtitle protection enabled', async () => {
   let value = '', tick;
   const guard = createPunctuationClipboard({ clipboard: { readText: () => value, writeText: text => { value = text; } }, schedule: fn => { tick = fn; return 1; }, cancel: () => {} });
-  guard.configure(true, 'compatible');
+  await guard.configure(true, 'compatible');
   const prompt = webAIScriptPrompt({ ...draft, segmented: true }, 'suno');
-  const result = await guard.copyPlain(prompt); tick(); tick();
+  const result = await guard.copyPlain(prompt); await tick(); await tick();
   assert.equal(result.copyVerified, true); assert.equal(value.replace(/\r\n/g, '\n'), prompt); assert.equal(taskData(value).originalScript, draft.script);
   await guard.copy('Subtitles, keep.'); assert.equal(value, 'Subtitles‚ keep․');
   await assert.rejects(guard.copyPlain('Bad\0text'), /格式无效/);
-  guard.dispose();
+  await guard.dispose();
 });
 
 const saved = new Map([['black-obsidian.script-draft.v1', JSON.stringify(draft)]]);
@@ -129,7 +173,7 @@ globalThis.i = {
   useRef(initial) { const at = cursor++; if (!(at in slots)) slots[at] = { current: initial }; return slots[at]; },
   useEffect: fn => effects.push(fn), useSyncExternalStore: (_subscribe, snapshot) => snapshot(),
 };
-const compiled = await build({ entryPoints: ['app/src/WebAIStudio.tsx'], bundle: true, write: false, format: 'esm', jsxFactory: 'i.createElement', jsxFragment: 'i.Fragment' });
+const compiled = await build({ entryPoints: ['./app/src/WebAIStudio.tsx'], bundle: true, write: false, format: 'esm', jsxFactory: 'i.createElement', jsxFragment: 'i.Fragment' });
 const { WebAIStudio } = await import('data:text/javascript;base64,' + Buffer.from(compiled.outputFiles[0].text).toString('base64'));
 const nodes = tree => !tree || typeof tree !== 'object' ? [] : [tree, ...(tree.children || []).flat(Infinity).flatMap(nodes)];
 const textOf = tree => typeof tree === 'string' ? tree : (tree?.children || []).flat(Infinity).map(textOf).join('');
@@ -149,19 +193,23 @@ test('web UI selects and remembers provider, only copies on click, and reports c
   assert.equal(render(false).props.hidden, true);
 });
 test('UI lifecycle hides native page behind dialogs and on page switch, with no observers left', async () => {
-  const originals = Object.fromEntries(['setInterval', 'clearInterval', 'requestAnimationFrame', 'cancelAnimationFrame', 'window', 'document', 'ResizeObserver', 'MutationObserver'].map(key => [key, globalThis[key]]));
-  const layouts = [], frames = new Map(), observers = [], listeners = new Set(), intervals = new Set(); let next = 0, modal = false;
+  const originals = Object.fromEntries(['setInterval', 'clearInterval', 'requestAnimationFrame', 'cancelAnimationFrame', 'window', 'document', 'ResizeObserver', 'MutationObserver', 'getComputedStyle'].map(key => [key, globalThis[key]]));
+  const layouts = [], frames = new Map(), observers = [], listeners = new Set(), intervals = new Set(); let next = 0, modal = false, radius = 20;
   try {
     globalThis.requestAnimationFrame = fn => { const id = ++next; frames.set(id, fn); return id; }; globalThis.cancelAnimationFrame = id => frames.delete(id);
     globalThis.setInterval = fn => { intervals.add(fn); return fn; }; globalThis.clearInterval = fn => intervals.delete(fn);
     const flush = () => { const pending = [...frames.values()]; frames.clear(); pending.forEach(fn => fn()); };
     globalThis.window = { innerWidth: 1440, innerHeight: 900, addEventListener: name => listeners.add(name), removeEventListener: name => listeners.delete(name) };
     globalThis.document = { body: {}, querySelector: () => null, querySelectorAll: () => modal ? [{ getClientRects: () => [1], closest: () => null }] : [] };
+    globalThis.getComputedStyle = () => ({ borderTopLeftRadius: radius + 'px' });
     globalThis.ResizeObserver = globalThis.MutationObserver = class { constructor(fn) { this.fn = fn; observers.push(this); } observe() {} disconnect() { this.disconnected = true; } };
     globalThis.blackObsidian = { layoutWebAI: async input => { layouts.push(input); return null; }, webAIAction: async () => ({ official: true }) };
     slots = []; const tree = render(); const slot = nodes(tree).find(node => node.props.ref);
     slot.props.ref.current = { getBoundingClientRect: () => ({ left: 270, top: 300, right: 1100, bottom: 950 }), closest: () => ({ getBoundingClientRect: () => ({ left: 260, top: 0, right: 1120, bottom: 864 }) }) };
     const cleanup = effects[0](); flush(); assert.equal(layouts.at(-1).visible, true); assert.equal(layouts.at(-1).bounds.height, 562);
+    assert.equal(layouts.at(-1).cornerRadius, 18);
+    const count = layouts.length; observers[0].fn(); flush(); assert.equal(layouts.length, count, 'Unchanged geometry must not trigger redundant layout');
+    radius = 26; observers[1].fn(); flush(); assert.equal(layouts.at(-1).cornerRadius, 24, 'Native clipping follows the CSS inset radius');
     modal = true; observers[1].fn(); flush(); assert.equal(layouts.at(-1).visible, false);
     modal = false; observers[1].fn(); flush(); assert.equal(layouts.at(-1).visible, true);
     cleanup(); assert.equal(layouts.at(-1).visible, false); assert(observers.every(o => o.disconnected)); assert.equal(intervals.size, 0); assert.equal(listeners.size, 0); assert.equal(frames.size, 0);
@@ -194,4 +242,26 @@ test('an older initial snapshot cannot close a newly started analysis overlay', 
     cleanup?.(); assert.equal(removed, true); assert.equal(listeners.size, 0);
     if (originalWindow === undefined) delete globalThis.window; else globalThis.window = originalWindow;
   }
+});
+
+test('a draft scan opens the shared page overlay with F10 cancellation and manual recovery', async () => {
+  const originalWindow = globalThis.window;
+  let receive;
+  const actions = [];
+  globalThis.window = { addEventListener() {}, removeEventListener() {} };
+  globalThis.blackObsidian = { layoutWebAI: async () => {}, webAIAction: async () => {},
+    onWebAnalysisTask: callback => { receive = callback; return () => {}; }, getWebAnalysisTask: async () => null,
+    webAnalysisAction: async (...args) => actions.push(args),
+  };
+  let cleanup;
+  try {
+    slots = []; render(false); cleanup = effects[1]();
+    receive({ id: 'scan-task', token: 'image-one', provider: 'deepseek', kind: 'draft-scan', stage: '草稿截图识别', message: '提示词已完整填入' });
+    const tree = render(false);
+    assert.equal(tree.props.hidden, false); assert.match(textOf(tree), /DeepSeek · 草稿截图识别/);
+    assert.ok(nodes(tree).some(node => node.props['aria-label'] === 'DeepSeek 网页显示区域'));
+    assert.equal(button(tree, '豆包').props.disabled, true);
+    await button(tree, '中断扫描 · F10').props.onClick(); assert.deepEqual(actions[0].slice(0, 2), ['scan-task', 'cancel']);
+    assert.ok(button(tree, '复制当前任务')); assert.ok(button(tree, '导入结果并继续'));
+  } finally { cleanup?.(); globalThis.window = originalWindow; }
 });

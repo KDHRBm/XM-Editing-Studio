@@ -34,16 +34,24 @@ export function createMusicUsageStore(storage) {
   catch { error = '最近使用音乐读取失败；本次使用仍会记录，请检查本机存储。'; }
   let state = { history, error };
   const listeners = new Set();
+  const update = next => {
+    history = next; error = '';
+    try { storage.setItem(MUSIC_USAGE_KEY, JSON.stringify(history)); }
+    catch { error = '使用记录暂时无法保存，当前窗口仍使用最新记录；重启后可能丢失，请检查本机存储。'; }
+    state = { history, error };
+    listeners.forEach(listener => listener());
+  };
   return {
     snapshot: () => state,
     subscribe: listener => { listeners.add(listener); return () => listeners.delete(listener); },
     remember(track) {
-      history = rememberMusicUsage(state.history, track);
-      error = '';
-      try { storage.setItem(MUSIC_USAGE_KEY, JSON.stringify(history)); }
-      catch { error = '使用记录暂时无法保存，当前窗口仍会避开这些音乐；重启后可能丢失，请检查本机存储。'; }
-      state = { history, error };
-      listeners.forEach(listener => listener());
+      update(rememberMusicUsage(state.history, track));
+    },
+    forget(id) { update(state.history.filter(item => item.id !== id)); },
+    toggle(track) {
+      const used = state.history.some(item => item.id === track.id);
+      update(used ? state.history.filter(item => item.id !== track.id) : rememberMusicUsage(state.history, track));
+      return !used;
     },
   };
 }

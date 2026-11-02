@@ -190,7 +190,7 @@
 
 /* Appearance lives in Workspace, with real palette previews and selected states. */
 .bos-workspace {display:grid;gap:28px}
-.bos-appearance {padding:24px;border:1px solid var(--ui-border)}
+.bos-appearance {padding:24px;margin-bottom:22px;border:1px solid var(--ui-border)}
 .bos-appearance-heading {display:flex;align-items:flex-start;justify-content:space-between;gap:16px;margin-bottom:22px}
 .bos-appearance-eyebrow {color:var(--ui-accent);font-size:10px;font-weight:700;letter-spacing:2px}
 .bos-appearance-heading h2 {margin:8px 0;font-size:23px;letter-spacing:-.5px}

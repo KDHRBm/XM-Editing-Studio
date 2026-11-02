@@ -5,13 +5,14 @@ const saved = new Map();
 let injectedCatalog;
 globalThis.localStorage = { getItem: key => saved.get(key) || null, setItem: (key, value) => saved.set(key, value), removeItem: key => saved.delete(key) };
 globalThis.i = {
+  useRef: value => ({ current: value }),
   createElement: (type, props, ...children) => ({ type, props: props || {}, children }),
   useState: initial => [injectedCatalog && initial?.tracks ? injectedCatalog : typeof initial === 'function' ? initial() : initial, () => {}],
   useEffect: () => {}, useMemo: calculate => calculate(),
   useSyncExternalStore: (_subscribe, snapshot) => snapshot(),
 };
 const compile = async file => { const bundle = await build({ entryPoints: [file], bundle: true, write: false, format: 'esm', jsxFactory: 'i.createElement', jsxFragment: 'i.Fragment' }); return import('data:text/javascript;base64,' + Buffer.from(bundle.outputFiles[0].text).toString('base64')); };
-const { MusicLibrary, clearCurrentLibraryMatch } = await compile('app/src/MusicLibrary.tsx');
+const { MusicLibrary, clearCurrentLibraryMatch } = await compile('./app/src/MusicLibrary.tsx');
 const projectsModule = await compile('app/src/ScriptProjects.jsx');
 function findButton(tree, label = 'fixture') {
   if (!tree || typeof tree !== 'object') return null;

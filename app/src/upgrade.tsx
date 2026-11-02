@@ -6,6 +6,8 @@ export { UsageGuide } from './UsageGuide.tsx';
 export { JianyingStudio } from './JianyingStudio.tsx';
 export { SidebarResizer } from './SidebarResizer.tsx';
 export { WebAIStudio } from './WebAIStudio.tsx';
+export { BatchAnalysis } from './BatchAnalysis.jsx';
+export { BatchNavIcon, JianyingNavIcon, WebAiNavIcon, PetNavIcon } from './NavigationIcons.jsx';
 export { TitleBar } from './TitleBar.tsx';
 export { BatchTray } from './BatchTray.tsx';
 export { SidebarCredits, AUTHOR_CREDITS, OPEN_SOURCE_PROJECTS } from './SidebarCredits.tsx';

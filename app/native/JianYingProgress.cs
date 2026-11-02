@@ -48,19 +48,15 @@ internal sealed partial class JianYingEngine
     private void OnKeyF8()
     {
         CaptureAck ack;
-        NativeWin32.POINT point;
+        System.Drawing.Point point;
         int generation;
         string step;
         lock (_lock)
         {
             if (_recState == null || _recordingCoords == null || _recordingCapture != null) return;
-            if (_recState == "popup_close" && _exportMode == "wait_close")
-            {
-                _recordingCoords["popup_close"] = null;
-                _recState = "close_btn";
-            }
             // Sampling a hovered button must not require focus or send a mouse click.
-            if (!NativeWin32.GetCursorPos(out point)) { _recordingError = "无法获取鼠标位置，请重按 F8。"; EmitProgress(_recordingProgress, "recording-progress", "retry", _recordingError); return; }
+            try { point = _readCursor(); }
+            catch (Exception error) { _recordingError = error.Message + " 请重按 F8。"; EmitProgress(_recordingProgress, "recording-progress", "retry", _recordingError); return; }
             step = _recState; generation = _operationGeneration;
             ack = new CaptureAck { Id = Convert.ToString(_recordingProgress["id"]), Token = Guid.NewGuid().ToString("N") };
             _recordingCapture = ack;
@@ -70,23 +66,24 @@ internal sealed partial class JianYingEngine
         ThreadPool.QueueUserWorkItem(_ => {
             try
             {
-                if (step == "popup_close")
-                {
-                    Send(new Dictionary<string, object> { { "event", "recording-capture" }, { "id", ack.Id }, { "token", ack.Token } });
-                    WaitForCapture(ack, generation, 3);
-                }
+                Send(new Dictionary<string, object> { { "event", "recording-capture" }, { "id", ack.Id }, { "token", ack.Token } });
+                WaitForCapture(ack, generation, 3);
                 lock (_lock)
                 {
                     CheckInterrupted(generation);
                     if (_recState != step || _recordingCapture != ack) return;
                     int[] resolution = GetScreenResolution();
                     if (point.X < 0 || point.Y < 0 || point.X >= resolution[0] || point.Y >= resolution[1]) throw new InvalidOperationException("请在主屏幕的剪映窗口录制坐标。");
+                    ValidateRecordedStep(step, point, _recordingCoords);
+                    int[] frame = _recordingWindow(point);
+                    string image = step == "popup_close" || step == "close_btn" || step == "draft_close" ? _captureButton(point) : null;
                     int[] color = step == "popup_close" ? GetPixelRgb(point.X, point.Y) : null;
                     _recordingCoords[step] = new[] { point.X, point.Y };
+                    _recordingFrames[step] = frame;
+                    if (image != null) _recordingImages[step] = image;
                     _recordingError = "";
-                    Log(string.Format("✓ 已录制 {0} ({1},{2})", step, point.X, point.Y));
-                    if (step == "popup_close" && _exportMode == "return_home") { _recordingColor = color; FinishRecording(); }
-                    else if (step == "draft_close" && _exportMode == "wait_close") { FinishRecording(); }
+                    Log(string.Format("已录制 {0} ({1},{2})", step, point.X, point.Y));
+                    if (step == "popup_close") { _recordingColor = color; FinishRecording(); }
                     else AdvanceRecording();
                 }
             }

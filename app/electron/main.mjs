@@ -59,7 +59,7 @@ const webAnalysis = createWebAnalysis({ driver: webAI, copy: text => periodKeepe
 const webScan = createJianyingWebScan({ BrowserWindow });
 const jianying = createJianyingHost({ appDirectory: app.getAppPath(), dataDirectory: path.join(app.getPath('userData'), 'jianying-ai'), minimize: () => mainWindow?.minimize(), webScan });
 const autoUpdater = createAutoUpdater({
-  currentVersion: app.getVersion() || '1.7.3',
+  currentVersion: app.getVersion() || '1.7.4',
   downloadDirectory: path.join(app.getPath('userData'), 'updates'),
   onQuit: () => app.quit(),
   notify: state => { if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('bos:updater-state', state); },
@@ -433,6 +433,8 @@ if (!hasSingleInstance) {
           await jianying.run('extract', {});
         } else if (action === 'jy-fonts') {
           await jianying.run('fonts', {});
+        } else if (action === 'jy-punctuation') {
+          await jianying.run('restore_punctuation', {});
         } else if (action === 'jy-unhide') {
           await jianying.run('unhide', {});
         } else if (action === 'jy-pick-rename-dir') {

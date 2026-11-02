@@ -1,4 +1,4 @@
-import { randomUUID } from 'node:crypto';
+const randomUUID = () => globalThis.crypto.randomUUID();
 import { webAIProvider } from '../shared/web-ai.mjs';
 import { analyzeWithWeb, webTaskPrompt, webTaskResult } from '../shared/web-script-analysis.mjs';
 
@@ -10,11 +10,13 @@ export function createWebAnalysis({ driver, notify, copy, now = Date.now, delay 
   async function runPage(task, input) {
     check(task);
     let timer;
+    const controller = new AbortController();
     const interrupted = new Promise((_, reject) => {
-      task.cancelWait = () => reject(new Error('网页分析已中断。'));
-      timer = setTimeout(() => reject(Object.assign(new Error('网页响应超时。'), { pageTimeout: true })), pageTimeoutMs);
+      const interrupt = error => { reject(error); controller.abort(error); };
+      task.cancelWait = () => interrupt(new Error('网页分析已中断。'));
+      timer = setTimeout(() => interrupt(Object.assign(new Error('网页响应超时。'), { pageTimeout: true })), pageTimeoutMs);
     });
-    try { return await Promise.race([driver.run(task.provider, input), interrupted]); }
+    try { return await Promise.race([driver.run(task.provider, input, controller.signal), interrupted]); }
     finally { clearTimeout(timer); task.cancelWait = null; }
   }
   async function ask(task, messages, stage) {

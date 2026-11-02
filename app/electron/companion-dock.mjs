@@ -568,8 +568,11 @@ function panelHtml(acrylic) {
         <button class="btn primary" id="jyExtract">提取字幕并隐藏轨道</button>
         <button class="btn" id="jyFonts">统一 Noto Sans Bold</button>
       </div>
-      <button class="btn" id="jyUnhide">恢复所有草稿字幕显示</button>
-      <small style="font-size:10px;color:#94a3b8">提示：修改字体或显隐轨道前请先退出剪映，工具会自动备份草稿 JSON。</small>
+      <div class="grid">
+        <button class="btn" id="jyPunctuation">检查并还原标准标点</button>
+        <button class="btn" id="jyUnhide">恢复所有草稿字幕显示</button>
+      </div>
+      <small style="font-size:10px;color:#94a3b8">提示：检查并还原标准标点可将保护标点（․﹒‚﹐）还原为标准英文 . , 且不改动样式与时间轴；修改前请先退出剪映，工具会自动备份草稿 JSON。</small>
       <details class="sub-panel log-panel" open>
         <summary class="log-summary">
           <span class="summary-title"><span class="log-arrow">▸</span> 字幕工程日志</span>
@@ -853,12 +856,12 @@ function panelHtml(acrylic) {
       $('jyMeta').textContent = jy.status || '就绪';
       $('jyGuideBox').textContent = jy.guide || jy.lastLog || '打开剪映首页后，可录制坐标或 AI 扫描草稿列表。';
       const allLogs = Array.isArray(jy.logs) ? jy.logs : [];
-      const exportLogs = allLogs.filter(l => !/✓\\s+.*\\.srt|统一\\s+Noto|恢复所有草稿字幕/i.test(l));
+      const exportLogs = allLogs.filter(l => !/✓\\s+.*\\.srt|统一\\s+Noto|恢复所有草稿字幕|还原标准标点|受保护标点/i.test(l));
       if ($('jyLog_export')) {
         $('jyLog_export').textContent = exportLogs.length ? exportLogs.join('\\n') : (jy.lastLog || '等待指令…');
         $('jyLogCount_export').textContent = exportLogs.length + ' 条';
       }
-      const subLogs = allLogs.filter(l => /字幕|srt|轨道|Noto|草稿/i.test(l));
+      const subLogs = allLogs.filter(l => /字幕|srt|轨道|Noto|草稿|标点/i.test(l));
       if ($('jyLog_sub')) {
         $('jyLog_sub').textContent = subLogs.length ? subLogs.join('\\n') : '就绪，可提取或恢复草稿字幕…';
         $('jyLogCount_sub').textContent = subLogs.length + ' 条';
@@ -1058,6 +1061,7 @@ function panelHtml(acrylic) {
     };
     $('jyExtract').onclick = () => act('jy-extract', null, $('jyExtract'), '提取中…');
     $('jyFonts').onclick = () => act('jy-fonts', null, $('jyFonts'), '处理中…');
+    if ($('jyPunctuation')) $('jyPunctuation').onclick = () => act('jy-punctuation', null, $('jyPunctuation'), '检查中…');
     $('jyUnhide').onclick = () => act('jy-unhide', null, $('jyUnhide'), '恢复中…');
 
     $('renameModeTpl').onclick = () => {

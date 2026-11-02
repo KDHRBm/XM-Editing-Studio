@@ -2,7 +2,6 @@ using System;
 using System.Collections;
 using System.Collections.Generic;
 using System.Diagnostics;
-using System.Globalization;
 using System.IO;
 using System.Linq;
 using System.Reflection;
@@ -10,7 +9,6 @@ using System.Runtime.InteropServices;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.RegularExpressions;
-using System.Threading;
 using System.Threading.Tasks;
 using System.Web.Script.Serialization;
 using Microsoft.Win32;
@@ -30,14 +28,9 @@ internal sealed class JianYingDraftIO
     private const string CtorName = "??0DraftIOFactoryBase@draft_store@@QEAA@XZ";
     private const string CreateName = "?createIO@DraftIOFactoryBase@draft_store@@UEAA?AV?$shared_ptr@UIDraftIO@draft_store@@@std@@PEBV?$array@D$0CA@@4@AEBV?$basic_string@DU?$char_traits@D@std@@V?$allocator@D@2@@4@@Z";
     private const string EntropyName = "?calcEntropyDynamicString@DraftIOFactoryBase@draft_store@@UEAA?AU?$pair@V?$basic_string@DU?$char_traits@D@std@@V?$allocator@D@2@@std@@V?$array@D$0CA@@2@@std@@AEBV?$basic_string@DU?$char_traits@D@std@@V?$allocator@D@2@@4@@Z";
-
-    private static string preferredLibrary;
-    private static readonly Dictionary<string, string> verifiedRuntimes = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
-
     private readonly IntPtr module, factory;
     private readonly string version;
     private readonly List<IntPtr> owned = new List<IntPtr>();
-
     private IntPtr Allocate(int size) { var p = Marshal.AllocHGlobal(size); Marshal.Copy(new byte[size], 0, p, size); owned.Add(p); return p; }
     private T Export<T>(string name) { var p = GetProcAddress(module, name); if (p == IntPtr.Zero) throw new InvalidOperationException("当前剪映缺少草稿接口，请使用兼容的剪映版本。"); return (T)(object)Marshal.GetDelegateForFunctionPointer(p, typeof(T)); }
     private static T Virtual<T>(IntPtr instance, int index) { var p = Marshal.ReadIntPtr(Marshal.ReadIntPtr(instance), index * 8); return (T)(object)Marshal.GetDelegateForFunctionPointer(p, typeof(T)); }
@@ -100,38 +93,28 @@ internal sealed class JianYingDraftIO
         if (File.Exists(value)) value = Path.GetDirectoryName(value);
         if (Directory.Exists(value)) roots.Add(Path.GetFullPath(value));
     }
-
-    private static string CompatibilityRoot(string engineDirectory, string installData) {
-        if (!string.IsNullOrWhiteSpace(installData)) {
-            return Path.Combine(Path.GetFullPath(installData), "draft-compat");
-        }
-        var dir = new DirectoryInfo(Path.GetFullPath(engineDirectory));
-        if (dir.Name.Equals("jianying", StringComparison.OrdinalIgnoreCase) &&
-            dir.Parent != null && dir.Parent.Name.Equals("resources", StringComparison.OrdinalIgnoreCase) &&
-            dir.Parent.Parent != null) {
-            return Path.Combine(dir.Parent.Parent.FullName, "data", "draft-compat");
-        }
-        return Path.Combine(dir.FullName, "draft-compat");
+    internal static string CompatibilityRoot(string engineDirectory, string installData) {
+        if (!string.IsNullOrWhiteSpace(installData)) return Path.Combine(Path.GetFullPath(installData), "draft-compat");
+        // Also works when the engine is run directly or by an older launcher that
+        // does not set XM_INSTALL_DATA. Do not depend on the current user's C: cache.
+        var engine = new DirectoryInfo(Path.GetFullPath(engineDirectory));
+        if (engine.Name.Equals("jianying", StringComparison.OrdinalIgnoreCase) && engine.Parent != null &&
+            engine.Parent.Name.Equals("resources", StringComparison.OrdinalIgnoreCase) && engine.Parent.Parent != null)
+            return Path.Combine(engine.Parent.Parent.FullName, "data", "draft-compat");
+        return Path.Combine(engine.FullName, "draft-compat");
     }
-
-    private static bool IsCompatibleLibrary(string path) {
-        string name = new DirectoryInfo(Path.GetDirectoryName(path)).Name;
-        return Regex.IsMatch(name, @"^11\.6\.5(?:\.|$)");
+    internal static bool IsCompatibleLibrary(string path) {
+        return Regex.IsMatch(new DirectoryInfo(Path.GetDirectoryName(path)).Name, @"^11\.6\.5(?:\.|$)");
     }
-
-    private static List<string> OrderLibraries(IEnumerable<string> files, string configured) {
-        var list = files.Distinct(StringComparer.OrdinalIgnoreCase)
+    internal static List<string> OrderLibraries(IEnumerable<string> files, string configured) {
+        var found = files.Distinct(StringComparer.OrdinalIgnoreCase)
             .OrderByDescending(IsCompatibleLibrary)
-            .ThenByDescending(f => Regex.Replace(new DirectoryInfo(Path.GetDirectoryName(f)).Name, @"\d+", m => m.Value.PadLeft(8, '0')), StringComparer.Ordinal)
-            .ToList();
+            .ThenByDescending(f => Regex.Replace(new DirectoryInfo(Path.GetDirectoryName(f)).Name, @"\d+", m => m.Value.PadLeft(8, '0')), StringComparer.Ordinal).ToList();
         if (!string.IsNullOrWhiteSpace(configured) && File.Exists(configured)) {
-            string explicitFile = Path.GetFullPath(configured);
-            list.RemoveAll(f => string.Equals(f, explicitFile, StringComparison.OrdinalIgnoreCase));
-            list.Insert(0, explicitFile);
+            string explicitFile = Path.GetFullPath(configured); found.RemoveAll(f => string.Equals(f, explicitFile, StringComparison.OrdinalIgnoreCase)); found.Insert(0, explicitFile);
         }
-        return list;
+        return found;
     }
-
     internal static List<string> FindLibraries() {
         var roots = new List<string>();
         string configured = Environment.ExpandEnvironmentVariables(Environment.GetEnvironmentVariable("JIANYING_VIDEOEDITOR_DLL") ?? "").Trim(' ', '"');
@@ -151,12 +134,11 @@ internal sealed class JianYingDraftIO
             foreach (var relative in new[] { "JianyingPro", @"Programs\JianyingPro", @"ByteDance\JianyingPro" }) AddRoot(roots, Path.Combine(root, relative));
         }
         foreach (var drive in DriveInfo.GetDrives().Where(d => d.IsReady && d.DriveType == DriveType.Fixed)) foreach (var relative in new[] { "JianyingPro", @"Program Files\JianyingPro", @"Program Files (x86)\JianyingPro", @"Program Files\ByteDance\JianyingPro" }) AddRoot(roots, Path.Combine(drive.RootDirectory.FullName, relative));
-
-        string exeDir = Path.GetDirectoryName(Assembly.GetExecutingAssembly().Location);
-        AddRoot(roots, CompatibilityRoot(exeDir, Environment.GetEnvironmentVariable("XM_INSTALL_DATA")));
+        // The optional local compatibility runtime survives a Jianying upgrade.
+        string engineDirectory = Path.GetDirectoryName(Assembly.GetExecutingAssembly().Location);
+        AddRoot(roots, CompatibilityRoot(engineDirectory, Environment.GetEnvironmentVariable("XM_INSTALL_DATA")));
         AddRoot(roots, Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), @"XM-Editing-Studio\draft-compat"));
-        AddRoot(roots, Path.Combine(exeDir, "draft-compat"));
-
+        AddRoot(roots, Path.Combine(Path.GetDirectoryName(Assembly.GetExecutingAssembly().Location), "draft-compat"));
         var files = new List<string>();
         foreach (var root in roots.Distinct(StringComparer.OrdinalIgnoreCase)) {
             var stack = new Stack<Tuple<string, int>>(); stack.Push(Tuple.Create(root, 0));
@@ -167,84 +149,16 @@ internal sealed class JianYingDraftIO
             }
         }
         var found = OrderLibraries(files, configured);
-        if (found.Count == 0) throw new FileNotFoundException("未找到草稿读取组件。请安装字幕兼容组件包到 XM剪辑台安装目录；无需回退剪映版本。");
-        return found;
+        if (found.Count == 0) throw new FileNotFoundException("未找到草稿读取组件。请安装字幕兼容组件包到 XM剪辑台安装目录；无需回退剪映版本。"); return found;
     }
-
-    private static void VerifyCompatibilityRuntime(string library, Action check) {
-        string dir = Path.GetDirectoryName(Path.GetFullPath(library));
-        string runtimeFile = Path.Combine(dir, "runtime.json");
-        if (!File.Exists(runtimeFile)) return;
-
-        var serializer = new JavaScriptSerializer { MaxJsonLength = int.MaxValue };
-        var dict = serializer.DeserializeObject(File.ReadAllText(runtimeFile, Encoding.UTF8)) as IDictionary;
-        var files = (dict != null ? dict["files"] : null) as IDictionary;
-        if (files == null || files.Count == 0 || files.Count > 300 || !files.Contains("videoeditor.dll")) {
-            throw new InvalidOperationException("字幕兼容组件清单无效，请重新安装完整兼容组件包。");
-        }
-
-        var pending = new List<Tuple<string, string>>();
-        var cacheKeyBuilder = new StringBuilder();
-        cacheKeyBuilder.Append(File.ReadAllText(runtimeFile, Encoding.UTF8));
-
-        foreach (DictionaryEntry entry in files) {
-            if (check != null) check();
-            string relative = Convert.ToString(entry.Key);
-            var meta = entry.Value as IDictionary;
-            if (string.IsNullOrWhiteSpace(relative) || relative != Path.GetFileName(relative) || relative.IndexOfAny(new[] { '/', '\\', ':' }) >= 0 || meta == null) {
-                throw new InvalidOperationException("字幕兼容组件清单包含无效文件路径。");
-            }
-            string fullPath = Path.Combine(dir, relative);
-            string expectedSha = Convert.ToString(meta["sha256"]);
-            var fi = new FileInfo(fullPath);
-            if (!fi.Exists || fi.Length != Convert.ToInt64(meta["size"]) || !Regex.IsMatch(expectedSha ?? "", "^[a-fA-F0-9]{64}$")) {
-                throw new InvalidOperationException("字幕兼容组件不完整：" + relative + "。请重新安装完整组件包，不能只复制 videoeditor.dll。");
-            }
-            if ((fi.Attributes & FileAttributes.ReparsePoint) != 0) {
-                throw new InvalidOperationException("字幕兼容组件不能使用文件链接。");
-            }
-            pending.Add(Tuple.Create(fullPath, expectedSha));
-            cacheKeyBuilder.Append('|').Append(relative).Append(':').Append(fi.Length).Append(':').Append(fi.LastWriteTimeUtc.Ticks);
-        }
-
-        string cacheKey = cacheKeyBuilder.ToString();
-        lock (verifiedRuntimes) {
-            string existing;
-            if (verifiedRuntimes.TryGetValue(dir, out existing) && existing == cacheKey) {
-                return;
-            }
-        }
-
-        foreach (var item in pending) {
-            if (check != null) check();
-            using (var fs = File.OpenRead(item.Item1))
-            using (var sha = SHA256.Create()) {
-                string actualSha = BitConverter.ToString(sha.ComputeHash(fs)).Replace("-", "");
-                if (!string.Equals(actualSha, item.Item2, StringComparison.OrdinalIgnoreCase)) {
-                    throw new InvalidOperationException("字幕兼容组件校验失败：" + Path.GetFileName(item.Item1) + "。请重新安装兼容组件包。");
-                }
-            }
-        }
-
-        if (check != null) check();
-        lock (verifiedRuntimes) {
-            verifiedRuntimes[dir] = cacheKey;
-        }
-    }
-
     internal static int Worker(string mode, string path) {
         var json = new JavaScriptSerializer { MaxJsonLength = int.MaxValue };
         try {
             string input = mode == "write" ? Console.In.ReadToEnd() : null;
-            var data = Request(mode, path, input, () => { }, null);
-            Console.Out.WriteLine(json.Serialize(new { data = data }));
-            return 0;
-        } catch (Exception ex) {
-            Console.Out.WriteLine(json.Serialize(new { error = ex.Message }));
-            return 1;
-        }
+            var data = Request(mode, path, input, () => { });
+            Console.Out.WriteLine(json.Serialize(new { data = data })); return 0;
+        } catch (Exception ex) { Console.Out.WriteLine(json.Serialize(new { error = ex.Message })); return 1; }
     }
-
     internal static int NativeWorker(string mode, string path, string library) {
         var json = new JavaScriptSerializer { MaxJsonLength = int.MaxValue };
         try {
@@ -253,133 +167,103 @@ internal sealed class JianYingDraftIO
             if (mode == "write") {
                 string input = Console.In.ReadToEnd();
                 if (!(json.DeserializeObject(input) is IDictionary)) throw new InvalidOperationException("草稿根节点必须为对象。");
+                // Never write through a library that cannot read this draft.
                 if (!(json.DeserializeObject(io.Read(path)) is IDictionary)) throw new InvalidOperationException("草稿写入前读取校验失败。");
                 io.Write(path, input);
             }
             string text = io.Read(path);
             var data = json.DeserializeObject(text);
             if (!(data is IDictionary)) throw new InvalidOperationException("草稿根节点必须为对象。");
-            Console.Out.WriteLine(json.Serialize(new { data = data }));
-            return 0;
-        } catch (Exception ex) {
-            Console.Out.WriteLine(json.Serialize(new { error = ex.Message }));
-            return 1;
-        }
+            Console.Out.WriteLine(json.Serialize(new { data = data })); return 0;
+        } catch (Exception ex) { Console.Out.WriteLine(json.Serialize(new { error = ex.Message })); return 1; }
     }
-
-    internal static IDictionary Request(string mode, string path, string input, Action check, Action<string> log) {
-        var libraries = FindLibraries();
-        string pref = preferredLibrary;
-        if (!string.IsNullOrEmpty(pref)) {
-            if (libraries.Remove(pref)) libraries.Insert(0, pref);
+    private static string preferredLibrary;
+    private static readonly Dictionary<string, string> verifiedRuntimes = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+    internal static void VerifyCompatibilityRuntime(string library, Action check) {
+        string root = Path.GetDirectoryName(Path.GetFullPath(library)), manifest = Path.Combine(root, "runtime.json");
+        if (!File.Exists(manifest)) return; // Ordinary installed Jianying DLLs have no compatibility manifest.
+        var data = new JavaScriptSerializer { MaxJsonLength = int.MaxValue }.DeserializeObject(File.ReadAllText(manifest, Encoding.UTF8)) as IDictionary;
+        var files = data == null ? null : data["files"] as IDictionary;
+        if (files == null || files.Count == 0 || files.Count > 300 || !files.Contains("videoeditor.dll"))
+            throw new InvalidOperationException("字幕兼容组件清单无效，请重新安装完整兼容组件包。");
+        var entries = new List<Tuple<string, string>>(); var stamp = new StringBuilder();
+        stamp.Append(File.ReadAllText(manifest, Encoding.UTF8));
+        foreach (DictionaryEntry pair in files) {
+            check();
+            string name = Convert.ToString(pair.Key); var info = pair.Value as IDictionary;
+            if (string.IsNullOrWhiteSpace(name) || name != Path.GetFileName(name) || name.IndexOfAny(new[] { '/', '\\', ':' }) >= 0 || info == null)
+                throw new InvalidOperationException("字幕兼容组件清单包含无效文件路径。");
+            string file = Path.Combine(root, name), hash = Convert.ToString(info["sha256"]);
+            var stat = new FileInfo(file);
+            if (!stat.Exists || stat.Length != Convert.ToInt64(info["size"]) || !Regex.IsMatch(hash ?? "", "^[a-fA-F0-9]{64}$"))
+                throw new InvalidOperationException("字幕兼容组件不完整：" + name + "。请重新安装完整组件包，不能只复制 videoeditor.dll。");
+            if ((stat.Attributes & FileAttributes.ReparsePoint) != 0) throw new InvalidOperationException("字幕兼容组件不能使用文件链接。");
+            entries.Add(Tuple.Create(file, hash)); stamp.Append('|').Append(name).Append(':').Append(stat.Length).Append(':').Append(stat.LastWriteTimeUtc.Ticks);
         }
+        string signature = stamp.ToString(), previous;
+        lock (verifiedRuntimes) { if (verifiedRuntimes.TryGetValue(root, out previous) && previous == signature) return; }
+        foreach (var entry in entries) {
+            check();
+            using (var stream = File.OpenRead(entry.Item1)) using (var sha = SHA256.Create())
+                if (!string.Equals(BitConverter.ToString(sha.ComputeHash(stream)).Replace("-", ""), entry.Item2, StringComparison.OrdinalIgnoreCase))
+                    throw new InvalidOperationException("字幕兼容组件校验失败：" + Path.GetFileName(entry.Item1) + "。请重新安装兼容组件包。");
+        }
+        check(); lock (verifiedRuntimes) verifiedRuntimes[root] = signature;
+    }
+    internal static IDictionary Request(string mode, string path, string input, Action check, Action<string> log = null) {
+        var libraries = FindLibraries();
+        string preferred = preferredLibrary;
+        if (!string.IsNullOrEmpty(preferred) && libraries.Remove(preferred)) libraries.Insert(0, preferred);
         return RequestWithLibraries(mode, path, input, check, libraries, RunWorker, library => {
             preferredLibrary = library;
-            if (log != null) {
-                log("草稿解密接口：" + new DirectoryInfo(Path.GetDirectoryName(library)).Name + "（已读取校验）");
-            }
+            if (log != null) log("草稿解密接口：" + new DirectoryInfo(Path.GetDirectoryName(library)).Name + "（已读取校验）");
         });
     }
-
     internal static IDictionary RequestWithLibraries(string mode, string path, string input, Action check, IEnumerable<string> libraries, Func<string, string, string, Action, string, IDictionary> run, Action<string> selected) {
         if (mode != "read" && mode != "write") throw new InvalidOperationException("无效草稿操作。");
-        if (check != null) check();
-        if (mode == "write") {
-            var serializer = new JavaScriptSerializer { MaxJsonLength = int.MaxValue };
-            if (!(serializer.DeserializeObject(input) is IDictionary)) throw new InvalidOperationException("草稿根节点必须为对象。");
-        }
-
-        var errors = new List<string>();
-        var distinctLibs = libraries.Distinct(StringComparer.OrdinalIgnoreCase).ToList();
-        foreach (var library in distinctLibs) {
-            if (check != null) check();
-            IDictionary readResult;
-            try {
-                readResult = run("read", path, null, check, library);
-                if (readResult == null) throw new InvalidOperationException("读取结果为空。");
-            } catch (Exception ex) {
-                errors.Add(new DirectoryInfo(Path.GetDirectoryName(library)).Name + "：" + ex.Message);
-                continue;
-            }
-
-            if (check != null) check();
+        check();
+        if (mode == "write" && !(new JavaScriptSerializer { MaxJsonLength = int.MaxValue }.DeserializeObject(input) is IDictionary)) throw new InvalidOperationException("草稿根节点必须为对象。");
+        var failures = new List<string>();
+        var candidates = libraries.Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+        foreach (string library in candidates) {
+            check();
+            IDictionary data;
+            try { data = run("read", path, null, check, library); if (data == null) throw new InvalidOperationException("读取结果为空。"); }
+            catch (OperationCanceledException) { throw; }
+            catch (Exception ex) { failures.Add(new DirectoryInfo(Path.GetDirectoryName(library)).Name + "：" + ex.Message); continue; }
+            check();
             if (selected != null) selected(library);
-
-            if (mode == "read") {
-                return readResult;
-            } else {
-                return run("write", path, input, check, library);
-            }
+            // A write failure may have modified bytes: do not retry another
+            // library. SaveSubtitleJsons must restore all original copies.
+            return mode == "read" ? data : run("write", path, input, check, library);
         }
-
-        string compatHint;
-        if (distinctLibs.Any(IsCompatibleLibrary)) {
-            compatHint = "已尝试 11.6.5 兼容接口仍未成功，请保留完整草稿及 attachment_pc_common.json 供进一步检查。";
-        } else {
-            compatHint = "当前未检测到 11.6.5 字幕兼容组件；仅有 11.7.5 接口可能返回错误 6。请将字幕兼容组件包安装到 XM剪辑台的 data/draft-compat，剪映可继续保持 11.7.5，无需回退。";
-        }
-
-        throw new InvalidOperationException("所有可用草稿接口均读取失败，未执行写入。" + compatHint + "；" + string.Join("；", errors.ToArray()));
+        string guidance = candidates.Any(IsCompatibleLibrary)
+            ? "已尝试 11.6.5 兼容接口仍未成功，请保留完整草稿及 attachment_pc_common.json 供进一步检查。"
+            : "当前未检测到 11.6.5 字幕兼容组件；仅有 11.7.5 接口可能返回错误 6。请将字幕兼容组件包安装到 XM剪辑台的 data/draft-compat，剪映可继续保持 11.7.5，无需回退。";
+        throw new InvalidOperationException("所有可用草稿接口均读取失败，未执行写入。" + guidance + string.Join("；", failures));
     }
-
     private static IDictionary RunWorker(string mode, string path, string input, Action check, string library) {
         VerifyCompatibilityRuntime(library, check);
-        var start = new ProcessStartInfo(
-            Assembly.GetExecutingAssembly().Location,
-            "--draft-io-native " + mode + " \"" + Path.GetFullPath(path) + "\" \"" + Path.GetFullPath(library) + "\""
-        ) {
-            UseShellExecute = false,
-            CreateNoWindow = true,
-            RedirectStandardInput = true,
-            RedirectStandardOutput = true,
-            RedirectStandardError = true,
-            StandardOutputEncoding = Encoding.UTF8,
-            StandardErrorEncoding = Encoding.UTF8
+        var start = new ProcessStartInfo(Assembly.GetExecutingAssembly().Location, "--draft-io-native " + mode + " \"" + Path.GetFullPath(path) + "\" \"" + Path.GetFullPath(library) + "\"") {
+            UseShellExecute = false, CreateNoWindow = true, RedirectStandardInput = true, RedirectStandardOutput = true, RedirectStandardError = true,
+            StandardOutputEncoding = Encoding.UTF8, StandardErrorEncoding = Encoding.UTF8
         };
-
         using (var process = Process.Start(start)) {
             try {
-                var output = process.StandardOutput.ReadToEndAsync();
-                var error = process.StandardError.ReadToEndAsync();
-                var write = Task.Run(() => {
-                    if (input != null) {
-                        byte[] bytes = Encoding.UTF8.GetBytes(input);
-                        process.StandardInput.BaseStream.Write(bytes, 0, bytes.Length);
-                        process.StandardInput.BaseStream.Flush();
-                    }
-                    process.StandardInput.Close();
-                });
-
+                var output = process.StandardOutput.ReadToEndAsync(); var error = process.StandardError.ReadToEndAsync();
+                var write = Task.Run(() => { if (input != null) { byte[] bytes = Encoding.UTF8.GetBytes(input); process.StandardInput.BaseStream.Write(bytes, 0, bytes.Length); process.StandardInput.BaseStream.Flush(); } process.StandardInput.Close(); });
                 var watch = Stopwatch.StartNew();
-                while (!process.WaitForExit(50)) {
-                    if (check != null) check();
-                    if (watch.Elapsed.TotalSeconds > 45) throw new TimeoutException("剪映草稿接口响应超时，已停止处理。");
-                }
-
-                try { write.GetAwaiter().GetResult(); } catch (IOException) { }
-
+                while (!process.WaitForExit(50)) { check(); if (watch.Elapsed.TotalSeconds > 45) throw new TimeoutException("剪映草稿接口响应超时，已停止处理。"); }
+                try { write.GetAwaiter().GetResult(); } catch (IOException) { /* The worker may have already reported a library error. */ }
                 string text = output.GetAwaiter().GetResult().Trim();
+                // Ignore any diagnostic output produced by the third-party DLL.
                 text = text.Split('\n').LastOrDefault(l => l.TrimStart().StartsWith("{\"data\":") || l.TrimStart().StartsWith("{\"error\":")) ?? "";
                 if (text.Length == 0) throw new InvalidOperationException("剪映草稿接口异常退出（" + process.ExitCode + "），原草稿已保留。");
-
-                var serializer = new JavaScriptSerializer { MaxJsonLength = int.MaxValue };
-                var response = serializer.DeserializeObject(text) as IDictionary;
-                if (response == null || response.Contains("error")) {
-                    string errMsg = response != null && response.Contains("error") ? Convert.ToString(response["error"]) : "草稿接口未返回有效结果。";
-                    throw new InvalidOperationException(errMsg);
-                }
-
-                if (process.ExitCode != 0) {
-                    throw new InvalidOperationException("草稿接口异常退出（" + process.ExitCode + "）。");
-                }
-
+                var response = new JavaScriptSerializer { MaxJsonLength = int.MaxValue }.DeserializeObject(text) as IDictionary;
+                if (response == null || response.Contains("error")) throw new InvalidOperationException(response == null ? "草稿接口未返回有效结果。" : Convert.ToString(response["error"]));
+                if (process.ExitCode != 0) throw new InvalidOperationException("草稿接口异常退出（" + process.ExitCode + "）。");
                 return response["data"] as IDictionary;
-            } finally {
-                if (!process.HasExited) {
-                    process.Kill();
-                    process.WaitForExit(5000);
-                }
-            }
+            } finally { if (!process.HasExited) { process.Kill(); process.WaitForExit(5000); } }
         }
     }
 }

@@ -36,12 +36,14 @@ try {
     $engineSource = Join-Path $repoRoot 'app/native/JianYingEngine.cs'
     $engineScan = Join-Path $repoRoot 'app/native/JianYingScan.cs'
     $engineProgress = Join-Path $repoRoot 'app/native/JianYingProgress.cs'
+    $engineAutomation = Join-Path $repoRoot 'app/native/JianYingAutomation.cs'
     $engineDraftIo = Join-Path $repoRoot 'app/native/JianYingDraftIO.cs'
+    $enginePunctuation = Join-Path $repoRoot 'app/native/JianYingPunctuation.cs'
     & $compiler /nologo /utf8output /codepage:65001 /target:exe /platform:x64 /optimize+ `
         /r:System.Web.Extensions.dll `
         /r:System.Drawing.dll `
         /r:System.Windows.Forms.dll `
-        ('/out:' + $engineExe) $engineSource $engineScan $engineProgress $engineDraftIo
+        ('/out:' + $engineExe) $engineSource $engineScan $engineProgress $engineAutomation $engineDraftIo $enginePunctuation
     if ($LASTEXITCODE -ne 0 -or -not (Test-Path -LiteralPath $engineExe)) {
         throw 'JianYingEngine C# compilation failed.'
     }
