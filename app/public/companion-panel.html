@@ -497,29 +497,25 @@
       $('jyMeta').textContent = jy.status || '就绪';
       $('jyGuideBox').textContent = jy.guide || jy.lastLog || '打开剪映首页后，可录制坐标或 AI 扫描草稿列表。';
       const allLogs = Array.isArray(jy.logs) ? jy.logs : [];
-      const exportLogs = allLogs.filter(l => !/✓s+.*.srt|统一s+Noto|恢复所有草稿字幕/i.test(l));
+      const exportLogs = allLogs.filter(l => !/✓\s+.*\.srt|统一\s+Noto|恢复所有草稿字幕/i.test(l));
       if ($('jyLog_export')) {
-        $('jyLog_export').textContent = exportLogs.length ? exportLogs.join('
-') : (jy.lastLog || '等待指令…');
+        $('jyLog_export').textContent = exportLogs.length ? exportLogs.join('\n') : (jy.lastLog || '等待指令…');
         $('jyLogCount_export').textContent = exportLogs.length + ' 条';
       }
       const subLogs = allLogs.filter(l => /字幕|srt|轨道|Noto|草稿/i.test(l));
       if ($('jyLog_sub')) {
-        $('jyLog_sub').textContent = subLogs.length ? subLogs.join('
-') : '就绪，可提取或恢复草稿字幕…';
+        $('jyLog_sub').textContent = subLogs.length ? subLogs.join('\n') : '就绪，可提取或恢复草稿字幕…';
         $('jyLogCount_sub').textContent = subLogs.length + ' 条';
       }
       const renameLogs = allLogs.filter(l => /改名|重命名|预览|模板/i.test(l));
       if ($('jyLog_rename')) {
-        $('jyLog_rename').textContent = renameLogs.length ? renameLogs.join('
-') : (Array.isArray(jy.plan) && jy.plan.length ? '已生成 ' + jy.plan.length + ' 个改名预览项' : '就绪，拖入文件后可生成改名预览…');
+        $('jyLog_rename').textContent = renameLogs.length ? renameLogs.join('\n') : (Array.isArray(jy.plan) && jy.plan.length ? '已生成 ' + jy.plan.length + ' 个改名预览项' : '就绪，拖入文件后可生成改名预览…');
         $('jyLogCount_rename').textContent = renameLogs.length + ' 条';
       }
       const jobs = Array.isArray(wm.jobs) ? wm.jobs : [];
       if ($('jyLog_wm')) {
-        const wmLogs = jobs.map(j => (j.status === 'done' ? '✓ ' : j.status === 'error' ? '✕ ' : '• ') + (j.inputPath ? j.inputPath.split(/[\/]/).pop() : '视频') + ' → ' + (j.status === 'processing' ? j.progress + '%' : statusText[j.status] || j.status));
-        $('jyLog_wm').textContent = wmLogs.length ? wmLogs.join('
-') : (wm.running ? '正在硬件加速合成样片…' : '就绪，拖入视频即可批量合成样片…');
+        const wmLogs = jobs.map(j => (j.status === 'done' ? '✓ ' : j.status === 'error' ? '✕ ' : '• ') + (j.inputPath ? j.inputPath.split(/[\\/]/).pop() : '视频') + ' → ' + (j.status === 'processing' ? j.progress + '%' : statusText[j.status] || j.status));
+        $('jyLog_wm').textContent = wmLogs.length ? wmLogs.join('\n') : (wm.running ? '正在硬件加速合成样片…' : '就绪，拖入视频即可批量合成样片…');
         $('jyLogCount_wm').textContent = jobs.length + ' 个任务';
       }
 

@@ -290,3 +290,42 @@ test('C# JianYingEngine supports --draft-io-native argument with structured erro
   const json = JSON.parse(res.stdout.trim());
   assert.match(json.error, /无效草稿操作/);
 });
+
+test('companion panel and orb HTML templates contain syntactically valid scripts and stage tabs', async () => {
+  const { companionMarkup } = await import('../app/electron/companion-dock.mjs');
+  const panelHtmlAcrylic = companionMarkup.panelHtml(true);
+  const panelHtmlSolid = companionMarkup.panelHtml(false);
+  const orbHtml = companionMarkup.orbHtml();
+
+  function verifyHtmlScripts(html, context) {
+    const regex = /<script[\s\S]*?>([\s\S]*?)<\/script>/gi;
+    let match;
+    let count = 0;
+    while ((match = regex.exec(html)) !== null) {
+      count++;
+      const code = match[1];
+      assert.doesNotThrow(() => {
+        new Function(code);
+      }, `${context} script #${count} contains syntax errors`);
+    }
+    assert.ok(count > 0, `${context} must contain at least one <script> tag`);
+  }
+
+  verifyHtmlScripts(panelHtmlAcrylic, 'companionMarkup.panelHtml(true)');
+  verifyHtmlScripts(panelHtmlSolid, 'companionMarkup.panelHtml(false)');
+  verifyHtmlScripts(orbHtml, 'companionMarkup.orbHtml()');
+
+  const panelDisk = await fs.readFile('app/public/companion-panel.html', 'utf8');
+  verifyHtmlScripts(panelDisk, 'app/public/companion-panel.html');
+
+  for (const stage of ['export', 'subtitles', 'rename', 'watermark']) {
+    assert.match(panelDisk, new RegExp(`data-stage="${stage}"`), `Stage tab ${stage} missing`);
+  }
+  assert.match(panelDisk, /id="stageExport"/);
+  assert.match(panelDisk, /id="stageSubtitles"/);
+  assert.match(panelDisk, /id="stageRename"/);
+  assert.match(panelDisk, /id="stageWatermark"/);
+  assert.match(panelDisk, /id="modalCard"\s+hidden/);
+  assert.match(panelDisk, /id="waitsModalOverlay"\s+hidden/);
+  assert.match(panelDisk, /\.modal-overlay\[hidden\]\s*\{\s*display:\s*none\s*!important;\s*\}/);
+});
