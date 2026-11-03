@@ -96,7 +96,7 @@ test('right quick rail is removed while the left sidebar keeps an accessible res
   const drawer = nodes(credits, n => n.props?.id === 'bos-credits-projects')[0];
   assert.equal(drawer.props.hidden, true, 'SidebarCredits project dependencies must be collapsed by default');
   const contributeLink = nodes(credits, n => n.type === 'a' && String(n.props.className || '').includes('bos-credits-contribute'))[0];
-  assert.equal(contributeLink.props.href, 'https://github.com/Kirota233/XM-Editing-Studio');
+  assert.equal(contributeLink.props.href, 'https://github.com/KDHRBm/XM-Editing-Studio');
   assert.equal(ui.OPEN_SOURCE_PROJECTS.length, 4);
   for (const name of ['watermarker', 'JianYing-Period-Keeper', 'JianYing-AI-Pro', 'DesktopPet-Miao']) {
     assert.match(creditsText, new RegExp(name));
@@ -240,7 +240,7 @@ test('auto-updater checks GitHub release, verifies SHA-256 on download, and laun
             status: 200,
             json: async () => ({
               tag_name: 'v1.5.0',
-              html_url: 'https://github.com/Kirota233/XM-Editing-Studio/releases/tag/v1.5.0',
+              html_url: 'https://github.com/KDHRBm/XM-Editing-Studio/releases/tag/v1.5.0',
               assets: [
                 { name: 'XM-Editing-Studio-1.5.0-Windows-x64-Setup.exe', browser_download_url: 'https://example.com/setup.exe' },
                 { name: 'SHA256SUMS.txt', browser_download_url: 'https://example.com/SHA256SUMS.txt' },

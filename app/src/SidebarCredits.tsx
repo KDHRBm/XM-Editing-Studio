@@ -7,7 +7,7 @@ export interface OpenSourceProject {
   summary: string;
 }
 
-export const MAIN_REPO_URL = 'https://github.com/Kirota233/XM-Editing-Studio';
+export const MAIN_REPO_URL = 'https://github.com/KDHRBm/XM-Editing-Studio';
 
 export const AUTHOR_CREDITS = {
   author: '小马',
