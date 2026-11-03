@@ -172,6 +172,6 @@ test('Native WatermarkStudio UI and Bottom-Right Radial BatchTray render without
   const buildUpgradeSrc = await fs.readFile('app/scripts/build-upgrade.mjs', 'utf8');
   assert.match(buildUpgradeSrc, /d==="providers"&&s\.jsx\(BOSMusicUpgrade\.GlobalThemePicker/);
   assert.match(buildUpgradeSrc, /label:"接口与主题",sub:"API 配置 · 视觉主题"/);
-  const mainSrc = await fs.readFile('app/electron/main.mjs', 'utf8');
-  assert.match(mainSrc, /await companionDock\.show\(false\)/);
+  const hostSrc = await fs.readFile('app/native/XMStudioHost.cs', 'utf8');
+  assert.match(hostSrc, /ShowCompanionAsync\(false\)/);
 });

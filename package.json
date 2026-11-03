@@ -19,8 +19,6 @@
     "react-dom": "19.2.0"
   },
   "devDependencies": {
-    "@electron/packager": "20.3.0",
-    "electron": "44.9.2",
     "esbuild": "0.25.12"
   }
 }

@@ -9,9 +9,6 @@ import { companionMarkup } from '../app/electron/companion-dock.mjs';
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 process.chdir(root);
 const sha256 = file => createHash('sha256').update(readFileSync(file)).digest('hex').toLowerCase();
-if (existsSync('.generated/native/helpers/PeriodKeeper.exe')) {
-  writeFileSync('app/electron/period-helper-integrity.mjs', `export const HELPER_SHA256 = '${sha256('.generated/native/helpers/PeriodKeeper.exe')}';\n`, 'utf8');
-}
 for (const [exe, manifest] of [
   ['app/build/jianying/JianYingEngine.exe', 'app/build/jianying/engine.json'],
   ['app/build/watermark/WatermarkEngine.exe', 'app/build/watermark/engine.json'],
@@ -30,8 +27,6 @@ await build({
   target: 'chrome120',
   minify: true,
 });
-await fs.writeFile('app/public/companion.html', companionMarkup.companionHtml(), 'utf8');
-await fs.writeFile('app/public/companion-orb.html', companionMarkup.orbHtml(), 'utf8');
 await fs.writeFile('app/public/companion-panel.html', companionMarkup.panelHtml(true), 'utf8');
 await fs.cp('app/public', 'app/dist/client', { recursive: true });
 await fs.mkdir('app/build/watermark', { recursive: true });

@@ -1,4 +1,3 @@
-param([string]$Python = 'python')
 $ErrorActionPreference = 'Stop'
 $repoRoot = Split-Path -Parent $PSScriptRoot
 Push-Location $repoRoot
@@ -23,10 +22,8 @@ try {
     $source = Join-Path $repoRoot 'app/native/PeriodKeeper.cs'
     & $compiler /nologo /utf8output /codepage:65001 /target:exe /platform:x64 /optimize+ /r:System.Web.Extensions.dll ('/out:' + $helper) $source
     if ($LASTEXITCODE -ne 0) { throw 'Punctuation helper compilation failed.' }
-    $hash = Get-Sha256Hex $helper
-    [IO.File]::WriteAllText((Join-Path $repoRoot 'app/electron/period-helper-integrity.mjs'), "export const HELPER_SHA256 = '$hash';`n", $utf8NoBom)
 
-    # 2. Compile JianYingEngine.exe (Refactored from 70MB Python/PyInstaller to 47KB native C#)
+    # 2. Compile JianYingEngine.exe (Native C# automation & draft engine)
     $engineOutDir = Join-Path $repoRoot 'app/build/jianying'
     if (Test-Path -LiteralPath $engineOutDir) {
         Remove-Item -LiteralPath $engineOutDir -Recurse -Force
@@ -73,7 +70,7 @@ try {
         Copy-Item -LiteralPath (Join-Path $repoRoot 'app/public/watermark.png') -Destination (Join-Path $wmOutDir 'watermark.png') -Force
     }
 
-    # 4. Compile XMStudioHost.exe (Native C# + Windows WebView2 Desktop Host - replaces 180MB Electron Chromium bundle)
+    # 4. Compile XMStudioHost.exe (Native C# + Windows WebView2 Desktop Host)
     $hostOutDir = Join-Path $repoRoot 'app/build/host'
     New-Item -ItemType Directory -Path $hostOutDir -Force | Out-Null
     $hostExeName = [regex]::Unescape("\u5c0f\u9a6c\u526a\u8f91\u53f0.exe")
