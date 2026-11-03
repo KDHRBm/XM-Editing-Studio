@@ -204,6 +204,7 @@
         <button class="btn" id="jyScan">📸 截图识别</button>
         <button class="btn primary" id="jyExport">🚀 批量导出</button>
       </div>
+      <button class="btn" id="jySplitDraftsExport" type="button" title="检测草稿目录中以「上」结尾的文件夹，复制为「XXX下」并将原草稿出点设为入点">✂️ 检测「XXX上」复制为「XXX下」（原出点设入点）</button>
 
       <div id="jyPostScanArea" style="display:flex;flex-direction:column;gap:8px">
       <div class="table-wrap">
@@ -258,6 +259,7 @@
         <button class="btn" id="jyPunctuation">检查并还原标准标点</button>
         <button class="btn" id="jyUnhide">恢复所有草稿字幕显示</button>
       </div>
+      <button class="btn" id="jySplitDrafts" type="button" title="检测草稿目录中以「上」结尾的文件夹，复制为「XXX下」并将原草稿出点设为入点">✂️ 检测「XXX上」复制为「XXX下」（原出点设入点）</button>
       <small style="font-size:10px;color:#94a3b8">提示：检查并还原标准标点可将保护标点（․﹒‚﹐）还原为标准英文 . , 且不改动样式与时间轴；修改前请先退出剪映，工具会自动备份草稿 JSON。</small>
       <details class="sub-panel log-panel" open>
         <summary class="log-summary">
@@ -566,6 +568,8 @@
 
       if (!$('jyWizard').querySelector('.btn-spin')) $('jyWizard').disabled = jyRun || !jy.ready;
       if (!$('jyScan').querySelector('.btn-spin')) $('jyScan').disabled = jyRun || !jy.ready;
+      if ($('jySplitDraftsExport') && !$('jySplitDraftsExport').querySelector('.btn-spin')) $('jySplitDraftsExport').disabled = jyRun || !jy.ready;
+      if ($('jySplitDrafts') && !$('jySplitDrafts').querySelector('.btn-spin')) $('jySplitDrafts').disabled = jyRun || !jy.ready;
       if (!$('jyExport').querySelector('.btn-spin')) {
         $('jyExport').disabled = jyRun || !jy.ready || !jy.queueCount;
         $('jyExport').textContent = jy.queueCount ? '🚀 导出 (' + jy.queueCount + ')' : '🚀 批量导出';
@@ -749,6 +753,8 @@
     $('jyFonts').onclick = () => act('jy-fonts', null, $('jyFonts'), '处理中…');
     if ($('jyPunctuation')) $('jyPunctuation').onclick = () => act('jy-punctuation', null, $('jyPunctuation'), '检查中…');
     $('jyUnhide').onclick = () => act('jy-unhide', null, $('jyUnhide'), '恢复中…');
+    if ($('jySplitDrafts')) $('jySplitDrafts').onclick = () => act('jy-split-drafts', null, $('jySplitDrafts'), '检测复制中…');
+    if ($('jySplitDraftsExport')) $('jySplitDraftsExport').onclick = () => act('jy-split-drafts', null, $('jySplitDraftsExport'), '检测复制中…');
 
     $('renameModeTpl').onclick = () => {
       aiRenameMode = false;

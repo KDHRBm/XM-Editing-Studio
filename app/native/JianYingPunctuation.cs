@@ -5,6 +5,7 @@ using System.IO;
 using System.Linq;
 using System.Security.Cryptography;
 using System.Diagnostics;
+using System.Text;
 
 internal sealed partial class JianYingEngine
 {
@@ -148,5 +149,348 @@ internal sealed partial class JianYingEngine
                 Log("已还原 " + names.Count + " 个草稿的标准标点；原文件旁已保存 before_standard_punctuation 备份。");
                 ShowNotice("标点还原完成", "已处理 " + names.Count + " 个草稿。请重新打开剪映草稿检查排版；字幕样式、时间轴及显示状态保持不变。");
             }));
+    }
+
+    private string ResolveDraftRootDirectory()
+    {
+        if (!string.IsNullOrWhiteSpace(_draftDir) && Directory.Exists(_draftDir))
+            return Path.GetFullPath(_draftDir);
+        string localAppData = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
+        if (!string.IsNullOrWhiteSpace(localAppData))
+        {
+            string defaultDir = Path.Combine(localAppData, "JianyingPro", "User Data", "Projects", "com.lveditor.draft");
+            if (Directory.Exists(defaultDir))
+            {
+                _draftDir = Path.GetFullPath(defaultDir);
+                SaveConfig();
+                return _draftDir;
+            }
+        }
+        throw new InvalidOperationException("请先在「02 字幕工程」中选择剪映草稿根目录 (JianyingPro Drafts)。");
+    }
+
+    private static long GetDictLong(IDictionary dict, string key, long fallback)
+    {
+        if (dict == null || !dict.Contains(key) || dict[key] == null) return fallback;
+        try { return Convert.ToInt64(dict[key]); }
+        catch { return fallback; }
+    }
+
+    private static long ComputeTracksMaxEnd(IDictionary data)
+    {
+        long maxEnd = 0L;
+        if (data == null || !data.Contains("tracks")) return maxEnd;
+        var tracks = data["tracks"] as IList;
+        if (tracks == null) return maxEnd;
+        foreach (object trObj in tracks)
+        {
+            var tr = trObj as IDictionary;
+            if (tr == null || !tr.Contains("segments")) continue;
+            var segs = tr["segments"] as IList;
+            if (segs == null) continue;
+            foreach (object segObj in segs)
+            {
+                var seg = segObj as IDictionary;
+                if (seg == null || !seg.Contains("target_timerange")) continue;
+                var range = seg["target_timerange"] as IDictionary;
+                if (range == null) continue;
+                long end = GetDictLong(range, "start", 0L) + GetDictLong(range, "duration", 0L);
+                if (end > maxEnd) maxEnd = end;
+            }
+        }
+        return maxEnd;
+    }
+
+    private IDictionary ReadDraftJson(string file, int gen, out bool isEncrypted)
+    {
+        isEncrypted = false;
+        string raw = File.ReadAllText(file, Encoding.UTF8);
+        if (raw.TrimStart().StartsWith("{"))
+        {
+            try
+            {
+                var plain = _json.DeserializeObject(raw) as IDictionary;
+                if (plain != null) return plain;
+            }
+            catch (ArgumentException) { }
+        }
+        isEncrypted = true;
+        return JianYingDraftIO.Request("read", file, null, () => CheckInterrupted(gen), Log);
+    }
+
+    private void WriteDraftJson(string file, IDictionary data, bool isEncrypted, int gen)
+    {
+        CheckInterrupted(gen);
+        IDictionary verified;
+        if (isEncrypted)
+        {
+            verified = JianYingDraftIO.Request("write", file, _json.Serialize(data), () => CheckInterrupted(gen));
+        }
+        else
+        {
+            AtomicWriteJson(file, data);
+            verified = _json.DeserializeObject(File.ReadAllText(file, Encoding.UTF8)) as IDictionary;
+        }
+        if (!SameJson(data, verified))
+            throw new InvalidOperationException("草稿写入后校验不一致：" + file);
+    }
+
+    private void CopyDraftDirectory(string sourceDir, string targetDir, int gen)
+    {
+        CheckInterrupted(gen);
+        RequireRealPath(sourceDir);
+        Directory.CreateDirectory(targetDir);
+        foreach (string file in Directory.GetFiles(sourceDir))
+        {
+            CheckInterrupted(gen);
+            RequireRealPath(file);
+            string fileName = Path.GetFileName(file);
+            if (fileName.IndexOf(".before_", StringComparison.OrdinalIgnoreCase) >= 0 &&
+                fileName.EndsWith(".bak", StringComparison.OrdinalIgnoreCase))
+            {
+                continue;
+            }
+            if (fileName.IndexOf(".tmp-", StringComparison.OrdinalIgnoreCase) >= 0 ||
+                string.Equals(fileName, "LOCK", StringComparison.OrdinalIgnoreCase))
+            {
+                continue;
+            }
+            File.Copy(file, Path.Combine(targetDir, fileName), true);
+        }
+        foreach (string subDir in Directory.GetDirectories(sourceDir))
+        {
+            CheckInterrupted(gen);
+            RequireRealPath(subDir);
+            string subName = Path.GetFileName(subDir);
+            CopyDraftDirectory(subDir, Path.Combine(targetDir, subName), gen);
+        }
+    }
+
+    private void TryRegisterLowerDraftInRootMeta(string parentDir, string upperName, string upperDir, string lowerName, string lowerDir, string newDraftId, long nowUs)
+    {
+        try
+        {
+            string rootMetaPath = Path.Combine(parentDir, "root_meta_info.json");
+            if (!File.Exists(rootMetaPath)) return;
+            RequireRealPath(rootMetaPath);
+            string raw = File.ReadAllText(rootMetaPath, Encoding.UTF8);
+            if (!raw.TrimStart().StartsWith("{")) return;
+            var rootMeta = _json.DeserializeObject(raw) as IDictionary;
+            if (rootMeta == null || !rootMeta.Contains("all_draft_store")) return;
+            var store = rootMeta["all_draft_store"] as IList;
+            if (store == null) return;
+
+            string upperFoldPath = upperDir.Replace('\\', '/');
+            string lowerFoldPath = lowerDir.Replace('\\', '/');
+            IDictionary upperEntry = null;
+            int upperIndex = -1;
+            for (int i = 0; i < store.Count; i++)
+            {
+                var entry = store[i] as IDictionary;
+                if (entry == null) continue;
+                string dName = entry.Contains("draft_name") ? Convert.ToString(entry["draft_name"]) : "";
+                string dPath = entry.Contains("draft_fold_path") ? Convert.ToString(entry["draft_fold_path"]) : "";
+                if (string.Equals(dName, lowerName, StringComparison.OrdinalIgnoreCase) ||
+                    string.Equals(dPath, lowerFoldPath, StringComparison.OrdinalIgnoreCase))
+                {
+                    return;
+                }
+                if (upperEntry == null && (string.Equals(dName, upperName, StringComparison.OrdinalIgnoreCase) ||
+                    string.Equals(dPath, upperFoldPath, StringComparison.OrdinalIgnoreCase)))
+                {
+                    upperEntry = entry;
+                    upperIndex = i;
+                }
+            }
+            if (upperEntry == null) return;
+            var cloned = _json.DeserializeObject(_json.Serialize(upperEntry)) as IDictionary;
+            if (cloned == null) return;
+            cloned["draft_name"] = lowerName;
+            cloned["draft_fold_path"] = lowerFoldPath;
+            cloned["draft_cover"] = lowerFoldPath + "\\draft_cover.jpg";
+            cloned["draft_json_file"] = lowerFoldPath + "\\draft_content.json";
+            cloned["draft_id"] = newDraftId;
+            cloned["tm_draft_create"] = nowUs;
+            cloned["tm_draft_modified"] = nowUs;
+            if (cloned.Contains("tm_draft_cloud_modified")) cloned["tm_draft_cloud_modified"] = nowUs;
+            var mutableStore = new ArrayList(store);
+            mutableStore.Insert(upperIndex >= 0 ? upperIndex : 0, cloned);
+            rootMeta["all_draft_store"] = mutableStore;
+            if (rootMeta.Contains("draft_ids")) rootMeta["draft_ids"] = mutableStore.Count;
+            AtomicWriteJson(rootMetaPath, rootMeta);
+        }
+        catch { }
+    }
+
+    private void RunSplitUpperLowerDrafts(int gen)
+    {
+        string root = ResolveDraftRootDirectory();
+        var directories = PunctuationDraftDirectories(root).ToArray();
+        var created = new List<string>();
+        var skippedExisting = new List<string>();
+        var skippedNoOutPoint = new List<string>();
+
+        foreach (string upperDir in directories)
+        {
+            CheckInterrupted(gen);
+            RequireRealPath(upperDir);
+            string upperName = Path.GetFileName(upperDir);
+            if (string.IsNullOrEmpty(upperName) || upperName.Length < 2 || !upperName.EndsWith("上", StringComparison.Ordinal))
+                continue;
+
+            string parentDir = Path.GetDirectoryName(upperDir);
+            if (string.IsNullOrEmpty(parentDir)) continue;
+            string lowerName = upperName.Substring(0, upperName.Length - 1) + "下";
+            string lowerDir = Path.Combine(parentDir, lowerName);
+            if (Directory.Exists(lowerDir))
+            {
+                skippedExisting.Add(lowerName);
+                Log("跳过草稿 " + upperName + "：已存在 " + lowerName);
+                continue;
+            }
+
+            long outPoint = -1L;
+            long totalDuration = 0L;
+            foreach (string jsonPath in SubtitleJsonPaths(upperDir))
+            {
+                if (!File.Exists(jsonPath)) continue;
+                RequireRealPath(jsonPath);
+                bool enc;
+                var data = ReadDraftJson(jsonPath, gen, out enc);
+                if (data == null) continue;
+                long durCandidate = Math.Max(GetDictLong(data, "duration", 0L), ComputeTracksMaxEnd(data));
+                if (durCandidate > totalDuration) totalDuration = durCandidate;
+                var cfg = data.Contains("config") ? data["config"] as IDictionary : null;
+                var er = cfg != null && cfg.Contains("export_range") ? cfg["export_range"] as IDictionary : null;
+                if (er != null && outPoint <= 0)
+                {
+                    long st = GetDictLong(er, "start", 0L);
+                    long dur = GetDictLong(er, "duration", 0L);
+                    if (dur > 0) outPoint = st + dur;
+                }
+            }
+
+            if (outPoint <= 0 || (totalDuration > 0 && outPoint >= totalDuration))
+            {
+                skippedNoOutPoint.Add(upperName);
+                Log("⚠ 跳过草稿 " + upperName + "：未检测到有效出点 (export_range)");
+                continue;
+            }
+
+            long lowerDuration = totalDuration > outPoint ? (totalDuration - outPoint) : 0L;
+            try
+            {
+                CopyDraftDirectory(upperDir, lowerDir, gen);
+
+                foreach (string jsonPath in SubtitleJsonPaths(lowerDir))
+                {
+                    if (!File.Exists(jsonPath)) continue;
+                    bool isEnc;
+                    var data = ReadDraftJson(jsonPath, gen, out isEnc);
+                    if (data == null) continue;
+                    var cfg = data.Contains("config") && data["config"] is IDictionary
+                        ? (IDictionary)data["config"]
+                        : new Dictionary<string, object>();
+                    data["config"] = cfg;
+                    cfg["export_range"] = new Dictionary<string, object>
+                    {
+                        { "start", outPoint },
+                        { "duration", lowerDuration }
+                    };
+                    WriteDraftJson(jsonPath, data, isEnc, gen);
+
+                    string bakFile = jsonPath + ".bak";
+                    if (File.Exists(bakFile)) File.Copy(jsonPath, bakFile, true);
+                    string tpl2File = Path.Combine(Path.GetDirectoryName(jsonPath), "template-2.tmp");
+                    if (File.Exists(tpl2File)) File.Copy(jsonPath, tpl2File, true);
+                }
+
+                string timelinesDir = Path.Combine(lowerDir, "Timelines");
+                if (Directory.Exists(timelinesDir))
+                {
+                    foreach (string tlSub in Directory.GetDirectories(timelinesDir))
+                    {
+                        string tplJson = Path.Combine(tlSub, "template.json");
+                        if (!File.Exists(tplJson)) continue;
+                        try
+                        {
+                            bool tplEnc;
+                            var tplData = ReadDraftJson(tplJson, gen, out tplEnc);
+                            if (tplData != null && tplData.Contains("config") && tplData["config"] is IDictionary)
+                            {
+                                ((IDictionary)tplData["config"])["export_range"] = new Dictionary<string, object>
+                                {
+                                    { "start", outPoint },
+                                    { "duration", lowerDuration }
+                                };
+                                WriteDraftJson(tplJson, tplData, tplEnc, gen);
+                            }
+                        }
+                        catch { }
+                    }
+                }
+
+                string newDraftId = Guid.NewGuid().ToString().ToUpperInvariant();
+                long nowUs = (DateTime.UtcNow.Ticks - 621355968000000000L) / 10L;
+                string lowerFoldPath = lowerDir.Replace('\\', '/');
+                string metaPath = Path.Combine(lowerDir, "draft_meta_info.json");
+                if (File.Exists(metaPath))
+                {
+                    try
+                    {
+                        bool metaEnc;
+                        var meta = ReadDraftJson(metaPath, gen, out metaEnc);
+                        if (meta != null)
+                        {
+                            meta["draft_name"] = lowerName;
+                            meta["draft_fold_path"] = lowerFoldPath;
+                            meta["draft_id"] = newDraftId;
+                            meta["tm_draft_create"] = nowUs;
+                            meta["tm_draft_modified"] = nowUs;
+                            if (meta.Contains("tm_draft_cloud_modified")) meta["tm_draft_cloud_modified"] = nowUs;
+                            WriteDraftJson(metaPath, meta, metaEnc, gen);
+                        }
+                    }
+                    catch { }
+                }
+
+                TryRegisterLowerDraftInRootMeta(parentDir, upperName, upperDir, lowerName, lowerDir, newDraftId, nowUs);
+                created.Add(lowerName);
+                Log(string.Format("✓ 已复制草稿：{0} → {1}（入点 {2}，时长 {3}）", upperName, lowerName, FormatSrtTime(outPoint), FormatSrtTime(lowerDuration)));
+            }
+            catch
+            {
+                if (Directory.Exists(lowerDir))
+                {
+                    try { Directory.Delete(lowerDir, true); } catch { }
+                }
+                throw;
+            }
+        }
+
+        if (created.Count > 0)
+        {
+            string summary = string.Format("共生成 {0} 个下集草稿：{1}", created.Count, string.Join("、", created.Take(8)) + (created.Count > 8 ? " 等" : ""));
+            Log(summary);
+            ShowNotice("下集草稿生成完成", summary);
+        }
+        else if (skippedNoOutPoint.Count > 0)
+        {
+            string msg = string.Format("发现 {0} 个「上」草稿（{1}）未设置有效出点", skippedNoOutPoint.Count, string.Join("、", skippedNoOutPoint.Take(6)));
+            Log(msg);
+            ShowNotice("未生成新草稿", msg);
+        }
+        else if (skippedExisting.Count > 0)
+        {
+            string msg = string.Format("共检测到 {0} 个「上」草稿，对应「下」草稿均已存在", skippedExisting.Count);
+            Log(msg);
+            ShowNotice("检测完成", msg);
+        }
+        else
+        {
+            string msg = "草稿目录中未发现以「上」结尾的草稿文件夹";
+            Log(msg);
+            ShowNotice("检测完成", msg);
+        }
     }
 }

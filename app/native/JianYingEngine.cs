@@ -304,6 +304,15 @@ internal sealed partial class JianYingEngine
         _subtitleOutput = Directory.Exists(desktop) ? desktop : Path.Combine(_dataDir, "字幕导出");
 
         LoadConfig();
+        if (string.IsNullOrWhiteSpace(_draftDir))
+        {
+            string localAppData = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
+            if (!string.IsNullOrWhiteSpace(localAppData))
+            {
+                string defaultDrafts = Path.Combine(localAppData, "JianyingPro", "User Data", "Projects", "com.lveditor.draft");
+                if (Directory.Exists(defaultDrafts)) _draftDir = Path.GetFullPath(defaultDrafts);
+            }
+        }
         EnsureModeTemplateLoaded();
         RefreshGuideBadge();
         SaveConfig();
@@ -1905,6 +1914,11 @@ internal sealed partial class JianYingEngine
             case "punctuation":
                 RequirePunctuationIdle();
                 BeginOperation(RunPunctuationPreview);
+                break;
+
+            case "split_upper_lower":
+            case "split-upper-lower":
+                BeginOperation(RunSplitUpperLowerDrafts);
                 break;
 
             case "paths":

@@ -3252,6 +3252,7 @@ namespace XMStudioHost
             if (action == "jy-fonts") { await HandleJianyingActionAsync(new Dictionary<string, object> { { "action", "fonts" } }); return BroadcastCompanionState(); }
             if (action == "jy-punctuation") { await HandleJianyingActionAsync(new Dictionary<string, object> { { "action", "restore_punctuation" } }); return BroadcastCompanionState(); }
             if (action == "jy-unhide") { await HandleJianyingActionAsync(new Dictionary<string, object> { { "action", "unhide" } }); return BroadcastCompanionState(); }
+            if (action == "jy-split-drafts") { await HandleJianyingActionAsync(new Dictionary<string, object> { { "action", "split_upper_lower" } }); return BroadcastCompanionState(); }
             if (action == "jy-pick-rename-dir")
             {
                 string dir = ChooseFolderDialog("选择要批量改名的文件夹（含子文件夹）");

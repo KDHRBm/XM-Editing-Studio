@@ -80,6 +80,33 @@ internal static class JianYingPunctuationTests
         var own = Path.Combine(root, "single"); Directory.CreateDirectory(own); File.WriteAllText(Path.Combine(own, "draft_content.json"), "{}");
         Check(((IEnumerable<string>)Call("PunctuationDraftDirectories", own)).Single() == own, "Single draft selected directly");
         Check(((IEnumerable<string>)Call("PunctuationDraftDirectories", root)).Single() == own, "Root finds immediate drafts only");
+
+        string splitRoot = Path.Combine(root, "split-drafts");
+        string upperDir = Path.Combine(splitRoot, "血色女王11上");
+        string upperTl = Path.Combine(upperDir, "Timelines", "tl1");
+        Directory.CreateDirectory(upperTl);
+        var upperContent = Obj("duration", 117433333L, "config", Obj("export_range", Obj("duration", 56133333L)), "tracks", new object[0]);
+        File.WriteAllText(Path.Combine(upperDir, "draft_content.json"), json.Serialize(upperContent), new UTF8Encoding(false));
+        File.WriteAllText(Path.Combine(upperDir, "draft_content.json.bak"), json.Serialize(upperContent), new UTF8Encoding(false));
+        File.WriteAllText(Path.Combine(upperTl, "draft_content.json"), json.Serialize(upperContent), new UTF8Encoding(false));
+        File.WriteAllText(Path.Combine(upperTl, "template.json"), json.Serialize(upperContent), new UTF8Encoding(false));
+        File.WriteAllText(Path.Combine(upperDir, "draft_meta_info.json"), json.Serialize(Obj("draft_name", "血色女王11上", "draft_fold_path", upperDir.Replace('\\', '/'), "draft_id", "OLD-ID")), new UTF8Encoding(false));
+        File.WriteAllText(Path.Combine(splitRoot, "root_meta_info.json"), json.Serialize(Obj("all_draft_store", new[] { Obj("draft_name", "血色女王11上", "draft_fold_path", upperDir.Replace('\\', '/'), "draft_id", "OLD-ID") }, "draft_ids", 1)), new UTF8Encoding(false));
+
+        typeof(JianYingEngine).GetField("_draftDir", BindingFlags.Instance | BindingFlags.NonPublic).SetValue(engine, splitRoot);
+        Call("RunSplitUpperLowerDrafts", 0);
+        string lowerDir = Path.Combine(splitRoot, "血色女王11下");
+        Check(Directory.Exists(lowerDir), "Lower draft folder XXX下 created");
+        var lowerData = (IDictionary)json.DeserializeObject(File.ReadAllText(Path.Combine(lowerDir, "draft_content.json"), Encoding.UTF8));
+        var lowerEr = (IDictionary)((IDictionary)lowerData["config"])["export_range"];
+        Check(Convert.ToInt64(lowerEr["start"]) == 56133333L && Convert.ToInt64(lowerEr["duration"]) == 61300000L, "Out-point of XXX上 becomes in-point of XXX下 with remaining duration");
+        var lowerTlData = (IDictionary)json.DeserializeObject(File.ReadAllText(Path.Combine(lowerDir, "Timelines", "tl1", "draft_content.json"), Encoding.UTF8));
+        var lowerTlEr = (IDictionary)((IDictionary)lowerTlData["config"])["export_range"];
+        Check(Convert.ToInt64(lowerTlEr["start"]) == 56133333L && Convert.ToInt64(lowerTlEr["duration"]) == 61300000L, "Timeline draft_content.json export_range updated");
+        var lowerMeta = (IDictionary)json.DeserializeObject(File.ReadAllText(Path.Combine(lowerDir, "draft_meta_info.json"), Encoding.UTF8));
+        Check((string)lowerMeta["draft_name"] == "血色女王11下" && (string)lowerMeta["draft_id"] != "OLD-ID", "draft_meta_info updated with new name and ID");
+        var rootMetaAfter = (IDictionary)json.DeserializeObject(File.ReadAllText(Path.Combine(splitRoot, "root_meta_info.json"), Encoding.UTF8));
+        Check(((IList)rootMetaAfter["all_draft_store"]).Count == 2, "root_meta_info registered XXX下");
     }
     static void RealDraft(string copy, string report) {
         Check(File.Exists(Path.Combine(copy, "XM-TEST-COPY")), "Only marked disposable samples may be changed");

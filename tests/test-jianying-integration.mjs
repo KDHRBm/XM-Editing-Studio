@@ -135,6 +135,8 @@ test('right quick rail is removed while the left sidebar keeps an accessible res
   assert.match(panelMarkup, /id="jyModeWaitClose"/);
   assert.match(panelMarkup, /切换模式自动匹配对应坐标/);
   assert.match(panelMarkup, /id="jyModelSelect"/);
+  assert.match(panelMarkup, /id="jySplitDrafts"/);
+  assert.match(panelMarkup, /id="jySplitDraftsExport"/);
   assert.doesNotMatch(panelMarkup, /id="jyTplSelect"/);
   assert.doesNotMatch(panelMarkup, /id="jyAutoNameTpl"/);
   assert.doesNotMatch(panelMarkup, /id="jyTplNameInput"/);
@@ -215,6 +217,28 @@ test('C# JianYingEngine native binary responds to status, settings, regex previe
     } finally {
       await aiHost.dispose();
     }
+
+    // Test split_upper_lower over JSON-RPC: XXX上 -> XXX下 with out-point converted to in-point
+    const draftsRoot = path.join(root, 'jy-drafts');
+    const upperFolder = path.join(draftsRoot, '霸总归来05上');
+    await fs.mkdir(upperFolder, { recursive: true });
+    await fs.writeFile(
+      path.join(upperFolder, 'draft_content.json'),
+      JSON.stringify({ duration: 120000000, config: { export_range: { duration: 50000000 } }, tracks: [] }),
+      'utf8'
+    );
+    await host.run('paths', { draftDir: draftsRoot });
+    await host.run('split_upper_lower', {});
+    let splitState = await host.run('status', {});
+    for (let i = 0; i < 40 && splitState.busy; i++) {
+      await new Promise(r => setTimeout(r, 50));
+      splitState = await host.run('status', {});
+    }
+    assert.equal(splitState.busy, false);
+    const lowerJsonRaw = await fs.readFile(path.join(draftsRoot, '霸总归来05下', 'draft_content.json'), 'utf8');
+    const lowerJson = JSON.parse(lowerJsonRaw);
+    assert.equal(lowerJson.config.export_range.start, 50000000);
+    assert.equal(lowerJson.config.export_range.duration, 70000000);
   } finally {
     await host.dispose();
     await fs.rm(root, { recursive: true, force: true });
