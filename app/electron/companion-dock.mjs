@@ -1,7 +1,4 @@
-import electron from 'electron';
 import os from 'node:os';
-
-const { BrowserWindow, screen } = electron || {};
 
 /**
  * 月薪喵 desktop plugin.
