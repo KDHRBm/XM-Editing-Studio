@@ -55,7 +55,25 @@ internal sealed partial class JianYingEngine
         if (_coordinateFrames.TryGetValue(step, out frame))
         {
             RequireJianyingForeground();
-            point = TranslatePoint(point, frame, WindowFrame(NativeWin32.GetAncestor(NativeWin32.GetForegroundWindow(), 2)));
+            IntPtr fg = NativeWin32.GetAncestor(NativeWin32.GetForegroundWindow(), 2);
+            int[] currentFrame = WindowFrame(fg);
+            if (Math.Abs(frame[2] - currentFrame[2]) <= 8 && Math.Abs(frame[3] - currentFrame[3]) <= 8 && frame[4] == currentFrame[4])
+            {
+                point = new Point(point.X + currentFrame[0] - frame[0], point.Y + currentFrame[1] - frame[1]);
+            }
+            else
+            {
+                try
+                {
+                    IntPtr match = NativeWin32.FindWindowBySize(frame[2], frame[3]);
+                    if (match != IntPtr.Zero)
+                    {
+                        int[] matchedFrame = WindowFrame(match);
+                        point = new Point(point.X + matchedFrame[0] - frame[0], point.Y + matchedFrame[1] - frame[1]);
+                    }
+                }
+                catch { }
+            }
         }
         return point;
     }
@@ -108,7 +126,7 @@ internal sealed partial class JianYingEngine
         mean /= samples.Count;
         double variance = samples.Sum(s => (s.Item3 - mean) * (s.Item3 - mean));
         if (variance / samples.Count < 100) return null;
-        double best = .90; Point? result = null; double nearest = double.MaxValue;
+        double best = .78; Point? result = null; double nearest = double.MaxValue;
         for (int oy = 0; oy <= search.Height - template.Height; oy += 2)
         for (int ox = 0; ox <= search.Width - template.Width; ox += 2)
         {
@@ -142,16 +160,25 @@ internal sealed partial class JianYingEngine
         }
     }
 
-    private static bool LegacyButtonReady(string mode, Bitmap patch)
+    private static bool ButtonPatchReady(string mode, Bitmap patch, int[] targetColor)
     {
-        int cyan = 0, bright = 0, dark = 0, total = 0;
+        int cyan = 0, bright = 0, dark = 0, matched = 0, total = 0;
         for (int y = 0; y < patch.Height; y += 2) for (int x = 0; x < patch.Width; x += 2)
         {
             Color c = patch.GetPixel(x, y); int value = Math.Max(c.R, Math.Max(c.G, c.B)); total++;
+            if (targetColor != null && targetColor.Length == 3 &&
+                Math.Abs(c.R - targetColor[0]) <= 35 && Math.Abs(c.G - targetColor[1]) <= 35 && Math.Abs(c.B - targetColor[2]) <= 35)
+                matched++;
             if (c.R < 80 && c.G > 130 && c.B > 130) cyan++;
             if (value > 160) bright++; if (value < 100) dark++;
         }
+        if (targetColor != null && matched >= Math.Max(3, total / 15)) return true;
         return mode == "return_home" ? cyan >= Math.Max(4, total / 10) : cyan == 0 && bright >= 4 && dark >= total / 4;
+    }
+
+    private static bool LegacyButtonReady(string mode, Bitmap patch)
+    {
+        return ButtonPatchReady(mode, patch, null);
     }
 
     private void ClickButton(string step, Dictionary<string, int[]> coords, int gen)
@@ -161,15 +188,21 @@ internal sealed partial class JianYingEngine
         if (_buttonImages.ContainsKey(step))
         {
             Point? found = null;
-            for (int n = 0; n < 20; n++)
+            for (int n = 0; n < 10; n++)
             {
                 CheckInterrupted(gen); RequireJianyingForeground();
                 point = ResolveButton(step, coords); found = LocateRecordedButton(step, point);
                 if (found.HasValue) break;
-                InterruptibleWait(.5, gen);
+                InterruptibleWait(.3, gen);
             }
-            if (!found.HasValue) throw new InvalidOperationException("未找到录制的按钮（" + step + "），已停止以免误点，请确认界面或重新录制。");
-            point = found.Value;
+            if (found.HasValue)
+            {
+                point = found.Value;
+            }
+            else
+            {
+                Log("未通过图像精确对齐按钮【" + step + "】，使用录制坐标点击。");
+            }
         }
         SafeClick(point.X, point.Y, gen);
     }

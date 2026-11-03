@@ -130,6 +130,7 @@ internal static class NativeWin32
         return false;
     }
 
+    public const uint MOUSEEVENTF_MOVE = 0x0001;
     public const uint MOUSEEVENTF_LEFTDOWN = 0x0002;
     public const uint MOUSEEVENTF_LEFTUP = 0x0004;
     public const uint KEYEVENTF_KEYUP = 0x0002;
@@ -137,6 +138,27 @@ internal static class NativeWin32
     public const int VK_F8 = 0x77;
     public const int VK_F9 = 0x78;
     public const int VK_F10 = 0x79;
+
+    public static IntPtr FindWindowBySize(int targetWidth, int targetHeight)
+    {
+        var ids = new HashSet<uint>();
+        foreach (var process in Process.GetProcessesByName("JianyingPro"))
+            using (process) { try { ids.Add((uint)process.Id); } catch { } }
+        if (ids.Count == 0) return IntPtr.Zero;
+        IntPtr found = IntPtr.Zero;
+        EnumWindows((window, unused) => {
+            uint pid; GetWindowThreadProcessId(window, out pid); RECT rect;
+            if (!ids.Contains(pid) || !IsWindowVisible(window) || !GetWindowRect(window, out rect)) return true;
+            int width = rect.Right - rect.Left, height = rect.Bottom - rect.Top;
+            if (Math.Abs(width - targetWidth) <= 10 && Math.Abs(height - targetHeight) <= 10)
+            {
+                found = window;
+                return false;
+            }
+            return true;
+        }, IntPtr.Zero);
+        return found;
+    }
 
     public static string GetForegroundProcessName()
     {
@@ -201,11 +223,20 @@ internal static class NativeWin32
     {
         check();
         if (!SetCursorPos(x, y)) throw new InvalidOperationException("无法移动鼠标到剪映目标位置。");
-        Thread.Sleep(25);
+        mouse_event(MOUSEEVENTF_MOVE, 0, 0, 0, UIntPtr.Zero);
+        Thread.Sleep(50);
         check();
         mouse_event(MOUSEEVENTF_LEFTDOWN, 0, 0, 0, UIntPtr.Zero);
-        try { Thread.Sleep(25); }
+        try { Thread.Sleep(75); }
         finally { mouse_event(MOUSEEVENTF_LEFTUP, 0, 0, 0, UIntPtr.Zero); }
+        Thread.Sleep(35);
+    }
+
+    public static void DoubleClickAt(int x, int y, Action check)
+    {
+        ClickAt(x, y, check);
+        Thread.Sleep(80);
+        ClickAt(x, y, check);
     }
 
     public static void PressEnter()
@@ -1121,12 +1152,15 @@ internal sealed partial class JianYingEngine
                 Log(string.Format("[{0}/{1}] {2}", i + 1, total, d.Item3));
 
                 ExportPhase("第 1 步：等待首页就绪并核对草稿 · " + d.Item3);
+                RequireJianyingForeground();
                 Point draftPoint = ResolveDraftPoint(d, gen);
                 ExportPhase("第 1 步：打开草稿 · " + d.Item3);
-                SafeClick(draftPoint.X, draftPoint.Y, gen, () => {
+                SafeDoubleClick(draftPoint.X, draftPoint.Y, gen, () => {
                     if (_homeWindow() != _draftScope.Window || TranslatePoint(new Point(d.Item1, d.Item2), _draftScope.WindowBounds, _homeFrame(_draftScope.Window)) != draftPoint)
                         throw new InvalidOperationException("剪映首页在点击前发生切换或移动，已停止，请返回首页后继续。");
                 });
+                Thread.Sleep(100);
+                NativeWin32.PressEnter();
                 InterruptibleWait(waits["open_draft"], gen);
 
                 ExportPhase("第 2 步：打开导出窗口");
@@ -1189,12 +1223,14 @@ internal sealed partial class JianYingEngine
             Point point = ResolveButton(step, coords);
             if (!avoided.HasValue || avoided.Value != point) { AvoidExportTarget(point, gen); avoided = point; }
             Point? candidate = LocateRecordedButton(step, point);
-            // Legacy templates have no image. Sample the entire local button structure,
-            // never a single text/background pixel. New templates use their recorded image.
-            if (!_buttonImages.ContainsKey(step))
+            if (!candidate.HasValue)
             {
-                using (var patch = CaptureArea(new Rectangle(point.X - 20, point.Y - 8, 41, 17)))
-                    if (LegacyButtonReady(mode, patch)) candidate = point;
+                try
+                {
+                    using (var patch = CaptureArea(new Rectangle(point.X - 20, point.Y - 8, 41, 17)))
+                        if (ButtonPatchReady(mode, patch, _closeColor)) candidate = point;
+                }
+                catch { }
             }
             if (candidate.HasValue)
             {
@@ -1215,8 +1251,30 @@ internal sealed partial class JianYingEngine
         NativeWin32.ClickAt(x, y, () => {
             CheckInterrupted(gen); RequireJianyingForeground();
             if (validateTarget != null) validateTarget();
-            if (!NativeWin32.IsJianyingWindow(NativeWin32.WindowFromPoint(new NativeWin32.POINT { X = x, Y = y })))
-                throw new InvalidOperationException("目标位置不属于剪映，已停止点击。请移开遮挡窗口并重新扫描或录制。");
+            IntPtr ptHwnd = NativeWin32.WindowFromPoint(new NativeWin32.POINT { X = x, Y = y });
+            if (ptHwnd != IntPtr.Zero && !NativeWin32.IsJianyingWindow(ptHwnd))
+            {
+                IntPtr fg = NativeWin32.GetForegroundWindow();
+                if (!NativeWin32.IsJianyingWindow(fg))
+                    throw new InvalidOperationException("目标位置不属于剪映，已停止点击。请移开遮挡窗口并重新扫描或录制。");
+            }
+        });
+    }
+
+    private void SafeDoubleClick(int x, int y, int gen, Action validateTarget = null)
+    {
+        CheckInterrupted(gen);
+        RequireJianyingForeground();
+        NativeWin32.DoubleClickAt(x, y, () => {
+            CheckInterrupted(gen); RequireJianyingForeground();
+            if (validateTarget != null) validateTarget();
+            IntPtr ptHwnd = NativeWin32.WindowFromPoint(new NativeWin32.POINT { X = x, Y = y });
+            if (ptHwnd != IntPtr.Zero && !NativeWin32.IsJianyingWindow(ptHwnd))
+            {
+                IntPtr fg = NativeWin32.GetForegroundWindow();
+                if (!NativeWin32.IsJianyingWindow(fg))
+                    throw new InvalidOperationException("目标位置不属于剪映，已停止点击。请移开遮挡窗口并重新扫描或录制。");
+            }
         });
     }
 
