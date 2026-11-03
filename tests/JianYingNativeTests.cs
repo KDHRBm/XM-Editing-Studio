@@ -95,16 +95,18 @@ internal static class JianYingNativeTests
     {
         var oldWindow = Field("_homeWindow"); var oldFrame = Field("_homeFrame"); var oldCapture = Field("_captureHome");
         var res = (int[])Call("GetScreenResolution");
-        var scope = Call("ParseScope", Scope("本地草稿 / Show A"), res[0], res[1]); var type = scope.GetType();
+        int w = 1920, h = 1080;
+        var scope = Call("ParseScope", Scope("本地草稿 / Show A").Replace("\"right\":300", "\"right\":450"), w, h); var type = scope.GetType();
         var drafts = (List<Tuple<int, int, string>>)Call("ParseCards", "{\"visibleCount\":1,\"drafts\":[" + Card(0) + "]}", scope);
+        type.GetField("Width").SetValue(scope, res[0]); type.GetField("Height").SetValue(scope, res[1]);
         var box = ((Dictionary<Point,Rectangle>)type.GetField("CardBoxes").GetValue(scope)).Values.First();
         var heading = (Rectangle)type.GetField("HeadingBox").GetValue(scope);
-        var originalFrame = new[] {0,0,res[0],res[1],96}; int[] currentFrame = (int[])originalFrame.Clone();
+        var originalFrame = new[] {0,0,w,h,96}; int[] currentFrame = (int[])originalFrame.Clone();
         IntPtr currentWindow = new IntPtr(200); int captures = 0, reads = 0;
         type.GetField("WindowBounds").SetValue(scope, originalFrame); type.GetField("Window").SetValue(scope, new IntPtr(100));
         Set("_draftScope", scope); Set("_drafts", drafts); Set("_stopFlag", false);
         int gen = (int)Field("_operationGeneration");
-        using (var scene = new Bitmap(res[0], res[1])) using (var g = Graphics.FromImage(scene)) using (var font = new Font("Arial", 17))
+        using (var scene = new Bitmap(w, h)) using (var g = Graphics.FromImage(scene)) using (var font = new Font("Arial", 14))
         {
             g.Clear(Color.FromArgb(30,30,30)); g.DrawString("Local drafts / Show A",font,Brushes.White,heading.Location);
             g.FillRectangle(Brushes.SteelBlue,box); g.FillEllipse(Brushes.Gold,Rectangle.Inflate(box,-30,-25));
@@ -113,7 +115,7 @@ internal static class JianYingNativeTests
             title("Episode 02");
             using (var stream = new MemoryStream()) {
                 scene.Save(stream,ImageFormat.Png);
-                Call("RememberDraftAnchors",scope,Convert.ToBase64String(stream.ToArray()),new Rectangle(0,0,res[0],res[1]),96);
+                Call("RememberDraftAnchors",scope,Convert.ToBase64String(stream.ToArray()),new Rectangle(0,0,w,h),96);
             }
             Set("_homeWindow",new Func<IntPtr>(() => currentWindow));
             Set("_homeFrame",new Func<IntPtr,int[]>(window => {reads++; if(window!=currentWindow)throw new InvalidOperationException("old HWND destroyed"); return (int[])currentFrame.Clone();}));
