@@ -102,7 +102,7 @@ test('right quick rail is removed while the left sidebar keeps an accessible res
     assert.match(creditsText, new RegExp(name));
   }
   const titleBar = ui.TitleBar();
-  assert.match(textOf(titleBar), /v1\.7\.4/);
+  assert.match(textOf(titleBar), /v1\.7\.5/);
   assert.match(textOf(titleBar), /悬浮窗/);
   const jyTree = ui.JianyingStudio({ active: true, providers: [], onNavigate: () => {} });
   assert.match(textOf(jyTree), /剪映自动化功能请使用桌面「悬浮窗」/);
