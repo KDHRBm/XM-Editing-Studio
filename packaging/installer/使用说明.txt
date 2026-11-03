@@ -14,4 +14,4 @@ XM剪辑台 1.6.3 使用说明
 
 说明
 卸载仅移除本安装器管理的程序文件与引擎缓存，保留个人配置与本地素材。
-发布页与更新记录：https://github.com/KDHRBm/XM-Editing-Studio/releases
+发布页与更新记录：https://github.com/Kirota233/XM-Editing-Studio/releases

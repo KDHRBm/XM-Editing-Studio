@@ -2,7 +2,7 @@
 
 **把剧本、跑量剪辑流、字幕、音乐、样片水印与剪映自动化放进同一个 C# 原生超轻量工作台。**
 
-[下载最新安装包](https://github.com/KDHRBm/XM-Editing-Studio/releases/latest) · [更新日志](CHANGELOG.md) · [架构与开发规范](docs/DEVELOPMENT.md) · [参与开发](CONTRIBUTING.md)
+[下载最新安装包](https://github.com/Kirota233/XM-Editing-Studio/releases/latest) · [更新日志](CHANGELOG.md) · [架构与开发规范](docs/DEVELOPMENT.md) · [参与开发](CONTRIBUTING.md)
 
 ---
 

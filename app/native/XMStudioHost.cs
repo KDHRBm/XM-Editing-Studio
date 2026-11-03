@@ -1786,7 +1786,7 @@ namespace XMStudioHost
             { "latestVersion", CurrentVersion },
             { "hasUpdate", false },
             { "progress", 0 },
-            { "releaseUrl", "https://github.com/KDHRBm/XM-Editing-Studio/releases" },
+            { "releaseUrl", "https://github.com/Kirota233/XM-Editing-Studio/releases" },
             { "downloadUrl", "" },
             { "assetName", "" },
             { "expectedSha256", "" },
@@ -3649,7 +3649,7 @@ namespace XMStudioHost
             {
                 var res = await Task.Run(() => PerformHttpFetch(new Dictionary<string, object>
                 {
-                    { "url", "https://api.github.com/repos/KDHRBm/XM-Editing-Studio/releases/latest" },
+                    { "url", "https://api.github.com/repos/Kirota233/XM-Editing-Studio/releases/latest" },
                     { "headers", new Dictionary<string, object> { { "Accept", "application/vnd.github+json" } } }
                 }));
                 if (Convert.ToBoolean(res["ok"]))
