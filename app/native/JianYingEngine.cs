@@ -1019,6 +1019,49 @@ internal sealed partial class JianYingEngine
         }
     }
 
+    private static string CaptureFastJpegBase64(Rectangle bounds)
+    {
+        using (Bitmap screen = new Bitmap(bounds.Width, bounds.Height, PixelFormat.Format24bppRgb))
+        {
+            using (Graphics g = Graphics.FromImage(screen))
+            {
+                g.CopyFromScreen(bounds.Left, bounds.Top, 0, 0, bounds.Size);
+            }
+            Bitmap target = screen;
+            try
+            {
+                if (screen.Width > 1920 || screen.Height > 1920)
+                {
+                    double ratio = Math.Min(1920.0 / screen.Width, 1920.0 / screen.Height);
+                    int w = Math.Max(1, (int)Math.Round(screen.Width * ratio));
+                    int h = Math.Max(1, (int)Math.Round(screen.Height * ratio));
+                    target = new Bitmap(screen, new Size(w, h));
+                }
+                using (MemoryStream ms = new MemoryStream())
+                {
+                    ImageCodecInfo jpegCodec = ImageCodecInfo.GetImageDecoders().FirstOrDefault(c => c.FormatID == ImageFormat.Jpeg.Guid);
+                    if (jpegCodec != null)
+                    {
+                        using (EncoderParameters ep = new EncoderParameters(1))
+                        {
+                            ep.Param[0] = new EncoderParameter(System.Drawing.Imaging.Encoder.Quality, 82L);
+                            target.Save(ms, jpegCodec, ep);
+                        }
+                    }
+                    else
+                    {
+                        target.Save(ms, ImageFormat.Jpeg);
+                    }
+                    return Convert.ToBase64String(ms.ToArray());
+                }
+            }
+            finally
+            {
+                if (!ReferenceEquals(target, screen)) target.Dispose();
+            }
+        }
+    }
+
     private static string CaptureScreenJpegBase64(Rectangle bounds, out string proofImage)
     {
         using (Bitmap screen = new Bitmap(bounds.Width, bounds.Height, PixelFormat.Format24bppRgb))
@@ -1151,16 +1194,8 @@ internal sealed partial class JianYingEngine
                 lock (_lock) { _status = string.Format("导出 {0}/{1}", i - startIndex + 1, count); }
                 Log(string.Format("[{0}/{1}] {2}", i + 1, total, d.Item3));
 
-                ExportPhase("第 1 步：等待首页就绪并核对草稿 · " + d.Item3);
-                RequireJianyingForeground();
-                Point draftPoint = ResolveDraftPoint(d, gen);
                 ExportPhase("第 1 步：打开草稿 · " + d.Item3);
-                SafeDoubleClick(draftPoint.X, draftPoint.Y, gen, () => {
-                    if (_homeWindow() != _draftScope.Window || TranslatePoint(new Point(d.Item1, d.Item2), _draftScope.WindowBounds, _homeFrame(_draftScope.Window)) != draftPoint)
-                        throw new InvalidOperationException("剪映首页在点击前发生切换或移动，已停止，请返回首页后继续。");
-                });
-                Thread.Sleep(100);
-                NativeWin32.PressEnter();
+                SafeClick(d.Item1, d.Item2, gen);
                 InterruptibleWait(waits["open_draft"], gen);
 
                 ExportPhase("第 2 步：打开导出窗口");
@@ -1190,7 +1225,6 @@ internal sealed partial class JianYingEngine
                     ExportPhase("第 3 步：关闭导出界面");
                     SafeClick(ready.X, ready.Y, gen);
                     InterruptibleWait(waits["close_btn"], gen);
-                    WaitForExportDialogClosed(ready, gen);
                     ExportPhase("第 4 步：关闭草稿并返回首页");
                     ClickButton("draft_close", coords, gen);
                     InterruptibleWait(waits["draft_close"], gen);
@@ -1213,33 +1247,50 @@ internal sealed partial class JianYingEngine
         InterruptibleWait(0.5, gen);
         Stopwatch sw = Stopwatch.StartNew();
         int streak = 0;
-        Point? previous = null;
-        Point? avoided = null;
         string step = mode == "return_home" ? "popup_close" : "close_btn";
+        Point point = new Point(coords[step][0], coords[step][1]);
         while (sw.Elapsed.TotalSeconds < 1800)
         {
             CheckInterrupted(gen);
-            RequireJianyingForeground();
-            Point point = ResolveButton(step, coords);
-            if (!avoided.HasValue || avoided.Value != point) { AvoidExportTarget(point, gen); avoided = point; }
-            Point? candidate = LocateRecordedButton(step, point);
-            if (!candidate.HasValue)
+            if (mode == "return_home")
             {
+                int[] rgb = GetPixelRgb(point.X, point.Y);
+                if (rgb[0] < 80 && rgb[1] > 130 && rgb[2] > 130)
+                {
+                    return point;
+                }
                 try
                 {
                     using (var patch = CaptureArea(new Rectangle(point.X - 20, point.Y - 8, 41, 17)))
-                        if (ButtonPatchReady(mode, patch, _closeColor)) candidate = point;
+                        if (ButtonPatchReady(mode, patch, _closeColor)) return point;
                 }
                 catch { }
             }
-            if (candidate.HasValue)
+            else
             {
-                streak = previous.HasValue && Math.Abs(previous.Value.X - candidate.Value.X) <= 3 && Math.Abs(previous.Value.Y - candidate.Value.Y) <= 3 ? streak + 1 : 1;
-                previous = candidate;
-                if (streak >= 2) { Log("已识别按钮：" + step + " (" + candidate.Value.X + "," + candidate.Value.Y + ")"); return candidate.Value; }
+                int[] rgb = GetPixelRgb(point.X, point.Y);
+                int maxB = Math.Max(rgb[0], Math.Max(rgb[1], rgb[2]));
+                bool matched = maxB > 140;
+                if (!matched)
+                {
+                    try
+                    {
+                        using (var patch = CaptureArea(new Rectangle(point.X - 20, point.Y - 8, 41, 17)))
+                            if (ButtonPatchReady(mode, patch, _closeColor)) matched = true;
+                    }
+                    catch { }
+                }
+                if (matched)
+                {
+                    streak++;
+                    if (streak >= 2) return point;
+                }
+                else
+                {
+                    streak = 0;
+                }
             }
-            else { streak = 0; previous = null; }
-            InterruptibleWait(0.5, gen);
+            InterruptibleWait(0.8, gen);
         }
         throw new TimeoutException("等待导出完成超时（30 分钟）");
     }
@@ -1248,34 +1299,14 @@ internal sealed partial class JianYingEngine
     {
         CheckInterrupted(gen);
         RequireJianyingForeground();
-        NativeWin32.ClickAt(x, y, () => {
-            CheckInterrupted(gen); RequireJianyingForeground();
-            if (validateTarget != null) validateTarget();
-            IntPtr ptHwnd = NativeWin32.WindowFromPoint(new NativeWin32.POINT { X = x, Y = y });
-            if (ptHwnd != IntPtr.Zero && !NativeWin32.IsJianyingWindow(ptHwnd))
-            {
-                IntPtr fg = NativeWin32.GetForegroundWindow();
-                if (!NativeWin32.IsJianyingWindow(fg))
-                    throw new InvalidOperationException("目标位置不属于剪映，已停止点击。请移开遮挡窗口并重新扫描或录制。");
-            }
-        });
+        NativeWin32.ClickAt(x, y, () => CheckInterrupted(gen));
     }
 
     private void SafeDoubleClick(int x, int y, int gen, Action validateTarget = null)
     {
         CheckInterrupted(gen);
         RequireJianyingForeground();
-        NativeWin32.DoubleClickAt(x, y, () => {
-            CheckInterrupted(gen); RequireJianyingForeground();
-            if (validateTarget != null) validateTarget();
-            IntPtr ptHwnd = NativeWin32.WindowFromPoint(new NativeWin32.POINT { X = x, Y = y });
-            if (ptHwnd != IntPtr.Zero && !NativeWin32.IsJianyingWindow(ptHwnd))
-            {
-                IntPtr fg = NativeWin32.GetForegroundWindow();
-                if (!NativeWin32.IsJianyingWindow(fg))
-                    throw new InvalidOperationException("目标位置不属于剪映，已停止点击。请移开遮挡窗口并重新扫描或录制。");
-            }
-        });
+        NativeWin32.DoubleClickAt(x, y, () => CheckInterrupted(gen));
     }
 
     private void UpdateQueueStatus(int index, string status)

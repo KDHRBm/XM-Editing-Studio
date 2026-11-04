@@ -1705,7 +1705,7 @@ namespace XMStudioHost
 
     internal sealed class StudioAppContext : ApplicationContext
     {
-        public const string CurrentVersion = "1.7.6";
+        public const string CurrentVersion = "1.7.7";
         public const int AppPort = 37651;
         private readonly string _baseDir;
         private readonly string _userDataDir;
@@ -1845,6 +1845,10 @@ namespace XMStudioHost
                         if (!IsJianyingBusy()) RestorePanelAfterScan();
                         BroadcastCompanionState();
                     }
+                    else if (evName == "minimize")
+                    {
+                        HidePanelForScan(true);
+                    }
                     else if (evName == "scan-capture" && ev.ContainsKey("id"))
                     {
                         // 截图前临时隐藏悬浮面板，避免挡住剪映首页的草稿缩略图。
@@ -1852,7 +1856,7 @@ namespace XMStudioHost
                         Task.Run(async () =>
                         {
                             HidePanelForScan(true);
-                            await Task.Delay(300);
+                            await Task.Delay(120);
                             var unused = _jianyingRpc.CallAsync(new Dictionary<string, object>
                             {
                                 { "action", "scan_capture_ready" },
@@ -1907,6 +1911,11 @@ namespace XMStudioHost
                     }
                     else if (evName == "export-progress")
                     {
+                        string stage = ev.ContainsKey("stage") ? Convert.ToString(ev["stage"]) : "";
+                        if (stage == "complete" || stage == "error" || stage == "cancelled")
+                        {
+                            RestorePanelAfterScan();
+                        }
                         var unused = RefreshJianyingStatusAsync();
                     }
                     else if (evName == "recording-capture" && ev.ContainsKey("id") && ev.ContainsKey("token"))

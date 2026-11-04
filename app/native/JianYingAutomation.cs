@@ -183,28 +183,8 @@ internal sealed partial class JianYingEngine
 
     private void ClickButton(string step, Dictionary<string, int[]> coords, int gen)
     {
-        Point point = ResolveButton(step, coords);
-        AvoidExportTarget(point, gen);
-        if (_buttonImages.ContainsKey(step))
-        {
-            Point? found = null;
-            for (int n = 0; n < 10; n++)
-            {
-                CheckInterrupted(gen); RequireJianyingForeground();
-                point = ResolveButton(step, coords); found = LocateRecordedButton(step, point);
-                if (found.HasValue) break;
-                InterruptibleWait(.3, gen);
-            }
-            if (found.HasValue)
-            {
-                point = found.Value;
-            }
-            else
-            {
-                Log("未通过图像精确对齐按钮【" + step + "】，使用录制坐标点击。");
-            }
-        }
-        SafeClick(point.X, point.Y, gen);
+        int[] p = coords[step];
+        SafeClick(p[0], p[1], gen);
     }
 
     private void AvoidExportTarget(Point point, int gen)
