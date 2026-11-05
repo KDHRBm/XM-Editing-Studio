@@ -9,6 +9,7 @@ using System.Linq;
 using System.Text;
 using System.Text.RegularExpressions;
 using System.Threading;
+using System.Web.Script.Serialization;
 using System.Windows.Forms;
 
 internal sealed partial class JianYingEngine
@@ -40,6 +41,7 @@ internal sealed partial class JianYingEngine
     {
         public Rectangle Box; // original physical desktop coordinates, never rebound
         public string Image;
+        public bool HasDetail;
     }
     // These dependencies let the return-home regression tests run without clicking or focusing apps.
     private Func<IntPtr> _homeWindow = ReadHomeWindow;
@@ -79,12 +81,27 @@ internal sealed partial class JianYingEngine
     private static IDictionary ObjectMap(object value) { return value as IDictionary; }
     private static string JsonBody(string text)
     {
-        string source = Regex.Replace((text ?? "").Trim(), @"^```(?:json)?\s*|\s*```$", "", RegexOptions.IgnoreCase | RegexOptions.Singleline);
-        int first = source.IndexOf('{'), last = source.LastIndexOf('}');
-        if (first < 0 || last <= first) throw new InvalidOperationException("AI 未返回有效 JSON。");
+        string source = (text ?? "").Trim();
+        int last = source.LastIndexOf('}');
+        if (last < 0) throw new InvalidOperationException("AI 未返回有效 JSON。");
+        var parser = new JavaScriptSerializer();
+        for (int first = source.LastIndexOf('{', last); first >= 0; first = source.LastIndexOf('{', first - 1))
+        {
+            string candidate = EscapeJsonStringControls(source.Substring(first, last - first + 1));
+            try
+            {
+                var data = parser.DeserializeObject(candidate) as IDictionary;
+                if (data != null && (data.Contains("coordinateSpace") || data.Contains("heading") || data.Contains("drafts"))) return candidate;
+            }
+            catch (ArgumentException) { }
+            catch (InvalidOperationException) { }
+        }
+        throw new InvalidOperationException("AI 未返回完整的草稿 JSON。");
+    }
+
+    private static string EscapeJsonStringControls(string source)
+    {
         // Gemini occasionally emits literal line breaks inside JSON string values.
-        // Escape those characters without changing valid escapes or text contents.
-        source = source.Substring(first, last - first + 1);
         var result = new StringBuilder(); bool quoted = false, escaped = false;
         foreach (char c in source)
         {
@@ -103,8 +120,10 @@ internal sealed partial class JianYingEngine
         var box = new double[4];
         for (int i = 0; i < 4; i++)
         {
-            if (list[i] is bool || !double.TryParse(Convert.ToString(list[i], CultureInfo.InvariantCulture), NumberStyles.Float, CultureInfo.InvariantCulture, out box[i]) || double.IsNaN(box[i]) || double.IsInfinity(box[i]) || box[i] < 0 || box[i] > 1000)
-                throw new InvalidOperationException("AI 返回无效草稿坐标。");
+            if (list[i] is bool || !double.TryParse(Convert.ToString(list[i], CultureInfo.InvariantCulture), NumberStyles.Float, CultureInfo.InvariantCulture, out box[i]) || double.IsNaN(box[i]) || double.IsInfinity(box[i]))
+                throw new InvalidOperationException("AI 返回的草稿坐标不是有效数字。");
+            if (box[i] < 0 || box[i] > 1000)
+                throw new InvalidOperationException("AI 返回的 " + new[] { "top", "left", "bottom", "right" }[i] + " 坐标 " + box[i].ToString(CultureInfo.InvariantCulture) + " 超出 0–1000 范围。");
         }
         if (box[2] <= box[0] || box[3] <= box[1]) throw new InvalidOperationException("AI 草稿坐标右边界和下边界必须大于起点。");
         return box;
@@ -275,14 +294,20 @@ internal sealed partial class JianYingEngine
             for (int attempt = 0; attempt < 2; attempt++)
             {
                 CheckInterrupted(generation);
-                string answer = RequestAiText(ScanPrompt(false, imageSize, locateCorrection), image, generation);
-                try { ValidateCoordinateContract(answer, imageSize); scope = ParseScope(answer, captured.Width, captured.Height); break; }
+                string answer = RequestAiText(ScanPrompt(false, imageSize, locateCorrection), image, generation, attempt > 0 && _webScan);
+                try
+                {
+                    ValidateCoordinateContract(answer, imageSize);
+                    scope = ParseScope(answer, captured.Width, captured.Height);
+                    RememberDraftAnchors(scope, proofImage, captured, frame[4]);
+                    break;
+                }
                 catch (Exception error)
                 {
                     if (!(error is ArgumentException) && !(error is InvalidOperationException)) throw;
                     if (attempt == 1) throw new InvalidOperationException("草稿区域识别失败，原队列已保留。" + error.Message + " 请确认“本地草稿”及下方项目清晰可见后重试。");
                     locateCorrection = error.Message;
-                    ScanProgress(id, "locating", "草稿标题或返回格式不正确，正在自动核对一次");
+                    ScanProgress(id, "locating", _webScan ? "DeepSeek 坐标无效，正在尝试备用识别" : "草稿标题或返回格式不正确，正在自动核对一次");
                 }
             }
             ScanProgress(id, "analyzing", "AI 正在识别草稿分区，已排除功能卡片和文件夹");
@@ -293,18 +318,23 @@ internal sealed partial class JianYingEngine
             for (int attempt = 0; attempt < 2; attempt++)
             {
                 CheckInterrupted(generation);
-                string answer = scope.HeadingCount == 0 ? "{\"visibleCount\":0,\"drafts\":[]}" : RequestAiText(prompt, crop, generation);
+                string answer = scope.HeadingCount == 0 ? "{\"visibleCount\":0,\"drafts\":[]}" : RequestAiText(prompt, crop, generation, attempt > 0 && _webScan);
                 ScanProgress(id, "organizing", "正在整理草稿名称与位置");
-                try { if (scope.HeadingCount != 0) ValidateCoordinateContract(answer, cropSize); drafts = ParseCards(answer, scope); break; }
+                try
+                {
+                    if (scope.HeadingCount != 0) ValidateCoordinateContract(answer, cropSize);
+                    drafts = ParseCards(answer, scope);
+                    RememberDraftAnchors(scope, proofImage, captured, frame[4]);
+                    break;
+                }
                 catch (Exception error)
                 {
                     if (attempt == 1 || scope.HeadingCount == 0) throw new InvalidOperationException("草稿识别结果校验失败，原队列已保留。" + error.Message);
-                    ScanProgress(id, "analyzing", "AI 坐标无效，正在自动纠正一次");
+                    ScanProgress(id, "analyzing", _webScan ? "DeepSeek 坐标无效，正在尝试备用识别" : "AI 坐标无效，正在自动纠正一次");
                     prompt = ScanPrompt(true, cropSize, error.Message);
                 }
             }
             CheckInterrupted(generation);
-            RememberDraftAnchors(scope, proofImage, captured, frame[4]);
             // AI reads a window-local image. Convert to physical desktop coordinates exactly once.
             scope.Box.Offset(captured.X, captured.Y);
             scope.Width = resolution[0]; scope.Height = resolution[1];
@@ -349,10 +379,22 @@ internal sealed partial class JianYingEngine
         using (var patch = source.Clone(local, PixelFormat.Format24bppRgb))
         using (var output = new MemoryStream())
         {
+            bool hasDetail = DraftAnchorHasDetail(patch);
             patch.Save(output, ImageFormat.Png); crop = Convert.ToBase64String(output.ToArray());
+            local.Offset(captured.Location);
+            return new DraftAnchor { Box = local, Image = crop, HasDetail = hasDetail };
         }
-        local.Offset(captured.Location);
-        return new DraftAnchor { Box = local, Image = crop };
+    }
+
+    private static bool DraftAnchorHasDetail(Bitmap image)
+    {
+        double sum = 0, squares = 0; int count = 0;
+        for (int y = 0; y < image.Height; y += 2) for (int x = 0; x < image.Width; x += 2)
+        {
+            double value = Grey(image.GetPixel(x, y));
+            sum += value; squares += value * value; count++;
+        }
+        return count > 0 && (squares - sum * sum / count) / count >= 25;
     }
 
     private static void RememberDraftAnchors(DraftScope scope, string image, Rectangle captured, int dpi)
@@ -360,7 +402,8 @@ internal sealed partial class JianYingEngine
         using (var input = new MemoryStream(Convert.FromBase64String(image)))
         using (var source = new Bitmap(input))
         {
-            scope.HeadingAnchor = MakeDraftAnchor(source, Rectangle.Inflate(scope.HeadingBox, 3, 3), captured);
+            try { scope.HeadingAnchor = MakeDraftAnchor(source, Rectangle.Inflate(scope.HeadingBox, 3, 3), captured); }
+            catch (InvalidOperationException error) { throw new InvalidOperationException("草稿标题定位框太小，请按画面中文字重新测量。" + error.Message); }
             scope.CardAnchors.Clear();
             foreach (var entry in scope.CardBoxes)
             {
@@ -369,9 +412,16 @@ internal sealed partial class JianYingEngine
                 // title separately, so identical covers cannot authorize a reordered card.
                 var cover = Rectangle.FromLTRB(box.Left + box.Width / 6, box.Top + box.Height / 6, box.Right - box.Width / 6, box.Bottom - box.Height / 4);
                 var title = Rectangle.FromLTRB(box.Left, box.Bottom + 2, box.Right, box.Bottom + Math.Max(24, 32 * dpi / 96));
-                scope.CardAnchors[new Point(entry.Key.X + captured.X, entry.Key.Y + captured.Y)] = new[] {
-                    MakeDraftAnchor(source, cover, captured), MakeDraftAnchor(source, title, captured)
-                };
+                try
+                {
+                    scope.CardAnchors[new Point(entry.Key.X + captured.X, entry.Key.Y + captured.Y)] = new[] {
+                        MakeDraftAnchor(source, cover, captured), MakeDraftAnchor(source, title, captured)
+                    };
+                }
+                catch (InvalidOperationException error)
+                {
+                    throw new InvalidOperationException("草稿卡片缩略图或名称区域太小，请重新测量完整可见的卡片，排除贴近截图边界的项目。" + error.Message);
+                }
             }
         }
     }
@@ -431,6 +481,33 @@ internal sealed partial class JianYingEngine
             return SameDraftAnchor(template, current, requireDetail);
     }
 
+    private bool HasTwoMatchingNeighborCovers(Point target, int[] frame)
+    {
+        int matches = 0;
+        foreach (var entry in _draftScope.CardAnchors)
+        {
+            if (entry.Key == target) continue;
+            if (MatchDraftAnchor(entry.Value[0], frame, false) && ++matches >= 2) return true;
+        }
+        return false;
+    }
+
+    private bool HasUniqueCover(Point target, DraftAnchor cover)
+    {
+        using (var stream = new MemoryStream(Convert.FromBase64String(cover.Image)))
+        using (var source = new Bitmap(stream))
+        {
+            foreach (var entry in _draftScope.CardAnchors)
+            {
+                if (entry.Key == target) continue;
+                using (var otherStream = new MemoryStream(Convert.FromBase64String(entry.Value[0].Image)))
+                using (var other = new Bitmap(otherStream))
+                    if (SameDraftAnchor(source, other, false)) return false;
+            }
+        }
+        return true;
+    }
+
     private void AvoidDraftAnchors(IEnumerable<DraftAnchor> anchors, int[] frame, int gen)
     {
         lock (_lock)
@@ -478,11 +555,19 @@ internal sealed partial class JianYingEngine
                         AvoidDraftAnchors(new[] { _draftScope.HeadingAnchor }.Concat(card), frame, gen);
                         avoidedFrame = (int[])frame.Clone();
                     }
-                    matches = MatchDraftAnchor(_draftScope.HeadingAnchor, frame, true) &&
-                        MatchDraftAnchor(card[0], frame, false) && MatchDraftAnchor(card[1], frame, true);
+                    bool heading = MatchDraftAnchor(_draftScope.HeadingAnchor, frame, true);
+                    bool cover = MatchDraftAnchor(card[0], frame, false);
+                    bool title = MatchDraftAnchor(card[1], frame, true);
+                    bool weakAnchor = (!heading && !_draftScope.HeadingAnchor.HasDetail) || (!title && !card[1].HasDetail);
+                    bool supported = weakAnchor && cover && HasUniqueCover(original, card[0]) && HasTwoMatchingNeighborCovers(original, frame);
+                    matches = cover && (heading || supported && !_draftScope.HeadingAnchor.HasDetail) &&
+                        (title || supported && !card[1].HasDetail);
                     // A window can close/move while the three small patches are captured.
                     matches = matches && _homeWindow() == window && _homeFrame(window).SequenceEqual(frame);
-                    reason = "尚未确认原草稿列表，请返回扫描时的文件夹；若卡片顺序或滚动位置已变，请重新扫描。";
+                    reason = !cover ? "目标草稿封面与扫描时不同，请检查列表顺序或重新扫描。" :
+                        !heading && !supported ? "草稿标题区域与扫描时不同，请返回原文件夹或重新扫描。" :
+                        !title && !supported ? "目标草稿名称区域与扫描时不同，请检查草稿名称或重新扫描。" :
+                        "尚未确认原草稿列表，请保持剪映首页在前台。";
                 }
                 catch (InvalidOperationException error) { matches = false; reason = error.Message; }
             }

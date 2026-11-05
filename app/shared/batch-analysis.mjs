@@ -182,7 +182,10 @@ export function createBatchAnalysisQueue({ load, save, analyze, extract = task =
               for (const task of group) update(task.id, { subtitleCount: extract(task).length });
               await persist();
               if (token !== generation) { for (const task of group) update(task.id, { status: 'paused' }); break; }
-              const results = await analyze(group, controller.signal);
+              const groupIds = new Set(group.map(task => task.id));
+              const neighbors = state.tasks.filter(task => task.projectId === group[0].projectId && !groupIds.has(task.id) && task.status === 'complete' && task.result && group.some(item => Math.abs(item.episodeNumber - task.episodeNumber) <= 2))
+                .map(task => ({ episodeNumber: task.episodeNumber, trackIds: [...new Set((task.result.segments?.flatMap(segment => segment.matches || []) || task.result.matches || []).map(match => match.id))] }));
+              const results = await analyze(group, controller.signal, neighbors);
               if (token !== generation || controller.signal.aborted) { for (const task of group) update(task.id, { status: 'paused' }); break; }
               if (!Array.isArray(results) || results.length !== group.length || new Set(results.map(item => item.id)).size !== group.length || group.some(task => !results.some(result => result.id === task.id && result.value?.analysis && Array.isArray(result.value.matches)))) fail('模型未完整返回本批次全部集数的配乐结果，请重试本批次。');
               for (const result of results) update(result.id, { status: 'complete', result: result.value, revision: result.revision, analyzer: result.analyzer, completedAt: new Date().toISOString() });

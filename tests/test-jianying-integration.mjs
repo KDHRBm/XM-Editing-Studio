@@ -117,6 +117,19 @@ test('draft scanning offers DeepSeek without API while the rename model stays Ge
   assert.doesNotMatch(textOf(settings), /DeepSeek/);
   saved.delete('xm.jianying.scan-model');
 });
+test('DeepSeek scan passes the configured Gemini connection for invalid-coordinate recovery', async () => {
+  saved.set('xm.jianying.scan-model', 'webai:deepseek::DeepSeek');
+  const calls = [];
+  globalThis.blackObsidian = { jianyingAction: async (...args) => { calls.push(args); return {}; } };
+  try {
+    const tree = ui.JianyingStudio({ active: true, providers: [{ id: 'gemini', name: 'Gemini', protocol: 'gemini', baseUrl: 'https://example.invalid/v1beta', apiKey: 'test', models: ['gemini-test'] }], onNavigate: () => {} });
+    const scanButton = nodes(tree, node => node.type === 'button' && textOf(node) === 'AI 扫描草稿')[0];
+    await scanButton.props.onClick();
+    assert.equal(calls[0][0], 'scan');
+    assert.equal(calls[0][2].provider.webId, 'deepseek');
+    assert.equal(calls[0][2].fallbackGemini?.model, 'gemini-test');
+  } finally { delete globalThis.blackObsidian; saved.delete('xm.jianying.scan-model'); }
+});
 test('right rail displays eight-folder capacity and an accessible resize handle', () => {
   const rail = ui.QuickRail(); assert.match(textOf(rail), /0 \/ 8/); assert.match(textOf(rail), /自动隐藏/);
   const handle = ui.SidebarResizer(); assert.equal(handle.props.role, 'separator'); assert.equal(handle.props['aria-orientation'], 'vertical');

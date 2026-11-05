@@ -31,13 +31,13 @@ async function storage(write, value) {
 }
 export const batchQueue = createBatchAnalysisQueue({
   load: () => storage(false), save: value => storage(true, value),
-  async analyze(tasks, signal) {
+  async analyze(tasks, signal, recentEpisodes = []) {
     const model = batchAnalyzers().find(item => item.key === tasks[0].settings.analyzerKey);
     if (!model || !analysisReady(model)) throw new Error('此任务所选模型已移除或缺少密钥，请检查工作空间中的模型连接。');
     const catalog = await globalThis.blackObsidian?.getMusicLibrary?.() || { tracks: [], revision: '' };
     signal.throwIfAborted();
     const tracks = excludeUsedMusic(catalog.tracks, musicUsage.snapshot().history);
-    const value = await requestScriptAnalysis('batch-library-match', { segmented: !!tasks[0].settings.segmented, segmentCount: tasks[0].settings.segmentCount || 3, episodes: tasks.map(({ id, episodeNumber, title, script }) => ({ id, episodeNumber, title, script })), provider: model.provider, model: model.model, tracks: tracks.map(({ id, title }) => ({ id, title })) }, webAnalyzer(model) ? signal : AbortSignal.any([signal, AbortSignal.timeout(730000)]));
+    const value = await requestScriptAnalysis('batch-library-match', { segmented: !!tasks[0].settings.segmented, segmentCount: tasks[0].settings.segmentCount || 3, episodes: tasks.map(({ id, episodeNumber, title, script }) => ({ id, episodeNumber, title, script })), recentEpisodes, provider: model.provider, model: model.model, tracks: tracks.map(({ id, title }) => ({ id, title })) }, webAnalyzer(model) ? signal : AbortSignal.any([signal, AbortSignal.timeout(730000)]));
     signal.throwIfAborted();
     const titleMatches = matches => (matches || []).map(match => ({ ...match, title: catalog.tracks.find(track => track.id === match.id)?.title || match.id }));
     return value.episodes.map(episode => ({ id: episode.id, value: { ...episode.value, matches: titleMatches(episode.value.matches), ...(episode.value.segments ? {segments:episode.value.segments.map(segment=>({...segment,matches:titleMatches(segment.matches)}))} : {}) }, revision: catalog.revision, analyzer: analysisName(model) }));

@@ -20,7 +20,7 @@ namespace XM.Native {
             Size = panel ? new Size(350, 500) : new Size(1440, 920); MinimumSize = panel ? new Size(280, 320) : new Size(860, 600);
             StartPosition = FormStartPosition.CenterScreen; BackColor = Color.FromArgb(23, 24, 27);
             ShowInTaskbar = !panel; TopMost = panel; CornerRadius = panel ? 16 : 0;
-            Padding = new Padding(6);
+            Padding = new Padding(panel ? 0 : 6);
         }
         protected override CreateParams CreateParams {
             get {
@@ -28,15 +28,16 @@ namespace XM.Native {
                 // Windows Snap needs a resizable, maximizable top-level window.
                 // NCCALCSIZE keeps its native caption/frame out of the client UI.
                 if (!floatingPanel) parameters.Style |= 0x00C00000 | 0x00040000 | 0x00080000 | 0x00020000 | 0x00010000;
+                else parameters.Style |= 0x00040000;
                 return parameters;
             }
         }
         private int ResizeEdge { get { using (var graphics = CreateGraphics()) return Math.Max(6, (int)Math.Ceiling(6 * graphics.DpiX / 96f)); } }
         private void UpdateResizeFrame() {
-            // Keep a small native edge outside the WebView HWND: hit-testing the
-            // Form alone cannot receive input covered by a browser child window.
+            // The floating WebView fills the window; invisible grips in its page
+            // start native resizing without exposing a painted frame.
             if (!IsHandleCreated) return;
-            int edge = WindowState == FormWindowState.Maximized ? 0 : ResizeEdge;
+            int edge = floatingPanel || WindowState == FormWindowState.Maximized ? 0 : ResizeEdge;
             if (Padding.All != edge) Padding = new Padding(edge);
         }
         protected override void OnHandleCreated(EventArgs e) { base.OnHandleCreated(e); UpdateResizeFrame(); }
@@ -45,7 +46,25 @@ namespace XM.Native {
             if (!floatingPanel && !nativeMaximized && !restorePending && WindowState == FormWindowState.Normal) normalSize = Size;
         }
         public void Drag() { ReleaseCapture(); SendMessage(Handle, 0xA1, new IntPtr(2), IntPtr.Zero); }
-        public void Palette(bool dark) { int v = dark ? 1 : 0; try { DwmSetWindowAttribute(Handle, 20, ref v, 4); int rounded = 2; DwmSetWindowAttribute(Handle, 33, ref rounded, 4); } catch {} }
+        public void ResizeFromEdge(string edge) {
+            if (!floatingPanel || WindowState != FormWindowState.Normal) return;
+            int hit = edge == "left" ? 10 : edge == "right" ? 11 : edge == "top" ? 12 : edge == "bottom" ? 15
+                : edge == "top-left" ? 13 : edge == "top-right" ? 14 : edge == "bottom-left" ? 16 : edge == "bottom-right" ? 17 : 0;
+            if (hit == 0) return;
+            ReleaseCapture(); SendMessage(Handle, 0xA1, new IntPtr(hit), IntPtr.Zero);
+        }
+        public void Palette(bool dark) {
+            int v = dark ? 1 : 0;
+            try {
+                DwmSetWindowAttribute(Handle, 20, ref v, 4);
+                int rounded = 2;
+                DwmSetWindowAttribute(Handle, 33, ref rounded, 4);
+                if (floatingPanel) {
+                    int noBorder = unchecked((int)0xFFFFFFFE);
+                    DwmSetWindowAttribute(Handle, 34, ref noBorder, 4);
+                }
+            } catch {}
+        }
         protected override void WndProc(ref Message m) {
             if (!floatingPanel && m.Msg == 0x05) { // WM_SIZE
                 if (m.WParam.ToInt32() == 2) nativeMaximized = true;
@@ -62,7 +81,7 @@ namespace XM.Native {
                     }));
                 }
             }
-            if (!floatingPanel && m.Msg == 0x83) { // WM_NCCALCSIZE
+            if (m.Msg == 0x83) { // WM_NCCALCSIZE
                 if (m.WParam != IntPtr.Zero && IsZoomed(Handle)) {
                     // Windows expands the outer resize frame beyond the monitor
                     // when maximizing. Keep the visible client inside its work area.

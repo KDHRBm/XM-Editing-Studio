@@ -59,5 +59,11 @@ test('real browser: new dramas, synchronized dropdowns, append, delete, persiste
   await page.getByRole('button',{name:'调整等待时间参数'}).click();
   const waits=page.getByRole('dialog');await waits.waitFor();const rect=await waits.boundingBox();assert.ok(rect.x>=0&&rect.y>=0&&rect.y+rect.height<=1000);
   await page.keyboard.press('Escape');assert.equal(await page.getByRole('dialog').count(),0);
+  await page.getByRole('tab',{name:/批量改名/}).click();
+  const folderPath=page.getByRole('textbox',{name:'改名文件夹路径'});
+  await folderPath.fill('"D:\\测试视频"');
+  await folderPath.press('Enter');
+  await page.waitForFunction(()=>requests.some(request=>request.action==='preview'));
+  assert.equal((await page.evaluate(()=>requests.filter(request=>request.action==='preview').at(-1))).args.folder,'D:\\测试视频');
   assert.deepEqual(errors,[]);
 });

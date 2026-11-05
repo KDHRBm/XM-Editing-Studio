@@ -13,7 +13,8 @@ const stageInfo = [
 
 function ToolPanel({ id, number, title, detail, hiddenStage, children }) {
   const [collapsed, toggle] = usePanelCollapsed('jianying-' + id);
-  return <section className="bos-jy-panel" hidden={hiddenStage}><header><div><small>{number} / JIANYING</small><h3>{title}</h3><p>{detail}</p></div><button type="button" className="bos-panel-toggle" aria-expanded={!collapsed} aria-controls={'jy-' + id} onClick={toggle}>{collapsed ? '展开' : '收起'} {collapsed ? '⌄' : '⌃'}</button></header><div id={'jy-' + id} hidden={collapsed} className="bos-jy-panel-body">{children}</div></section>;
+  const floating = new URLSearchParams(globalThis.location?.search || '').get('floating') === 'jianying';
+  return <section className="bos-jy-panel" hidden={hiddenStage}><header><div><small>{number} / JIANYING</small><h3>{title}</h3><p>{detail}</p></div><button type="button" className="bos-panel-toggle" aria-expanded={!collapsed} aria-controls={'jy-' + id} onClick={toggle}>{collapsed ? '展开' : '收起'} {collapsed ? '⌄' : '⌃'}</button></header><div id={'jy-' + id} hidden={collapsed && !floating} className="bos-jy-panel-body">{children}</div></section>;
 }
 const waitsLabels = { open_draft: '打开草稿', export: '点击导出', confirm: '确认导出', popup_close: '收起至首页', close_btn: '关闭导出窗口', draft_close: '关闭草稿' };
 const empty = { queue: [], plan: [], logs: [], templates: [], waits: {}, ready: false, busy: false, status: '正在准备本地引擎…' };
@@ -41,6 +42,8 @@ function DirectoryField({ label, value, disabled, onSave, onBrowse, placeholder 
 }
 
 export function JianyingStudio({ active, providers, onNavigate }) {
+  const floating = new URLSearchParams(globalThis.location?.search || '').get('floating') === 'jianying';
+  const [floatingOpen, setFloatingOpen] = i.useState(false);
   const [visited, setVisited] = i.useState(active);
   const [stage, setStage] = i.useState(() => {
     const saved = localStorage.getItem('xm.jianying.stage');
@@ -62,7 +65,7 @@ export function JianyingStudio({ active, providers, onNavigate }) {
   const api = globalThis.blackObsidian;
   const models = providers.flatMap(provider => (provider.models || []).filter(model => isGeminiModel(provider, model)).map(model => ({ key: provider.id + '::' + model, provider, model })));
   const connection = models.find(item => item.key === modelKey) || models[0];
-  const scanConnection = scanModelKey === DEEPSEEK_SCAN.key ? DEEPSEEK_SCAN : connection;
+  const scanConnection = scanModelKey === DEEPSEEK_SCAN.key ? { ...DEEPSEEK_SCAN, fallbackGemini: connection ? { provider: connection.provider, model: connection.model } : null } : connection;
   const locked = pending || state.busy || state.recording || !!state.modal;
   const selectStage = next => {
     if (!stages.includes(next)) return;
@@ -77,6 +80,13 @@ export function JianyingStudio({ active, providers, onNavigate }) {
   }, []);
   i.useEffect(() => { if (active) setVisited(true); }, [active]);
   i.useEffect(() => {
+    if (floating) return;
+    const update = value => setFloatingOpen(!!value?.panelOpen);
+    const off = api?.onCompanionState?.(update);
+    api?.companionAction?.('sync').then(update).catch(() => {});
+    return () => off?.();
+  }, [floating]);
+  i.useEffect(() => {
     if (!visited || !api?.jianyingAction) return;
     let alive = true, timer;
     const poll = async () => {
@@ -90,16 +100,21 @@ export function JianyingStudio({ active, providers, onNavigate }) {
   const run = (action, args = {}) => perform(async () => {
     if (!api?.jianyingAction) throw new Error('此功能需要桌面版的本地引擎。');
     const selectedConnection = action === 'scan' ? scanConnection : connection;
-    setState(await api.jianyingAction(action, args, selectedConnection ? { provider: selectedConnection.provider, model: selectedConnection.model } : undefined));
+    setState(await api.jianyingAction(action, args, selectedConnection ? {
+      provider: selectedConnection.provider,
+      model: selectedConnection.model,
+      ...(action === 'scan' && selectedConnection.fallbackGemini ? { fallbackGemini: selectedConnection.fallbackGemini } : {}),
+    } : undefined));
   });
   const choosePath = key => perform(async () => { const value = await api.chooseDirectory(state[key] || ''); if (value) setState(await api.jianyingAction('paths', { [key]: value })); });
   const savePath = (key, value) => perform(async () => { setState(await api.jianyingAction('paths', { [key]: value.trim().replace(/^"|"$/g, '') })); });
   const chooseFiles = () => perform(async () => { const files = await api.chooseJianyingFiles(); if (files) { setFolder(''); setState(await api.jianyingAction('files', { files })); } });
   return <section className="bos-script bos-jianying" hidden={!active} aria-label="JianYing-Ai-Pro">
-    <div className="bos-jy-overview"><div><span className="bos-script-eyebrow">JIANYING AI PRO</span><h2>剪映自动化与样片水印</h2><p>批量导出、字幕工程、文件命名与样片水印。</p></div><div><span role="status">{state.status}</span><button type="button" onClick={() => run('stop')} disabled={!state.ready}>中断任务 · F10</button></div></div>
+    {floating ? <header className="bos-jy-float-header"><strong>剪映自动化 · 悬浮窗</strong><small>{state.status}</small></header> : <div className="bos-jy-overview"><div><span className="bos-script-eyebrow">JIANYING AI PRO</span><h2>剪映自动化与样片水印</h2><p>批量导出、字幕工程、文件命名与样片水印。</p></div><div><div className="bos-jy-view-switch" role="group" aria-label="显示位置"><button type="button" aria-pressed={!floatingOpen} onClick={() => api?.companionAction?.('panel', false)}>工作台</button><button type="button" aria-pressed={floatingOpen} onClick={() => api?.companionAction?.('panel', true)}>悬浮窗</button></div><span role="status">{state.status}</span><button type="button" onClick={() => run('stop')} disabled={!state.ready}>中断任务 · F10</button></div></div>}
     <nav className="bos-top-stage-bar bos-top-stage-bar-4" role="tablist" aria-label="剪映自动化功能">
       {stageInfo.map(item => <button type="button" role="tab" key={item.id} className={'bos-stage-tab' + (stage === item.id ? ' is-active' : '')} aria-selected={stage === item.id} onClick={() => selectStage(item.id)}><span className="bos-stage-num">{item.number}</span><span className="bos-stage-text"><strong>{item.title}</strong><small>{item.detail}</small></span></button>)}
     </nav>
+    {floating && <div className="bos-jy-float-status"><div className="bos-jy-view-switch" role="group" aria-label="显示位置"><button type="button" onClick={() => api?.companionAction?.('focus-workbench')}>工作台</button><button type="button" aria-pressed="true">悬浮窗</button></div><button type="button" onClick={() => run('stop')} disabled={!state.ready}>中断 · F10</button></div>}
     {error && <p className="bos-script-alert" role="alert">{error}</p>}
     {state.notice && <p className="bos-script-message" role="status">{state.notice}</p>}
     <div className="bos-jy-panels">
@@ -107,7 +122,7 @@ export function JianyingStudio({ active, providers, onNavigate }) {
         <label><span>草稿扫描模型</span><select aria-label="草稿扫描模型" value={scanModelKey} disabled={locked} onChange={event => { setScanModelKey(event.target.value); localStorage.setItem('xm.jianying.scan-model', event.target.value); }}><option value="gemini">Gemini · 使用下方已配置连接</option><option value={DEEPSEEK_SCAN.key}>DeepSeek · 官方网页版，无需 API</option></select></label>
         <div className="bos-jy-toolbar"><button type="button" disabled={locked || !state.ready} onClick={() => run('wizard')}>录制坐标 · F8</button><button type="button" disabled={locked || !scanConnection || !state.ready} onClick={() => run('scan')}>AI 扫描草稿</button><button type="button" className="bos-script-primary" disabled={locked || !state.queue.length || !state.coordinatesReady} onClick={() => run('export', { index: selected })}>从所选草稿开始导出</button></div>
         <p className="bos-script-footnote">{state.guide || '首次使用需录制坐标。'} · 扫描时工作台会最小化，右下角显示进度。请在剪映中显示“草稿”或“本地草稿”及下方项目，支持文件夹内页面，无需显示数量；AI 会排除功能卡片与文件夹，坐标校验失败时自动纠正一次。扫描后请保持剪映窗口位置和草稿列表不变再导出。</p>
-        {scanModelKey === DEEPSEEK_SCAN.key && <small>截图后直接使用“国内 AI”中已有的 DeepSeek 页面，复用登录账号，无需 API。先填入完整问题，再上传截图并发送；回答会自动接回草稿列表。请使用支持图片理解的模式。按 F10 可中断；网页未自动发送时，可直接点击页面中的发送箭头。</small>}
+        {scanModelKey === DEEPSEEK_SCAN.key && <small>截图后直接使用“国内 AI”中已有的 DeepSeek 页面，复用登录账号，无需 API。坐标校验失败时会使用已配置的 Gemini 重新识别，可能消耗 Gemini 额度。按 F10 可中断；网页未自动发送时，可点击页面中的发送箭头。</small>}
         {state.recordingError && <p className="bos-script-alert" role="alert">{state.recordingError}</p>}
         <div className="bos-jy-table"><table><thead><tr><th>选择</th><th>草稿名称</th><th>状态</th></tr></thead><tbody>{state.queue.map((item, index) => <tr key={index} aria-selected={selected === index}><td><input type="radio" name="jy-draft" aria-label={'从草稿 ' + item.name + ' 开始'} checked={selected === index} onChange={() => setSelected(index)} /></td><td>{item.name}</td><td>{item.st}</td></tr>)}</tbody></table>{!state.queue.length && <p>打开剪映首页，扫描后在这里选择起始草稿。</p>}</div>
         <small>开启录制后，工作台最小化。鼠标放到目标按钮文字或图标中心，按下并松开 F8 记录，再手动点击该按钮进入下一步。等待完成模式依次按 F8 录制：导出 → 确认导出 → 关闭导出界面 → 关闭草稿，第四次 F8 后自动保存。第三步请等导出完成后录制，第四步请先关闭导出界面。收起至首页模式在该按钮出现时按第三次 F8 保存。按 F10 结束录制或导出运行；已提交给剪映的后台渲染会继续。导出期间保持剪映在前台，不滚动草稿列表；窗口大小或显示缩放改变后重新扫描和录制。</small>
@@ -131,19 +146,20 @@ export function JianyingStudio({ active, providers, onNavigate }) {
       </ToolPanel>
       <ToolPanel id="rename" number="03" title="批量改名" detail="先预览，再一次执行；保留扩展名并检查名称冲突。" hiddenStage={stage !== 'rename'}>
         <div className="bos-source-choice"><button type="button" aria-pressed={!aiRename} disabled={locked} onClick={() => { setAiRename(false); }}>按集数模板</button><button type="button" aria-pressed={aiRename} disabled={locked} onClick={() => { setAiRename(true); }}>AI 智能命名</button></div>
-        <label><span>文件夹或单独选择文件</span><div className="bos-jy-path"><input readOnly value={folder} placeholder={state.fileCount ? '已选择 ' + state.fileCount + ' 个文件' : '选择要改名的文件夹'} /><button type="button" disabled={locked} onClick={() => perform(async () => { const value = await api.chooseDirectory(folder); if (value) setFolder(value); })}>选择文件夹</button><button type="button" disabled={locked} onClick={chooseFiles}>选择文件</button><button type="button" disabled={locked || (!folder && !state.fileCount && !state.plan.length)} onClick={() => perform(async () => { setState(await api.jianyingAction('files', { files: [] })); setFolder(''); })}>清除列表</button></div></label>
+        <label><span>文件夹或单独选择文件</span><div className="bos-jy-path"><input aria-label="改名文件夹路径" value={folder} disabled={locked} onChange={event => { setFolder(event.target.value); setState(previous => ({ ...previous, plan: [] })); }} onKeyDown={event => { if (event.key === 'Enter') { event.preventDefault(); void run('preview', { folder: folder.trim().replace(/^['"]|['"]$/g, ''), template, ai: aiRename }); } }} placeholder={state.fileCount ? '已选择 ' + state.fileCount + ' 个文件，或粘贴文件夹路径' : '粘贴文件夹路径，或选择文件夹'} /><button type="button" disabled={locked} onClick={() => perform(async () => { const value = await api.chooseDirectory(folder); if (value) { setFolder(value); setState(previous => ({ ...previous, plan: [] })); } })}>选择文件夹</button><button type="button" disabled={locked} onClick={chooseFiles}>选择文件</button><button type="button" disabled={locked || (!folder && !state.fileCount && !state.plan.length)} onClick={() => perform(async () => { setState(await api.jianyingAction('files', { files: [] })); setFolder(''); })}>清除列表</button></div></label>
         <label><span>命名模板</span><input maxLength={500} value={template} disabled={locked} onChange={event => setTemplate(event.target.value)} placeholder="例如：短剧名称_第1集" /></label>
-        <div className="bos-jy-toolbar"><button type="button" disabled={locked || !state.ready || (aiRename && !connection)} onClick={() => run('preview', { folder, template, ai: aiRename })}>{aiRename ? 'AI 生成预览' : '生成改名预览'}</button><button type="button" className="bos-script-primary" disabled={locked || !state.plan.length} onClick={() => run('rename')}>执行预览中的改名</button></div>
+        <div className="bos-jy-toolbar"><button type="button" disabled={locked || !state.ready || (aiRename && !connection)} onClick={() => run('preview', { folder: folder.trim().replace(/^['"]|['"]$/g, ''), template, ai: aiRename })}>{aiRename ? 'AI 生成预览' : '生成改名预览'}</button><button type="button" className="bos-script-primary" disabled={locked || !state.plan.length} onClick={() => run('rename')}>执行预览中的改名</button></div>
         <div className="bos-jy-table"><table><thead><tr><th>原文件名</th><th>新文件名</th></tr></thead><tbody>{state.plan.map((item, index) => <tr key={index}><td>{item.old_name}</td><td>{item.new_name}</td></tr>)}</tbody></table>{!state.plan.length && <p>改名方案会显示在这里，预览不会修改文件。</p>}</div>
       </ToolPanel>
       <ToolPanel id="settings" number="AI" title="模型连接" detail="复用已有 Gemini 连接，供草稿扫描和智能命名使用。" hiddenStage={stage === 'subtitles' || stage === 'watermark'}>
         <label><span>Gemini 模型</span><select value={connection?.key || ''} disabled={locked} onChange={event => { setModelKey(event.target.value); localStorage.setItem('xm.jianying.model', event.target.value); }}>{!models.length && <option value="">请先添加 Gemini 连接</option>}{models.map(item => <option key={item.key} value={item.key}>{item.model} · {item.provider.name}</option>)}</select></label>
-        <button type="button" onClick={() => onNavigate('providers')}>管理已有模型与连接 ↗</button>
+        <button type="button" onClick={() => floating ? api?.companionAction?.('focus-workbench', 'providers') : onNavigate('providers')}>管理已有模型与连接 ↗</button>
         <small>无需再次填写 API Key。AI 扫描发送截图，AI 改名仅发送文件名；本地字幕工具和模板改名不调用 AI。</small>
       </ToolPanel>
     </div>
     <WatermarkStudio active={active && stage === 'watermark'} />
     <details className="bos-jy-log" open><summary>任务日志 · {state.logs.length} 条</summary><pre>{state.logs.join('\n') || '操作开始后会在这里显示进度。'}</pre></details>
+    {floating && <footer className="bos-jy-float-footer"><button type="button" onClick={() => api?.quickLaunch?.('launch').catch(error => setError(error.message))}>启动剪映</button><button type="button" onClick={() => api?.companionAction?.('focus-workbench')}>返回工作台</button></footer>}
     <ToolDialog open={active && !!waits} title={'等待时间 · ' + (waitsMode === 'wait_close' ? '等待完成' : '收起至首页')} onCancel={() => { if (!pending) setWaits(null); }}>
       <div className="bos-jy-waits">{Object.entries(waitsLabels).map(([key, label]) => <label key={key}><span>{label} / 秒</span><input type="number" min="0.1" max="600" step="0.1" disabled={pending} value={waits?.[key] ?? ''} onChange={event => setWaits(previous => ({ ...previous, [key]: event.target.value }))} /></label>)}</div>
       <div className="bos-jy-toolbar"><button type="button" disabled={pending} onClick={() => setWaits(null)}>取消</button><button type="button" disabled={pending} onClick={() => perform(async () => { setState(await api.jianyingAction('settings', { waits, waitsMode })); setWaits(null); })}>保存等待时间</button></div>

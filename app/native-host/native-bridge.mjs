@@ -60,22 +60,45 @@ window.fetch = async (input, options = {}) => {
   return browserFetch(input, options);
 };
 
-let visibleProvider = '', jyConnection = null, jyController;
+let visibleProvider = '', aiLayoutRequest = 0, jyConnection = null, jyFallbackGemini = null, jyUseFallback = false, jyController;
+on('bos:open-web-ai', provider => window.dispatchEvent(new CustomEvent('xm-open-web-ai', { detail: provider })));
 const driver = {
   visible: id => id === visibleProvider,
   run: (provider, input, signal) => runNativeWebAI(invoke, provider, input, signal),
 };
 const copy = text => invoke('clipboard-text', { text });
 const analysis = createWebAnalysis({ driver, copy, notify: task => emit('bos:web-analysis-task', task) });
-const scan = createJianyingWebScan({ driver, copy, isBusy: () => !!analysis.snapshot(), notify: task => { emit('bos:web-analysis-task', task); if (task) void invoke('progress-action', { action: 'reveal-web-ai' }); } });
-function cancelJianying() { jyController?.abort(); scan.close(); }
+let revealedScanId = '';
+const scan = createJianyingWebScan({ driver, copy, isBusy: () => !!analysis.snapshot(), notify: task => {
+  emit('bos:web-analysis-task', task);
+  if (!task) { revealedScanId = ''; return; }
+  if (task.id !== revealedScanId) {
+    revealedScanId = task.id;
+    void (async () => {
+      await invoke('progress-action', { action: 'reveal-web-ai' });
+      if (!new URLSearchParams(location.search).has('floating')) return;
+      for (let attempt = 0; attempt < 60 && scan.snapshot()?.id === task.id; attempt++) {
+        try {
+          const page = await invoke('web-ai-action', { provider: 'deepseek', action: 'page-status' });
+          if (page?.visible) { visibleProvider = 'deepseek'; return; }
+        } catch { /* The official page is still opening. */ }
+        await new Promise(resolve => setTimeout(resolve, 500));
+      }
+    })().catch(() => {});
+  }
+} });
+function cancelJianying() { jyController?.abort(); scan.close(); jyFallbackGemini = null; jyUseFallback = false; }
 on('bos:native-ai-cancel', cancelJianying);
 on('bos:native-ai', async input => {
   const connection = jyConnection, signal = jyController?.signal; let result;
   try {
     if (!connection || !signal) throw new Error('未选择 AI 连接。'); signal.throwIfAborted();
     const report = message => invoke('progress-message', { message }).catch(() => {});
-    const text = isDeepSeekScan(connection) ? await scan.request(input, signal, report) : await requestJianyingAI(connection, input, signal, nativeFetch, { onRetry: report });
+    if (isDeepSeekScan(connection) && input.fallback === true && jyFallbackGemini) jyUseFallback = true;
+    if (jyUseFallback && isDeepSeekScan(connection)) report('DeepSeek 坐标未通过校验，正在用 Gemini 重新识别');
+    const selected = jyUseFallback && isDeepSeekScan(connection) ? jyFallbackGemini : connection;
+    const text = isDeepSeekScan(selected) ? await scan.request(input, signal, report) : await requestJianyingAI(selected, input, signal, nativeFetch, { onRetry: report });
+    signal.throwIfAborted();
     result = { text };
   } catch (error) { result = { error: error.message }; }
   await invoke('jianying-action', { action: 'ai_result', args: { token: input.token, ...result } }).catch(() => {});
@@ -89,6 +112,12 @@ async function jianyingAction(action, args = {}, selectedConnection) {
     const state = await invoke('jianying-action', { action: 'status' });
     if (state.busy || state.recording || state.exporting || state.modal) throw new Error('请先结束当前任务。');
     cancelJianying(); jyController = new AbortController(); jyConnection = structuredClone(connection);
+    if (web && connection.fallbackGemini) {
+      try {
+        buildJianyingAIRequest(connection.fallbackGemini, { prompt: 'validate' });
+        jyFallbackGemini = structuredClone(connection.fallbackGemini);
+      } catch { /* DeepSeek remains available without a valid Gemini connection. */ }
+    }
     if (action === 'scan') args = { ...args, webScan: web };
   }
   return invoke('jianying-action', { action, args });
@@ -110,9 +139,15 @@ window.scanCard = Object.freeze({state:()=>invoke('progress-action',{action:'sta
 window.blackObsidian = Object.freeze({
   runtime: 'csharp-webview2',
   getUpdaterStatus: () => invoke('updater-status'), updaterAction: action => invoke('updater-action', { action }, 25 * 60000), onUpdaterState: fn => on('bos:updater-state', fn),
-  setTitlebarTheme: theme => invoke('titlebar-theme', { theme }), onTrayNavigate: fn => on('bos:tray-navigate', fn),
-  companionAction: (action, value) => invoke('companion-action', { action, value }, 25 * 60000), onCompanionState: fn => on('bos:companion-state', fn), onCompanionTheme: fn => on('bos:companion-theme', fn),
-  layoutWebAI: input => { visibleProvider = input.visible ? input.provider : ''; return invoke('web-ai-layout', input); },
+  setTitlebarTheme: (theme, light = false) => invoke('titlebar-theme', { theme, light }), onTrayNavigate: fn => on('bos:tray-navigate', fn),
+  companionAction: (action, value) => invoke('companion-action', { action, value }, 25 * 60000), onCompanionState: fn => on('bos:companion-state', fn), onCompanionTheme: fn => on('bos:companion-theme', fn), onCompanionPlay: fn => on('bos:companion-play', fn), windowControl: action => invoke('window-control', { action }),
+  layoutWebAI: async input => {
+    const request = ++aiLayoutRequest;
+    if (!input.visible) visibleProvider = '';
+    const state = await invoke('web-ai-layout', input);
+    if (request === aiLayoutRequest) visibleProvider = input.visible && state?.visible ? input.provider : '';
+    return state;
+  },
   webAIAction: async (provider, action) => {
     const state = await invoke('web-ai-action', { provider, action });
     if (['login', 'page-status'].includes(action) && driver.visible(provider)) { try { const access = await driver.run(provider, { command: action === 'login' ? 'login' : 'probe' }); return { ...state, access: access.state, pageNotice: access.message }; } catch {} }
@@ -137,8 +172,25 @@ window.blackObsidian = Object.freeze({
 });
 document.addEventListener('DOMContentLoaded', () => {
   if (location.pathname === '/jianying-scan/index.html') return;
-  const style = document.createElement('style'); style.textContent = 'html[data-native-host=true] .bos-titlebar{padding-right:150px}.xm-native-controls{position:fixed;top:0;right:0;height:36px;display:flex;align-items:stretch;z-index:10000;-webkit-app-region:no-drag}.xm-native-controls button{display:grid;place-items:center;box-sizing:border-box;width:46px;height:36px;padding:0;border:0;border-radius:0;background:transparent;color:var(--ui-text);font:17px system-ui;line-height:1;cursor:pointer;transition:background-color 140ms ease}.xm-native-controls button:focus-visible{outline:2px solid var(--ui-accent);outline-offset:-3px}.xm-native-controls button:hover{background:var(--ui-raised)}.xm-native-controls button:last-child:hover{background:#c42b1c;color:white}'; document.head.append(style);
+  const style = document.createElement('style'); style.textContent = 'html[data-native-host=true] .bos-titlebar{padding-right:150px}.xm-native-controls{position:fixed;top:0;right:0;height:36px;display:flex;align-items:stretch;z-index:10000;-webkit-app-region:no-drag}.xm-native-controls button{display:grid;place-items:center;box-sizing:border-box;width:46px;height:36px;padding:0;border:0;border-radius:0;background:transparent;color:var(--ui-text);font:17px system-ui;line-height:1;cursor:pointer;transition:background-color 140ms ease}.xm-native-controls button:focus-visible{outline:2px solid var(--ui-accent);outline-offset:-3px}.xm-native-controls button:hover{background:var(--ui-raised)}.xm-native-controls button:last-child:hover{background:#c42b1c;color:white}.xm-floating .xm-native-controls button{width:32px;height:30px;font-size:14px}'; document.head.append(style);
   if (location.pathname === '/index.html') { const controls = document.createElement('div'); controls.className = 'xm-native-controls'; for (const [action, label, icon] of [['min', '最小化', '−'], ['max', '最大化或还原', '□'], ['close', '关闭窗口', '×']]) { const button = document.createElement('button'); button.textContent = icon; button.ariaLabel = label; button.onclick = () => invoke('window-control', { action }); controls.append(button); } document.body.append(controls); }
-  document.addEventListener('mousedown', event => { if (event.button === 0 && event.target.closest('.bos-titlebar-drag, .panel > header') && !event.target.closest('button,input')) void invoke('window-control', { action: 'drag' }); });
+  if (new URLSearchParams(location.search).get('floating') === 'jianying') {
+    const resizeStyle = document.createElement('style');
+    resizeStyle.textContent = '.xm-floating-resize{position:fixed;z-index:10001;background:transparent;touch-action:none}.xm-floating-resize-left{left:0;top:12px;bottom:12px;width:7px;cursor:ew-resize}.xm-floating-resize-right{right:0;top:12px;bottom:12px;width:7px;cursor:ew-resize}.xm-floating-resize-top{top:0;left:12px;right:12px;height:7px;cursor:ns-resize}.xm-floating-resize-bottom{bottom:0;left:12px;right:12px;height:7px;cursor:ns-resize}.xm-floating-resize-top-left,.xm-floating-resize-top-right,.xm-floating-resize-bottom-left,.xm-floating-resize-bottom-right{width:12px;height:12px;cursor:nwse-resize}.xm-floating-resize-top-left{top:0;left:0}.xm-floating-resize-top-right{top:0;right:0;cursor:nesw-resize}.xm-floating-resize-bottom-left{bottom:0;left:0;cursor:nesw-resize}.xm-floating-resize-bottom-right{bottom:0;right:0}';
+    document.head.append(resizeStyle);
+    for (const edge of ['left', 'right', 'top', 'bottom', 'top-left', 'top-right', 'bottom-left', 'bottom-right']) {
+      const grip = document.createElement('div');
+      grip.className = 'xm-floating-resize xm-floating-resize-' + edge;
+      grip.setAttribute('aria-hidden', 'true');
+      grip.addEventListener('pointerdown', event => {
+        if (event.button !== 0) return;
+        event.preventDefault();
+        event.stopPropagation();
+        void invoke('window-control', { action: 'resize-' + edge });
+      });
+      document.body.append(grip);
+    }
+  }
+  document.addEventListener('mousedown', event => { if (event.button === 0 && event.target.closest('.bos-titlebar-drag, .panel > header, .xm-floating .bos-jy-float-header') && !event.target.closest('button,input,select')) void invoke('window-control', { action: 'drag' }); });
   document.addEventListener('dblclick', event => { if (event.target.closest('.bos-titlebar-drag')) void invoke('window-control', { action: 'max' }); });
 });

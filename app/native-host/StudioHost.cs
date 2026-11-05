@@ -14,12 +14,13 @@ using Microsoft.Web.WebView2.WinForms;
 
 namespace XM.Native {
     internal sealed partial class StudioHost : ApplicationContext {
-        internal const string Origin = "https://xm.local", Version = "1.4.6";
+        internal const string Origin = "https://xm.local", Version = "1.4.9";
         internal readonly string BaseDir, DataDir, ClientDir;
         internal StudioWindow MainWindow, PanelWindow;
         internal WebView2 MainView, PanelView;
         internal bool Exiting;
         private string theme = "graphite";
+        private bool themeLight;
         private NotifyIcon tray;
         private readonly System.Windows.Forms.Timer wakeTimer = new System.Windows.Forms.Timer { Interval = 300 };
         private readonly EventWaitHandle wake;
@@ -74,7 +75,7 @@ namespace XM.Native {
                 await core.AddScriptToExecuteOnDocumentCreatedAsync("if(location.origin==='" + Origin + "'&&window.top===window){" + bridge + "}");
                 core.WebMessageReceived += (s, e) => {
                     // Remote web contents and child frames never receive local APIs.
-                    if (e.Source != Origin + "/index.html" && e.Source.Split('?')[0] != Origin + "/companion-panel.html" && e.Source != Origin + "/jianying-scan/index.html") return;
+                    if (e.Source.Split('?')[0] != Origin + "/index.html" && e.Source != Origin + "/companion-animation.html" && e.Source != Origin + "/jianying-scan/index.html") return;
                     Dictionary<string, object> request; try { request = J.Map(J.Decode(e.TryGetWebMessageAsString())); } catch { return; }
                     object id = J.Get(request, "id"); var command = J.Str(request, "cmd");
                     if (Environment.GetEnvironmentVariable("XM_NATIVE_QA") == "1") Log("request " + command);
@@ -82,7 +83,7 @@ namespace XM.Native {
                     // WebView2 callbacks must return before opening dialogs or another browser.
                     MainWindow.BeginInvoke(new Action(async () => {
                     try {
-                        if (view != MainView && command != "companion-action" && command != "window-control" && command != "progress-action") throw new Exception("此操作仅允许在主工作台执行。");
+                        if (view != MainView && view != PanelView && command != "companion-action" && command != "window-control" && command != "progress-action") throw new Exception("此操作仅允许在工作台执行。");
                         object value;
                         if (command == "watermark-drop" && view == MainView) {
                             var files = attachedFiles;
@@ -136,10 +137,15 @@ namespace XM.Native {
         }
         private async Task UpdatePanelPalette() {
             if (PanelView == null || PanelView.IsDisposed || PanelView.CoreWebView2 == null) return;
-            var raw = await PanelView.CoreWebView2.ExecuteScriptAsync("(()=>{document.documentElement.dataset.bosTheme=" + J.Encode(theme) + ";document.documentElement.dataset.nativeHost='true';const p=document.querySelector('.panel');return p?getComputedStyle(p).backgroundColor:'';})()");
+            string tokens = "";
+            if (MainView != null && !MainView.IsDisposed && MainView.CoreWebView2 != null) {
+                var source = await MainView.CoreWebView2.ExecuteScriptAsync("(()=>{const s=document.documentElement.style;return [...s].filter(n=>n.startsWith('--ui-')).map(n=>n+':'+s.getPropertyValue(n)).join(';')})()");
+                tokens = Convert.ToString(J.Decode(source));
+            }
+            var raw = await PanelView.CoreWebView2.ExecuteScriptAsync("(()=>{const r=document.documentElement;r.dataset.bosTheme=" + J.Encode(theme) + ";r.dataset.nativeHost='true';[...r.style].filter(n=>n.startsWith('--ui-')).forEach(n=>r.style.removeProperty(n));r.style.cssText+=';' + " + J.Encode(tokens) + ";const p=document.querySelector('.app-shell');return p?getComputedStyle(p).backgroundColor:'';})()");
             string color = Convert.ToString(J.Decode(raw));
             var match = System.Text.RegularExpressions.Regex.Match(color, @"^rgb\((\d+),\s*(\d+),\s*(\d+)\)$");
-            if (match.Success && PanelWindow != null && !PanelWindow.IsDisposed) PanelWindow.BackColor = Color.FromArgb(int.Parse(match.Groups[1].Value), int.Parse(match.Groups[2].Value), int.Parse(match.Groups[3].Value));
+            if (match.Success && PanelWindow != null && !PanelWindow.IsDisposed) { PanelWindow.BackColor = Color.FromArgb(int.Parse(match.Groups[1].Value), int.Parse(match.Groups[2].Value), int.Parse(match.Groups[3].Value)); PanelView.DefaultBackgroundColor = PanelWindow.BackColor; PanelWindow.Palette(!themeLight); }
         }
         private async Task UpdateMainPalette() {
             if (MainView.IsDisposed || MainView.CoreWebView2 == null) return;
@@ -153,7 +159,8 @@ namespace XM.Native {
             var menu = new ContextMenuStrip();
             menu.Opening += (s, e) => {
                 menu.Items.Clear(); menu.Items.Add("打开 XM剪辑台", null, (_s, _e) => OpenMain());
-                menu.Items.Add((PetVisible ? "隐藏" : "显示") + PetName, null, async (_s, _e) => { try { await CompanionAction("toggle", null); } catch (Exception error) { Notify(error.Message); } });
+                menu.Items.Add((PetVisible ? "隐藏" : "显示") + PetName + "动画", null, async (_s, _e) => { try { await CompanionAction("toggle", null); } catch (Exception error) { Notify(error.Message); } });
+                menu.Items.Add("JianYing Pro 悬浮窗", null, async (_s, _e) => { try { await CompanionAction("panel", true); } catch (Exception error) { Notify(error.Message); } });
                 menu.Items.Add(new ToolStripSeparator());
                 foreach (var pair in new[] { new[] { "批量水印中心（原生硬件加速）", "watermark" }, new[] { "剪映智能工作台", "jianying" }, new[] { "文案拆解与智能配乐", "workspace" }, new[] { "剪贴板句号守护", "period" } }) {
                     string target = pair[1]; menu.Items.Add(pair[0], null, (_s, _e) => { OpenMain(); Emit("bos:tray-navigate", target); });
@@ -168,6 +175,7 @@ namespace XM.Native {
             var window = sender.FindForm() as StudioWindow;
             if (window == null) return null;
             if (action == "drag") window.Drag();
+            else if (action.StartsWith("resize-", StringComparison.Ordinal)) window.ResizeFromEdge(action.Substring(7));
             else if (action == "min") window.WindowState = FormWindowState.Minimized;
             else if (action == "max") window.WindowState = window.WindowState == FormWindowState.Maximized ? FormWindowState.Normal : FormWindowState.Maximized;
             else if (action == "close") window.Close();

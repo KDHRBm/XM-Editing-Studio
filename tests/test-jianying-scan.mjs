@@ -166,6 +166,28 @@ test('DeepSeek scan routes screenshots through official web and preserves Gemini
   assert.equal(apiCalls.length, 1);
 });
 
+test('invalid DeepSeek coordinates retry through configured Gemini and keep using it for the same scan', async t => {
+  const webCalls = [], apiCalls = [];
+  const gemini = { provider: { protocol: 'gemini', apiKey: 'test', baseUrl: 'https://example.invalid/v1beta' }, model: 'gemini-test' };
+  const f = await hostFixture(t, {
+    webScan: { request: async input => { webCalls.push(input); return '{}'; }, close() {}, dispose() {} },
+    requestAI: async (...args) => { apiCalls.push(args); return '{"drafts":[]}'; },
+  });
+  await f.host.run('scan', {}, { ...DEEPSEEK_SCAN, fallbackGemini: gemini });
+  f.emit({ event: 'scan-progress', id: 'fallback-1', stage: 'preparing', message: '准备' });
+  f.emit({ event: 'ai', token: 'first', prompt: 'locate', image: 'YWJj', fallback: false }); await tick();
+  f.emit({ event: 'ai', token: 'second', prompt: 'correct', image: 'YWJj', fallback: true }); await tick();
+  f.emit({ event: 'ai', token: 'third', prompt: 'cards', image: 'YWJj', fallback: false }); await tick();
+  assert.equal(webCalls.length, 1);
+  assert.equal(apiCalls.length, 2);
+  assert.equal(apiCalls[0][0].model, gemini.model);
+  assert.match(f.progress.at(-1).message, /Gemini/);
+  await f.host.run('scan', {}, DEEPSEEK_SCAN);
+  f.emit({ event: 'scan-progress', id: 'fallback-2', stage: 'preparing', message: '新任务' });
+  f.emit({ event: 'ai', token: 'fourth', prompt: 'new scan', image: 'YWJj', fallback: true }); await tick();
+  assert.equal(webCalls.length, 2);
+});
+
 test('recording capture acknowledges the same sample token only after the overlay is hidden', async t => {
   let release; const f = await hostFixture(t, { beforeScanCapture: () => new Promise(resolve => { release = resolve; }) });
   const event = { event: 'recording-progress', id: 'record-1', mode: 'return_home', total: 3, current: 1, completed: 0, step: 'export', skipAvailable: false, message: 'F8' };

@@ -139,6 +139,9 @@ Section "XM剪辑台（必选）" MainSection
   FileWrite $0 "${INSTALL_ID}"
   FileClose $0
   SetOverwrite on
+  ; Remove the former bundled pet runtime when upgrading this registered installation.
+  IfFileExists "$INSTDIR\resources\companion\xm-manifest.json" 0 +2
+    RMDir /r "$INSTDIR\resources\companion"
   !include "generated-install.nsh"
   SetOutPath "$INSTDIR"
   WriteUninstaller "$INSTDIR\卸载XM剪辑台.exe"

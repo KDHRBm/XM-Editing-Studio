@@ -6,13 +6,21 @@ import {spawnSync} from 'node:child_process';
 const args=process.argv.slice(2), engineIndex=args.indexOf('--jianying');
 const engineArg=engineIndex<0?null:args.splice(engineIndex,2)[1];
 if(engineIndex>=0&&!engineArg)throw Error('--jianying requires a directory with JianYingEngine.exe and engine.json');
+const stageIndex=args.indexOf('--stage');
+const stageArg=stageIndex<0?null:args.splice(stageIndex,2)[1];
+if(stageIndex>=0&&!stageArg)throw Error('--stage requires a complete native build directory');
+const baseVersionIndex=args.indexOf('--base-version');
+const baseVersionArg=baseVersionIndex<0?'1.4.2':args.splice(baseVersionIndex,2)[1];
+if(!/^\d+\.\d+\.\d+$/.test(baseVersionArg))throw Error('--base-version requires a version such as 1.4.8');
 const [baseArg, hostArg, clientArg, outArg, ...priorManifestArgs] = args;
-if (!outArg) throw Error('Usage: node scripts/build-native-patch.mjs baseline-app new-host new-client output [known-prior-native-files.json ...] [--jianying new-engine-directory]');
+if (!outArg) throw Error('Usage: node scripts/build-native-patch.mjs baseline-app new-host new-client output [known-prior-native-files.json ...] [--base-version 1.4.8] [--stage complete-native-build] [--jianying new-engine-directory]');
 const base=path.resolve(baseArg), host=path.resolve(hostArg), client=path.resolve(clientArg), output=path.resolve(outArg);
 const version=JSON.parse(await fs.readFile('package.json','utf8')).version;
 const baselineBytes=await fs.readFile(path.join(base,'native-files.json'));
 const baseline=JSON.parse(baselineBytes);
-if(baseline.version!=='1.4.2'||baseline.architecture!=='csharp-webview2') throw Error('Expected original native 1.4.2 baseline');
+if(baseline.version!==baseVersionArg||baseline.architecture!=='csharp-webview2') throw Error('Expected original native '+baseVersionArg+' baseline');
+const priorManifestBytes=await Promise.all(priorManifestArgs.map(file=>fs.readFile(path.resolve(file))));
+const priorManifests=priorManifestBytes.map(bytes=>JSON.parse(bytes));
 await fs.mkdir(output); const payload=path.join(output,'payload'); await fs.mkdir(payload);
 const hash=bytes=>createHash('sha256').update(bytes).digest('hex');
 const candidates=new Map([['小马剪辑台.exe',await fs.readFile(host)]]);
@@ -31,24 +39,40 @@ async function walk(directory) {
   }
 }
 await walk(client);
-const nativeManifest=JSON.parse(await fs.readFile(path.join(base,'resources/native-manifest.json'),'utf8'));
-nativeManifest.version=version;
-candidates.set('resources/native-manifest.json',Buffer.from(JSON.stringify(nativeManifest,null,2)));
-const finalFiles={...baseline.files},changed=[];
-async function add(name,bytes,before) {
-  const after=hash(bytes);if(after===before)return;
+if(stageArg) {
+  const stage=path.resolve(stageArg);
+  const stageManifest=JSON.parse(await fs.readFile(path.join(stage,'native-files.json'),'utf8'));
+  if(stageManifest.version!==version||stageManifest.architecture!==baseline.architecture)throw Error('Complete native build has the wrong version or architecture');
+  candidates.clear();
+  for(const [name,digest] of Object.entries(stageManifest.files)) {
+    if(name.startsWith('data/'))continue;
+    const file=path.resolve(stage,name);
+    if(!file.startsWith(stage+path.sep))throw Error('Invalid native build path: '+name);
+    const bytes=await fs.readFile(file);
+    if(hash(bytes)!==digest)throw Error('Native build checksum mismatch: '+name);
+    candidates.set(name,bytes);
+  }
+} else {
+  const nativeManifest=JSON.parse((await fs.readFile(path.join(base,'resources/native-manifest.json'),'utf8')).replace(/^\uFEFF/,''));
+  nativeManifest.version=version;
+  candidates.set('resources/native-manifest.json',Buffer.from(JSON.stringify(nativeManifest,null,2)));
+}
+const programFiles=Object.fromEntries(Object.entries(baseline.files).filter(([name])=>!name.startsWith('data/')));
+const finalFiles={...programFiles},changed=[];
+async function add(name,bytes,before,force=false) {
+  const after=hash(bytes);if(after===before&&!force)return;
   const destination=path.join(payload,name);await fs.mkdir(path.dirname(destination),{recursive:true});await fs.writeFile(destination,bytes);
   changed.push({name,before:before||'',after});
 }
 for(const [name,bytes] of candidates) {
   if(baseline.files[name] && hash(await fs.readFile(path.join(base,name)))!==baseline.files[name])throw Error('Baseline modified: '+name);
-  await add(name,bytes,baseline.files[name]);finalFiles[name]=hash(bytes);
+  await add(name,bytes,baseline.files[name],priorManifests.some(prior=>prior.files[name]!==baseline.files[name]));finalFiles[name]=hash(bytes);
 }
 await add('native-files.json',Buffer.from(JSON.stringify({...baseline,version,files:finalFiles},null,2)),hash(await fs.readFile(path.join(base,'native-files.json'))));
-const retained=Object.fromEntries(Object.entries(baseline.files).filter(([name])=>!changed.some(file=>file.name===name)&&(!name.startsWith('resources/companion/') || ['resources/companion/xm-manifest.json','resources/companion/dsh-pet-standalone-webm-chat.exe'].includes(name))));
+const retained=Object.fromEntries(Object.entries(programFiles).filter(([name])=>!changed.some(file=>file.name===name)&&(!name.startsWith('resources/companion/') || ['resources/companion/xm-manifest.json','resources/companion/dsh-pet-standalone-webm-chat.exe'].includes(name))));
 for(const [name,digest] of Object.entries(retained)) if(hash(await fs.readFile(path.join(base,name)))!==digest) throw Error('Retained baseline changed: '+name);
 const baselines=[];
-for(const bytes of [baselineBytes,...await Promise.all(priorManifestArgs.map(file=>fs.readFile(path.resolve(file))))]) {
+for(const bytes of [baselineBytes,...priorManifestBytes]) {
   const prior=JSON.parse(bytes);
   const number=value=>/^\d+\.\d+\.\d+$/.test(value)?value.split('.').reduce((sum,part)=>sum*100000+Number(part),0):NaN;
   if(!Number.isFinite(number(prior.version))||number(prior.version)<number(baseline.version)||number(prior.version)>number(version)||prior.architecture!==baseline.architecture)throw Error('Unsupported prior native manifest');
@@ -67,5 +91,5 @@ for(const [exe,args] of [[path.join(output,'XM-Editing-Studio-'+version+'-Update
   if(result.status!==0)throw Error(result.stdout+result.stderr);
 }
 await fs.copyFile('CHANGELOG-'+version+'.md',path.join(output,'更新说明.md'));
-await fs.writeFile(path.join(output,'使用说明.txt'),'XM剪辑台 '+version+' 累计增量更新包\r\n适用：原版 '+[...new Set(baselines.map(item=>item.version))].join('、')+'，包含已知本地修订（C# + WebView2）\r\n\r\n1. 将整个压缩包解压到安装目录之外。不要只取出 exe。\r\n2. 保存任务，从托盘彻底退出 XM剪辑台和桌宠。\r\n3. 双击 XM-Editing-Studio-'+version+'-Update.exe，选择原版安装目录并点击开始更新。\r\n4. 已安装本次修改时，会提示无需重复更新。\r\n\r\n程序自动校验和备份，保留配置、任务、音乐与桌宠。备份位于安装目录 .xiaoma-update-backups。\r\n此包不是完整安装包；1.3.1 等旧版请先更新至 1.4.2。请勿混用其他版本文件。\r\n');
+await fs.writeFile(path.join(output,'使用说明.txt'),'XM剪辑台 '+version+' 增量更新包\r\n适用：原版 '+[...new Set(baselines.map(item=>item.version))].join('、')+'（C# + WebView2）\r\n\r\n1. 将整个 ZIP 解压到安装目录之外，保持更新器 EXE 与 payload 文件夹同级。\r\n2. 不要单独移动更新器 EXE，也不要运行 payload\\小马剪辑台.exe；它不是独立程序。\r\n3. 保存任务，从托盘彻底退出 XM剪辑台。\r\n4. 双击外层的 XM-Editing-Studio-'+version+'-Update.exe，选择原版安装目录并点击开始更新。\r\n5. 已安装本次修改时，会提示无需重复更新。\r\n\r\n程序自动校验和备份，保留配置、任务与音乐。备份位于安装目录 .xiaoma-update-backups。\r\n此包不是完整安装包；旧版请先更新至 '+baseline.version+'。请勿混用其他版本文件。\r\n');
 console.log(JSON.stringify({output,version,changed:changed.map(file=>file.name),baselines:baselines.map(item=>item.version),retained:Object.keys(retained).length},null,2));

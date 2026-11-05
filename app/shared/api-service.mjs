@@ -6,9 +6,16 @@ import { analyzeWithWeb } from '../shared/web-script-analysis.mjs';
 import { analyzeBatchMusic } from '../shared/batch-music.mjs';
 import { segmentMessages, parseSegments, planSegments, segmentCandidates, segmentMatchMessages, parseSegmentMatches } from '../shared/script-segments.mjs';
 
+const DEFAULT_GEMINI_BASE_URL = 'https://generativelanguage.googleapis.com/v1beta';
 
 // Protocol and validation are shared by the legacy server and the native renderer.
 export function createApiService(fetch = globalThis.fetch) {
+function providerBaseUrl(provider) {
+  return provider?.protocol === 'gemini' && !provider.baseUrl?.trim()
+    ? DEFAULT_GEMINI_BASE_URL
+    : provider?.baseUrl;
+}
+
 function normalizeBaseUrl(value) {
   if (typeof value !== "string" || !value.trim()) {
     throw Object.assign(new Error("请先填写 Base URL。"), { status: 400 });
@@ -47,7 +54,49 @@ function validateProvider(provider, model, allowSuno = false) {
   if (provider.protocol === "suno" && !allowSuno) {
     throw Object.assign(new Error("Suno 是音乐生成协议，请在音乐工作台中使用。"), { status: 400 });
   }
-  normalizeBaseUrl(provider.baseUrl);
+  normalizeBaseUrl(providerBaseUrl(provider));
+}
+
+async function requestProviderModels(provider) {
+  if (!provider || typeof provider !== 'object') {
+    throw Object.assign(new Error('找不到供应商配置。'), { status: 400 });
+  }
+  if (!provider.apiKey?.trim()) {
+    throw Object.assign(new Error('请先填写 API 密钥。'), { status: 400 });
+  }
+  const protocol = provider.protocol || 'openai';
+  if (!['gemini', 'openai', 'custom', 'anthropic'].includes(protocol)) {
+    throw Object.assign(new Error('此协议不提供模型列表，请手动添加模型 ID。'), { status: 400 });
+  }
+  const url = endpointUrl(providerBaseUrl(provider), '/models');
+  const headers = protocol === 'gemini'
+    ? { 'x-goog-api-key': provider.apiKey }
+    : protocol === 'anthropic'
+      ? { 'x-api-key': provider.apiKey, 'anthropic-version': '2023-06-01' }
+      : { Authorization: `Bearer ${provider.apiKey}` };
+  const entries = [];
+  let pageToken = '';
+  for (let page = 0; page < 10; page++) {
+    const pageUrl = new URL(url);
+    if (protocol === 'gemini') {
+      pageUrl.searchParams.set('pageSize', '1000');
+      if (pageToken) pageUrl.searchParams.set('pageToken', pageToken);
+    }
+    const response = await fetch(pageUrl, { method: 'GET', headers, signal: AbortSignal.timeout(30_000) });
+    const { payload } = await readUpstreamResponse(response, provider.apiKey, '拉取模型列表失败');
+    entries.push(...(Array.isArray(payload?.models) ? payload.models : Array.isArray(payload?.data) ? payload.data : []));
+    pageToken = protocol === 'gemini' ? String(payload?.nextPageToken || '') : '';
+    if (!pageToken) break;
+  }
+  const models = entries.filter(entry => {
+    if (protocol !== 'gemini') return true;
+    return !Array.isArray(entry?.supportedGenerationMethods) || entry.supportedGenerationMethods.includes('generateContent');
+  }).map(entry => typeof entry === 'string' ? entry : entry?.name || entry?.id || '')
+    .map(name => String(name).replace(/^models\//, ''))
+    .filter(name => protocol === 'gemini'
+      ? /^gemini-/i.test(name) && !/embedding|embed|imagen|image|tts|whisper|audio-only/i.test(name)
+      : name && !/embedding|embed|tts|whisper/i.test(name));
+  return [...new Set(models)];
 }
 
 function isSunoTaskModel(model) {
@@ -147,7 +196,7 @@ async function requestSunoModelTest(provider, model) {
 function buildProviderRequest(provider, model, messages, structured = false) {
   const protocol = provider.protocol || "openai";
   const url = endpointUrl(
-    provider.baseUrl,
+    providerBaseUrl(provider),
     protocol === "anthropic"
       ? "/messages"
       : protocol === "gemini"
@@ -519,6 +568,10 @@ signal.throwIfAborted();
       latencyMs: Date.now() - startedAt,
       preview: result.text.slice(0, 120),
     });
+  }
+
+  if (url === '/api/providers/models') {
+    return reply(200, { ok: true, models: await requestProviderModels(body.provider) });
   }
 
   if (url === "/api/chat") {

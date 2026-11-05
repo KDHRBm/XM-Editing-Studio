@@ -8,7 +8,7 @@ import { isDeepSeekScan } from '../shared/jianying-models.mjs';
 
 const allowed = new Set(['status', 'stop', 'modal', 'scan', 'wizard', 'export', 'extract', 'fonts', 'unhide', 'restore_punctuation', 'paths', 'files', 'preview', 'rename', 'settings', 'select_template', 'rename_template', 'delete_template']);
 export function createJianyingHost({ appDirectory, dataDirectory, minimize = () => {}, onScanProgress = () => {}, onExportProgress = () => {}, onRecordingProgress = () => {}, beforeScanCapture = async () => {}, spawnProcess = spawn, requestAI = requestJianyingAI, webScan }) {
-  let child, starting, sequence = 0, connection = null, controller = null, lastState = null;
+  let child, starting, sequence = 0, connection = null, fallbackGemini = null, useFallback = false, controller = null, lastState = null;
   let scan = null, exportTask = null, recording = null, closing = false;
   const scanStages = new Set(['preparing', 'locating', 'analyzing', 'organizing', 'complete', 'error', 'cancelled']);
   const terminal = value => value && ['complete', 'error', 'cancelled'].includes(value.stage);
@@ -62,7 +62,7 @@ export function createJianyingHost({ appDirectory, dataDirectory, minimize = () 
       const processHandle = spawnProcess(executable, ['--data-dir', path.join(dataDirectory, 'settings')], { windowsHide: true, stdio: ['pipe', 'pipe', 'ignore'] });
       child = processHandle;
       processHandle.on('error', () => { if (child !== processHandle) return; child = null; controller?.abort(); scanFailed('扫描引擎无法启动，请返回工作台重试。'); fail('剪映 AI 引擎无法启动，请重新打开功能页。'); });
-      processHandle.on('exit', () => { if (child !== processHandle) return; child = null; controller?.abort(); connection = null; scanFailed('扫描引擎已退出，请返回工作台重试。'); fail('剪映 AI 引擎已退出，请重试。'); });
+      processHandle.on('exit', () => { if (child !== processHandle) return; child = null; controller?.abort(); connection = null; fallbackGemini = null; useFallback = false; scanFailed('扫描引擎已退出，请返回工作台重试。'); fail('剪映 AI 引擎已退出，请重试。'); });
       const reader = createInterface({ input: processHandle.stdout });
       reader.on('line', line => {
         let value; try { value = JSON.parse(line); } catch { return; }
@@ -95,7 +95,10 @@ export function createJianyingHost({ appDirectory, dataDirectory, minimize = () 
               if (!captured || !signal || signal.aborted) throw new Error('AI 任务已中断或连接未选择。');
               const scanId = scan?.id;
               const report = message => { if (!signal.aborted && scan && scan.id === scanId && !terminal(scan)) progress({ ...scan, message }); };
-              result = { text: isDeepSeekScan(captured) ? await webScan.request(value, signal, report) : await requestAI(captured, value, signal, undefined, { onRetry: report }) };
+              if (isDeepSeekScan(captured) && value.fallback === true && fallbackGemini) useFallback = true;
+              if (useFallback && fallbackGemini && isDeepSeekScan(captured)) report('DeepSeek 坐标未通过校验，正在用 Gemini 重新识别');
+              const selected = useFallback && isDeepSeekScan(captured) ? fallbackGemini : captured;
+              result = { text: isDeepSeekScan(selected) ? await webScan.request(value, signal, report) : await requestAI(selected, value, signal, undefined, { onRetry: report }) };
             }
             catch (error) { result = { error: error.message }; }
             if (child === processHandle) await command('ai_result', { token: value.token, ...result }).catch(() => {});
@@ -122,7 +125,7 @@ export function createJianyingHost({ appDirectory, dataDirectory, minimize = () 
     lastConnection: () => connection,
     async run(action, args = {}, selectedConnection) {
       if (!allowed.has(action) || !args || typeof args !== 'object' || JSON.stringify(args).length > 500000) throw new Error('无效的剪映 AI 操作。');
-      if (action === 'stop') { controller?.abort(); webScan?.close(); }
+      if (action === 'stop') { controller?.abort(); webScan?.close(); fallbackGemini = null; useFallback = false; }
       if (action === 'scan' || action === 'preview' && args.ai) {
         const web = isDeepSeekScan(selectedConnection);
         if (web && (action !== 'scan' || !webScan)) throw new Error('DeepSeek 网页连接仅用于草稿扫描。');
@@ -131,6 +134,14 @@ export function createJianyingHost({ appDirectory, dataDirectory, minimize = () 
         if (state.busy || state.recording || state.modal) throw new Error('请先结束当前任务。');
         controller?.abort(); controller = new AbortController();
         connection = { provider: { ...selectedConnection.provider }, model: selectedConnection.model };
+        fallbackGemini = null;
+        useFallback = false;
+        if (web && selectedConnection.fallbackGemini) {
+          try {
+            buildJianyingAIRequest(selectedConnection.fallbackGemini, { prompt: 'validate' });
+            fallbackGemini = { provider: { ...selectedConnection.fallbackGemini.provider }, model: selectedConnection.fallbackGemini.model };
+          } catch { /* DeepSeek remains available without a Gemini connection. */ }
+        }
         if (action === 'scan') args = { ...args, webScan: web };
       }
       return command(action, args);
@@ -138,7 +149,7 @@ export function createJianyingHost({ appDirectory, dataDirectory, minimize = () 
     async dispose() {
       closing = true;
       webScan?.dispose();
-      controller?.abort(); connection = null;
+      controller?.abort(); connection = null; fallbackGemini = null; useFallback = false;
       if (!child) return;
       const handle = child;
       try { await command('shutdown'); } finally { handle.stdin.end(); }

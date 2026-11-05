@@ -10,7 +10,6 @@ namespace XM.Native {
             if (!Directory.Exists(target)) {
                 string roaming = Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData);
                 string legacy = new[] { "xiaoma-editing-studio", "黑曜信号台" }.Select(x => Path.Combine(roaming, x)).FirstOrDefault(Directory.Exists);
-                if (legacy != null && File.Exists(Path.Combine(legacy, "companion-updates", "active.json"))) throw new IOException("请运行 1.4.2 更新包迁移已独立更新的桌宠及配置，原数据仍保留。");
                 if (legacy != null && Directory.Exists(Path.Combine(legacy, "native-webview"))) {
                     string stage = target + ".migrate-" + Guid.NewGuid().ToString("N");
                     CopyProfile(legacy, stage);

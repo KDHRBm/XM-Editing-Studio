@@ -17,6 +17,7 @@ namespace XM.Native {
     internal sealed partial class StudioHost {
         private Engine jyEngine, watermarkEngine, periodEngine;
         private object jyState = J.Obj("ready", false, "status", "引擎准备中", "queue", new object[0]);
+        private WebView2 jyAiView;
         private readonly HttpClient http = new HttpClient(new HttpClientHandler { AutomaticDecompression = System.Net.DecompressionMethods.GZip | System.Net.DecompressionMethods.Deflate }) { Timeout = Timeout.InfiniteTimeSpan };
         private readonly ConcurrentDictionary<string, CancellationTokenSource> requests = new ConcurrentDictionary<string, CancellationTokenSource>();
         private readonly Dictionary<string, Task> aiReady = new Dictionary<string, Task>();
@@ -43,7 +44,6 @@ namespace XM.Native {
             foreach (var item in requests) item.Value.Cancel();
             browserWatermark.Dispose();
             updateClosing.Cancel();
-            if (petUpdateTask != null) await petUpdateTask;
             if (wmRunning) { wmCancelled = true; try { await watermarkEngine.Call("cancel", null, false, 5000, true); } catch {} }
             if (wmTask != null) await wmTask;
             await StopCompanion(); StopClipboard();
@@ -57,8 +57,8 @@ namespace XM.Native {
                 case "progress-message": if (currentProgress != null) { J.Map(currentProgress)["message"] = J.Str(p, "message"); ShowProgress(currentProgress); } return true;
                 case "titlebar-theme": {
                     var value = J.Str(p, "theme");
-                    if (!new[] { "obsidian", "ios", "aurora", "graphite", "ocean", "burgundy", "midnight", "plum", "pine", "matcha", "sunset" }.Contains(value)) throw new Exception("无效的主题。");
-                    theme = value; MainWindow.Palette(!new[] { "ios", "matcha", "sunset" }.Contains(theme)); Emit("bos:companion-theme", theme, PanelView); await UpdateMainPalette(); await UpdatePanelPalette(); return true;
+                    if (!System.Text.RegularExpressions.Regex.IsMatch(value, "^[a-z0-9-]{1,40}$")) throw new Exception("无效的主题。");
+                    theme = value; themeLight = J.Bool(p, "light"); MainWindow.Palette(!themeLight); Emit("bos:companion-theme", theme, PanelView); await UpdateMainPalette(); await UpdatePanelPalette(); return true;
                 }
                 case "http-fetch": return await Fetch(p);
                 case "http-cancel": { CancellationTokenSource token; if (requests.TryGetValue(J.Str(p, "requestId"), out token)) token.Cancel(); return null; }
@@ -82,7 +82,10 @@ namespace XM.Native {
                 case "jianying-action": {
                     string action = J.Str(p, "action");
                     if (!new[] { "status", "stop", "modal", "scan", "wizard", "export", "extract", "fonts", "unhide", "restore_punctuation", "paths", "files", "preview", "rename", "settings", "select_template", "rename_template", "delete_template", "ai_result", "recording_capture_ready", "scan_capture_ready" }.Contains(action)) throw new Exception("无效的剪映操作。");
-                    jyState = await jyEngine.Call(action, J.Get(p, "args")); return jyState;
+                    if (action == "scan") webScanActive = J.Bool(J.Get(p, "args"), "webScan");
+                    if (action == "scan" || action == "preview" && J.Bool(J.Get(p, "args"), "ai")) jyAiView = sender;
+                    try { jyState = await jyEngine.Call(action, J.Get(p, "args")); return jyState; }
+                    catch { if (action == "scan") webScanActive = false; throw; }
                 }
                 case "jianying-files": return ChooseFiles("视频、音频和字幕|*.mp4;*.mov;*.avi;*.mkv;*.mp3;*.wav;*.srt;*.ass|所有文件|*.*");
                 case "progress-action": return await ProgressAction(J.Str(p, "action"));
@@ -166,7 +169,7 @@ namespace XM.Native {
             view.CoreWebView2.NavigationStarting += (s, e) => { if (activeAi == provider) aiInput.Invalidate(); aiLoading.Add(provider); aiErrors[provider] = ""; };
             view.CoreWebView2.NavigationCompleted += (s, e) => { aiLoading.Remove(provider); aiErrors[provider] = e.IsSuccess ? "" : "网页加载失败：" + e.WebErrorStatus + "，可刷新重试。"; };
         }
-        private object AIState(string provider) { WebView2 view; string error; aiErrors.TryGetValue(provider, out error); return J.Obj("provider", provider, "loading", aiLoading.Contains(provider), "url", aiViews.TryGetValue(provider, out view) && view.CoreWebView2 != null ? view.CoreWebView2.Source : "", "error", error ?? ""); }
+        private object AIState(string provider) { WebView2 view; string error; aiErrors.TryGetValue(provider, out error); bool found = aiViews.TryGetValue(provider, out view); return J.Obj("provider", provider, "visible", found && view.Visible && activeAi == provider, "loading", aiLoading.Contains(provider), "url", found && view.CoreWebView2 != null ? view.CoreWebView2.Source : "", "error", error ?? ""); }
         private async Task<object> AIAction(object p) {
             string provider = J.Str(p, "provider"), action = J.Str(p, "action"); WebView2 view;
             if (action == "external") { OpenPath(provider == "deepseek" ? "https://chat.deepseek.com/" : "https://www.doubao.com/chat/"); return J.Obj("external", true); }

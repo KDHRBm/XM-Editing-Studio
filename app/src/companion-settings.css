@@ -10,6 +10,19 @@
 .bos-pet-toolbar small, .bos-pet-preview small, .bos-pet-card h3 small { color: var(--ui-muted); font-size: 11px; font-weight: 400; }
 .bos-pet-settings .bos-pet-primary { background: var(--ui-accent); color: var(--ui-on-accent); border-color: var(--ui-accent); }
 .bos-pet-layout { display: grid; grid-template-columns: minmax(240px,.8fr) minmax(300px,1.4fr); gap: 18px; align-items: start; }
+.bos-pet-config { display: grid; gap: 14px; }
+.bos-pet-config h3 { margin: 0; }
+.bos-pet-config h3:not(:first-child) { padding-top: 16px; border-top: 1px solid var(--ui-border); }
+.bos-pet-setting-grid { display: grid; gap: 7px; }
+.bos-pet-setting-row { display: grid; grid-template-columns: minmax(0,1fr) 160px; align-items: center; gap: 14px; min-height: 42px; font-size: 12px; }
+.bos-pet-setting-row > span { min-width: 0; }
+.bos-pet-setting-row > select, .bos-pet-setting-row > input[type=number], .bos-pet-setting-row > button { width: 100%; box-sizing: border-box; }
+.bos-pet-scale-control { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.bos-pet-settings .bos-pet-scale-control input[type=range] { flex: 1; width: 100%; min-width: 0; padding: 0; border: 0; background: transparent; accent-color: var(--ui-accent); cursor: pointer; }
+.bos-pet-scale-control output { width: 38px; flex: 0 0 38px; color: var(--ui-muted); font-size: 11px; text-align: right; }
+.bos-pet-setting-row > input[type=checkbox] { justify-self: end; width: 16px; height: 16px; padding: 0; accent-color: var(--ui-accent); }
+.bos-pet-setting-row > input[type=color] { justify-self: end; width: 42px; height: 34px; padding: 2px; cursor: pointer; }
+.bos-pet-config-actions { display: flex; justify-content: flex-end; }
 .bos-pet-card { padding: 20px; border: 1px solid var(--ui-border); border-radius: 12px; background: var(--ui-surface); min-width: 0; }
 .bos-pet-card h3 { margin: 0 0 18px; font-size: 14px; display: flex; gap: 10px; align-items: center; }
 .bos-pet-preview { display: grid; justify-items: center; gap: 12px; }
@@ -18,6 +31,9 @@
 .bos-pet-actions { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 10px; }
 .bos-pet-name { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; margin-bottom: 10px; font-size: 12px; }
 .bos-pet-name input { flex: 1; width: 120px; }
+.bos-pet-phrases { display: grid; gap: 7px; margin-top: 14px; }
+.bos-pet-bubble-sample { justify-self: center; box-sizing: border-box; display: inline-block; min-width: 148px; max-width: 100%; padding: 8px 12px; border: 2px solid var(--bubble-border); border-radius: 15px; background: #fff; color: #111; font-size: 12px; font-weight: 700; line-height: 1.4; text-align: center; overflow-wrap: anywhere; }
+.bos-pet-phrases textarea { box-sizing: border-box; width: 100%; min-height: 100px; padding: 10px 12px; resize: vertical; border: 1px solid var(--ui-border); border-radius: 8px; background: var(--ui-raised); color: var(--ui-text); font: inherit; line-height: 1.5; }
 .bos-pet-controls { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; padding: 16px 0; border-bottom: 1px solid var(--ui-border); }
 .bos-pet-controls label { display: grid; gap: 8px; font-size: 12px; }
 .bos-pet-controls label > span { display: flex; justify-content: space-between; }
@@ -35,5 +51,6 @@
 .bos-pet-features { display: grid; grid-template-columns: repeat(auto-fit,minmax(160px,1fr)); gap: 9px; margin: 14px 0; }
 @media (max-width: 1100px) { .bos-pet-layout { grid-template-columns: 1fr; } .bos-pet-video { height: 260px; } }
 @media (max-width: 600px) { .bos-pet-switches, .bos-pet-controls { grid-template-columns: 1fr; } }
+@media (max-width: 520px) { .bos-pet-setting-row { grid-template-columns: minmax(0,1fr) 120px; } }
 
 .bos-pet-update {display:flex;align-items:center;justify-content:space-between;gap:16px;flex-wrap:wrap}.bos-pet-update p {margin:6px 0}.bos-pet-update progress{width:100%;height:6px;accent-color:var(--accent,#77aee8)}.bos-pet-start-error{font-size:11px;max-width:240px;color:#ff9d93;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}

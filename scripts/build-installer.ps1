@@ -44,8 +44,12 @@ $install.Add('SetOutPath "$INSTDIR"')
 $install.Add("File `"$(Join-Path $installer $guide)`"")
 $uninstall.Add("Delete `"`$INSTDIR\$guide`"")
 foreach ($dir in $dirs) { $uninstallDirs.Add("RMDir `"`$INSTDIR\$($dir.FullName.Substring($packaged.Length + 1))`"") }
-$makensis = Join-Path $root '..\installer-tools\nsis\makensis.exe'
-if (-not (Test-Path -LiteralPath $makensis)) { throw "NSIS not found: $makensis" }
+$makensis = @(
+  (Join-Path $root '..\installer-tools\nsis\makensis.exe'),
+  (Join-Path ${env:ProgramFiles(x86)} 'NSIS\makensis.exe'),
+  (Join-Path $env:ProgramFiles 'NSIS\makensis.exe')
+) | Where-Object { Test-Path -LiteralPath $_ } | Select-Object -First 1
+if (-not $makensis) { throw 'NSIS makensis.exe not found.' }
 try {
   [IO.File]::WriteAllLines((Join-Path $installer $generated[0]), $config, $encoding)
   [IO.File]::WriteAllLines((Join-Path $installer $generated[1]), $install, $encoding)

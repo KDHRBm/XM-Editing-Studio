@@ -44,11 +44,48 @@ namespace XM.Native {
                     var request = J.Read(path, null); File.Delete(path);
                     id = J.Str(request, "id"); string command = J.Str(request, "command"), script = J.Str(request, "script");
                     object result = null;
-                    var view = J.Bool(request, "panel") ? PanelView : J.Bool(request, "progress") ? progressView : MainView;
+                    var view = J.Bool(request, "animation") ? animationView : J.Bool(request, "panel") ? PanelView : J.Bool(request, "progress") ? progressView : MainView;
                     if (command == "progress") { ShowProgress(J.Get(request, "state")); J.Save(Path.Combine(DataDir, "qa-result.json"), J.Obj("id", id, "value", true)); return; }
-                    if (command == "pet-drop") { await ReceivePetDrop(J.Arr(J.Get(request, "paths")).OfType<string>().ToArray()); J.Save(Path.Combine(DataDir, "qa-result.json"), J.Obj("id", id, "value", await BroadcastPet())); return; }
                     if (command == "native") { result = await Dispatch(MainView, J.Str(request, "action"), J.Map(J.Get(request, "payload"))); J.Save(Path.Combine(DataDir, "qa-result.json"), J.Obj("id", id, "value", J.Obj("result", result))); return; }
-                    if (command == "window") result = QAWindow(view.FindForm(), request);
+                    if (command == "pet-position") {
+                        if (animationWindow == null) throw new Exception("Desktop animation is not open.");
+                        var area = Screen.PrimaryScreen.WorkingArea;
+                        var point = animationWindow.ConstrainForPeek(new Point((int)J.Num(request, "x"), (int)J.Num(request, "y")), area);
+                        if (J.Bool(request, "apply")) animationWindow.Location = point;
+                        var bounds = animationWindow.VisibleBounds;
+                        result = J.Obj("x", point.X, "y", point.Y, "visibleLeft", point.X + bounds.Left, "visibleRight", point.X + bounds.Right,
+                            "visibleTop", point.Y + bounds.Top, "visibleBottom", point.Y + bounds.Bottom,
+                            "screenLeft", area.Left, "screenRight", area.Right, "panelLeft", PanelWindow == null ? 0 : PanelWindow.Left,
+                            "panelRight", PanelWindow == null ? 0 : PanelWindow.Right);
+                    }
+                    else if (command == "pet-click") {
+                        if (animationWindow == null || animationView == null) throw new Exception("Desktop animation is not open.");
+                        var bounds = animationWindow.VisibleBounds;
+                        int x = bounds.Left + bounds.Width / 2, y = bounds.Top + bounds.Height / 2;
+                        IntPtr point = new IntPtr((y << 16) | (x & 0xffff));
+                        PostMessage(animationWindow.Handle, 0x201, new IntPtr(1), point);
+                        PostMessage(animationWindow.Handle, 0x202, IntPtr.Zero, point);
+                        await Task.Delay(SystemInformation.DoubleClickTime + 200);
+                        result = J.Decode(await animationView.CoreWebView2.ExecuteScriptAsync("document.getElementById('character')?.getAttribute('src')"));
+                    }
+                    else if (command == "pet-context") {
+                        if (animationWindow == null || !animationWindow.Visible) throw new Exception("Desktop animation is not visible.");
+                        var bounds = animationWindow.VisibleBounds;
+                        int x = bounds.Left + bounds.Width / 2, y = bounds.Top + bounds.Height / 2;
+                        IntPtr point = new IntPtr((y << 16) | (x & 0xffff));
+                        PostMessage(animationWindow.Handle, 0x204, new IntPtr(2), point);
+                        PostMessage(animationWindow.Handle, 0x205, IntPtr.Zero, point);
+                        await Task.Delay(150);
+                        result = J.Obj("menuVisible", animationWindow.ContextMenuStrip.Visible,
+                            "item", animationWindow.ContextMenuStrip.Items[0].Text);
+                    }
+                    else if (command == "pet-close") {
+                        if (animationWindow == null || animationWindow.ContextMenuStrip == null) throw new Exception("Desktop animation menu is not available.");
+                        animationWindow.ContextMenuStrip.Items[0].PerformClick();
+                        await Task.Delay(150);
+                        result = J.Obj("petVisible", PetVisible, "panelVisible", PanelWindow != null && PanelWindow.Visible);
+                    }
+                    else if (command == "window") result = QAWindow(view.FindForm(), request);
                     else if (command == "sizing") {
                         var window = view.FindForm(); var handle = window.Handle;
                         int side = (int)J.Num(request, "side", 2), key = (int)J.Num(request, "key", 0x27);
@@ -68,7 +105,7 @@ namespace XM.Native {
                             "center", shape == null || shape.IsVisible(window.ClientSize.Width / 2, window.ClientSize.Height / 2));
                     }
                     else if (command == "screen") {
-                        var window = view.FindForm(); var rectangle = window.Bounds;
+                        var window = J.Bool(request, "animation") && animationWindow != null ? (Form)animationWindow : view.FindForm(); var rectangle = window.Bounds;
                         using (var bitmap = new Bitmap(rectangle.Width + 16, rectangle.Height + 16)) {
                             using (var graphics = Graphics.FromImage(bitmap)) graphics.CopyFromScreen(rectangle.Left - 8, rectangle.Top - 8, 0, 0, bitmap.Size);
                             bitmap.Save(Path.Combine(DataDir, id + ".png"), System.Drawing.Imaging.ImageFormat.Png);

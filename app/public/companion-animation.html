@@ -1,0 +1,61 @@
+<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><style>
+html,body { margin:0; width:100%; height:100%; overflow:hidden; background:transparent; }
+body { display:grid; place-items:center; user-select:none; }
+video { width:100%; height:calc(100% - 26px); align-self:end; object-fit:contain; }
+.bubble { position:absolute; z-index:1; top:4px; left:50%; box-sizing:border-box; width:max-content; min-width:min(148px,calc(100% - 12px)); max-width:calc(100% - 12px); padding:8px 12px; border:2px solid var(--bubble-border,#FFB6C1); border-radius:15px; background:#fff; color:#111; font:700 12px/1.4 "Microsoft YaHei UI",sans-serif; text-align:center; overflow-wrap:anywhere; pointer-events:none; opacity:0; transform:translateY(6px) scale(.92); transition:opacity .2s ease,transform .2s cubic-bezier(.34,1.56,.64,1); }
+.bubble.show { opacity:1; transform:translateY(0) scale(1); }
+@media (prefers-reduced-motion:reduce) { .bubble { transition:none; } }
+</style></head><body><div class="bubble" id="bubble" role="status"></div><video id="character" autoplay muted playsinline></video><script>
+const api = window.blackObsidian;
+const video = document.getElementById('character');
+const bubble = document.getElementById('bubble');
+let animations = [], idle, current, motion = true, active = true, timer;
+let talkTimer, hideTalkTimer, talkSettings = { selfTalk: true, talkInterval: 90, phrases: [] };
+function positionBubble() {
+  const x = Math.max(0, Math.min(100, Number(talkSettings.bubbleX ?? 50)));
+  const y = Math.max(0, Math.min(100, Number(talkSettings.bubbleY ?? 0)));
+  bubble.style.left = `${4 + Math.max(0, innerWidth - bubble.offsetWidth - 8) * x / 100}px`;
+  bubble.style.top = `${4 + Math.max(0, innerHeight - bubble.offsetHeight - 8) * y / 100}px`;
+}
+new ResizeObserver(positionBubble).observe(bubble);
+addEventListener('resize', positionBubble);
+const src = id => '/companion-animations/' + id.split('/').map(encodeURIComponent).join('/');
+function play(id) {
+  if (!animations.some(item => item.id === id)) return;
+  current = id; video.src = src(id); video.play().catch(() => {});
+}
+function next() {
+  clearTimeout(timer);
+  if (!active) return;
+  if (!motion) { play(idle); return; }
+  const choices = animations.filter(item => item.category === 'random' || item.category === 'turn' || item.category === 'move');
+  const chosen = choices[Math.floor(Math.random() * choices.length)];
+  play(chosen?.id || idle);
+}
+video.onended = () => { if (!active) return; if (current !== idle) { play(idle); timer = setTimeout(next, 20000); } else timer = setTimeout(next, 20000); };
+function syncSettings(state) {
+  active = state.active !== false;
+  if (active) video.play().catch(() => {}); else { clearTimeout(timer); video.pause(); }
+  motion = state.settings?.motion !== false;
+  talkSettings = state.settings || talkSettings;
+  clearInterval(talkTimer); clearTimeout(hideTalkTimer);
+  bubble.classList.remove('show');
+  const color = String(talkSettings.bubbleBorderColor || '');
+  bubble.style.setProperty('--bubble-border', /^#[0-9a-fA-F]{6}$/.test(color) ? color : '#FFB6C1');
+  positionBubble();
+  const phrases = Array.isArray(talkSettings.phrases) ? talkSettings.phrases.filter(Boolean) : [];
+  if (talkSettings.selfTalk !== false && phrases.length) talkTimer = setInterval(() => {
+    bubble.textContent = phrases[Math.floor(Math.random() * phrases.length)];
+    positionBubble();
+    bubble.classList.add('show'); clearTimeout(hideTalkTimer);
+    hideTalkTimer = setTimeout(() => { bubble.classList.remove('show'); }, 6500);
+  }, Math.max(15, Number(talkSettings.talkInterval) || 90) * 1000);
+}
+api?.onCompanionState?.(syncSettings);
+api?.companionAction?.('sync').then(syncSettings).catch(() => {});
+api?.onCompanionPlay?.(id => { clearTimeout(timer); play(id); });
+fetch('/companion-animations/manifest.json').then(response => response.json()).then(items => {
+  animations = items; idle = items.find(item => item.category === 'idle')?.id || items[0]?.id;
+  if (idle) { play(idle); timer = setTimeout(next, 20000); }
+});
+</script></body></html>

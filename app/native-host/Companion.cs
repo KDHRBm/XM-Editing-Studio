@@ -1,204 +1,267 @@
 using System;
 using System.IO;
-using System.Text;
 using System.Linq;
 using System.Drawing;
-using System.Diagnostics;
-using System.Net;
-using System.Net.Sockets;
-using System.Net.Http;
-using System.Security.Cryptography;
 using System.Collections.Generic;
 using System.Threading.Tasks;
 using System.Windows.Forms;
 using Microsoft.Web.WebView2.WinForms;
 
 namespace XM.Native {
-    internal sealed class PetRuntime {
-        public string DirectoryPath { get; private set; }
-        public readonly string DataPath;
-        private Process child;
-        private Task<object> starting;
-        private string token;
-        private int port;
-        private TcpListener events;
-        private Task eventLoop;
-        public Action<string> Verify;
-        private readonly HttpClient http = new HttpClient { Timeout = TimeSpan.FromSeconds(30) };
-        public Action OpenPanel;
-        public Action<string[]> DropPaths;
-        public object State = J.Obj("ready", false, "visible", false, "settings", J.Obj(), "version", "4.3.4", "animationCount", 106);
-        public bool Running { get { return child != null && !child.HasExited; } }
-        public bool Visible { get { return Running && J.Bool(State, "visible"); } }
-        public PetRuntime(string directory, string data) { DirectoryPath = directory; DataPath = data; }
-        public object Manifest() { return J.Read(Path.Combine(DirectoryPath, "xm-manifest.json"), J.Obj()); }
-        public void SetDirectory(string directory) { if (Running) throw new Exception("桌宠尚未退出。"); DirectoryPath = directory; port = 0; }
-        public async Task<object> Status() {
-            if (Running && port != 0) { try { return await Command("status", null); } catch (Exception error) { J.Map(State)["error"] = error.Message; } }
-            else { var manifest = Manifest(); State = J.Obj("ready", false, "visible", false, "settings", J.Obj(), "version", J.Str(manifest, "version"), "animationCount", J.Arr(J.Get(manifest, "animations")).Length); }
-            return State;
-        }
-        public async Task<object> Run(string action, object value = null) { await Start(); return await Command(action, value); }
-        public async Task<object> Start() {
-            if (Running && port != 0) return await Command("status", null);
-            if (starting != null) return await starting;
-            starting = StartCore(); try { return await starting; } finally { starting = null; }
-        }
-        private async Task<object> StartCore() {
-            if (Verify != null) await Task.Run(() => Verify(DirectoryPath));
-            Directory.CreateDirectory(DataPath); string session = Guid.NewGuid().ToString("N");
-            var random = new byte[32]; using (var rng = RandomNumberGenerator.Create()) rng.GetBytes(random); token = BitConverter.ToString(random).Replace("-", "").ToLowerInvariant();
-            events = new TcpListener(IPAddress.Loopback, 0); events.Start();
-            var listener = events;
-            eventLoop = Task.Run(async () => {
-                while (events == listener) {
-                    TcpClient client;
-                    try { client = await listener.AcceptTcpClientAsync(); }
-                    catch (ObjectDisposedException) { break; } catch (SocketException) { break; }
-                    // A slow or malformed event is isolated to its connection. The next
-                    // double-click must still be able to open the companion card.
-                    using (client) try {
-                        var handling = ReceiveEvent(client);
-                        if (await Task.WhenAny(handling, Task.Delay(3000)) != handling) client.Close();
-                        await handling;
-                    } catch (Exception) { }
-                }
-            });
-            var info = new ProcessStartInfo(Path.Combine(DirectoryPath, "dsh-pet-standalone-webm-chat.exe")) { WorkingDirectory = DirectoryPath, UseShellExecute = false, CreateNoWindow = true };
-            info.EnvironmentVariables["XM_COMPANION_DATA"] = DataPath; info.EnvironmentVariables["XM_COMPANION_TOKEN"] = token; info.EnvironmentVariables["XM_COMPANION_SESSION"] = session;
-            info.EnvironmentVariables["XM_COMPANION_EVENT_PORT"] = ((IPEndPoint)events.LocalEndpoint).Port.ToString(); info.EnvironmentVariables["XM_COMPANION_PARENT_PID"] = Process.GetCurrentProcess().Id.ToString();
-            info.EnvironmentVariables["XM_COMPANION_HOST"] = Application.ExecutablePath; info.EnvironmentVariables["XM_COMPANION_HOST_ARGS"] = "[]";
-            foreach (string key in new[] { "XM_COMPANION_OWNER_PID", "QT_PLUGIN_PATH", "QT_QPA_PLATFORM_PLUGIN_PATH" }) info.EnvironmentVariables.Remove(key);
-            child = Process.Start(info);
-            for (int n = 0; n < 200 && !child.HasExited; n++) {
-                object bridge = null; try { bridge = J.Read(Path.Combine(DataPath, "companion-bridge.json"), null); } catch {}
-                if (J.Str(bridge, "session") == session && J.Num(bridge, "pid") == child.Id && J.Num(bridge, "port") > 0) { port = (int)J.Num(bridge, "port"); return await Command("status", null); }
-                await Task.Delay(150);
-            }
-            await Stop(); throw new Exception("桌宠启动失败，请查看桌宠日志。");
-        }
-        private async Task ReceiveEvent(TcpClient client) {
-            using (var stream = client.GetStream()) {
-                var header = new MemoryStream(); var one = new byte[1];
-                while (header.Length < 8192) {
-                    if (await stream.ReadAsync(one, 0, 1) == 0) return;
-                    header.WriteByte(one[0]); var bytes = header.GetBuffer(); int n = (int)header.Length;
-                    if (n >= 4 && bytes[n-4] == 13 && bytes[n-3] == 10 && bytes[n-2] == 13 && bytes[n-1] == 10) break;
-                }
-                var lines = Encoding.ASCII.GetString(header.ToArray()).Split(new[] { "\r\n" }, StringSplitOptions.None);
-                string auth = ""; int length = 0; bool origin = false;
-                foreach (string line in lines.Skip(1)) {
-                    if (line.StartsWith("Authorization:", StringComparison.OrdinalIgnoreCase)) auth = line.Substring(14).Trim();
-                    if (line.StartsWith("Content-Length:", StringComparison.OrdinalIgnoreCase)) int.TryParse(line.Substring(15), out length);
-                    if (line.StartsWith("Origin:", StringComparison.OrdinalIgnoreCase)) origin = true;
-                }
-                bool accepted = lines[0] == "POST /event HTTP/1.1" && auth == "Bearer " + token && !origin && length > 0 && length <= 262144;
-                string action = ""; string[] paths = new string[0];
-                if (accepted) {
-                    byte[] body = new byte[length]; int read = 0, n;
-                    while (read < length && (n = await stream.ReadAsync(body, read, length - read)) > 0) read += n;
-                    if (read != length) return;
-                    var request = J.Decode(Encoding.UTF8.GetString(body)); action = J.Str(request, "action");
-                    paths = J.Arr(J.Get(request, "paths")).OfType<string>().ToArray();
-                    accepted = action == "open-panel" || action == "drop-paths" && paths.Length > 0 && paths.Length <= 2000;
-                }
-                byte[] reply = Encoding.ASCII.GetBytes("HTTP/1.1 " + (accepted ? "204 No Content" : "403 Forbidden") + "\r\nConnection: close\r\nContent-Length: 0\r\n\r\n"); await stream.WriteAsync(reply, 0, reply.Length);
-                if (accepted && action == "open-panel" && OpenPanel != null) OpenPanel();
-                if (accepted && action == "drop-paths" && DropPaths != null) DropPaths(paths);
-            }
-        }
-        private async Task<object> Command(string action, object value) {
-            using (var req = new HttpRequestMessage(HttpMethod.Post, "http://127.0.0.1:" + port + "/command")) {
-                req.Headers.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", token); req.Content = new StringContent(J.Encode(J.Obj("action", action, "value", value)), Encoding.UTF8, "application/json");
-                using (var response = await http.SendAsync(req)) { var result = J.Decode(await response.Content.ReadAsStringAsync()); if (!response.IsSuccessStatusCode || J.Str(result, "error").Length > 0) throw new Exception(J.Str(result, "error", "桌宠连接失败。")); return State = result; }
-            }
-        }
-        public async Task Stop() {
-            var own = child; if (own != null && !own.HasExited) {
-                try { if (port > 0) await Command("quit", null); } catch {}
-                for (int n = 0; n < 40 && !own.HasExited; n++) await Task.Delay(200);
-                if (!own.HasExited) { own.Kill(); await Task.Run(() => own.WaitForExit(3000)); }
-            }
-            child = null; port = 0; var listener = events; events = null; if (listener != null) listener.Stop();
-            if (eventLoop != null) await eventLoop;
-        }
-    }
     internal sealed partial class StudioHost {
-        private PetRuntime pet;
-        private Dictionary<string, object> petSettings;
-        private readonly System.Windows.Forms.Timer petTimer = new System.Windows.Forms.Timer { Interval = 2000 };
-        private bool petPolling, lastPetTaskBusy;
-        private string PetDirectory { get { return pet.DirectoryPath; } }
-        private bool PetVisible { get { return pet != null && pet.Visible; } }
-        private string PetName { get { return J.Str(petSettings, "name", "大肥鱼"); } }
+        private LayeredAnimationWindow animationWindow;
+        private Form animationSourceWindow;
+        private WebView2 animationView;
+        private Task animationOpening;
+        private readonly Timer animationFrameTimer = new Timer { Interval = 40 };
+        private readonly Timer animationPositionTimer = new Timer { Interval = 250 };
+        private readonly Timer panelPositionTimer = new Timer { Interval = 250 };
+        private readonly Random animationRandom = new Random();
+        private string lastInteractionId;
+        private bool animationFrameBusy;
+        private bool animationWanted;
+        private Dictionary<string, object> animationSettings;
+        private bool PetVisible { get { return animationWindow != null && !animationWindow.IsDisposed && animationWindow.Visible; } }
+        private string PetName { get { return "大肥鱼"; } }
+
         private void InitCompanion() {
-            petSettings = J.Obj("name", "大肥鱼", "showName", true, "palette", "original", "size", "normal", "motion", true, "roam", false, "sound", false, "volume", 40, "idleInterval", 30);
-            try { foreach (var pair in J.Map(J.Read(Path.Combine(DataDir, "companion-settings.json"), null))) if (petSettings.ContainsKey(pair.Key)) petSettings[pair.Key] = pair.Value; } catch (Exception error) { Log(error.Message); }
-            pet = new PetRuntime(Path.Combine(BaseDir, "resources", "companion"), DataDir); pet.OpenPanel = () => Ui(async () => { try { await OpenPetPanel(); } catch (Exception error) { Notify(error.Message); } });
-            pet.DropPaths = paths => Ui(async () => await ReceivePetDrop(paths));
-            pet.Verify = directory => VerifyPet(directory);
-            InitPetUpdate();
-            petTimer.Tick += async (s, e) => { if (petPolling || Exiting) return; petPolling = true; try { await BroadcastPet(); } catch (Exception error) { Log(error.Message); } finally { petPolling = false; } }; petTimer.Start();
+            animationSettings = J.Obj("size", "normal", "scale", 100, "motion", true, "selfTalk", true, "talkInterval", 90, "bubbleBorderColor", "#FFB6C1", "bubbleX", 50, "bubbleY", 0, "phrases", new[] { "休息一下，下一集会更顺手。", "记得检查刚导出的成片。", "好音乐会让剧情更有力量。" });
+            try {
+                var saved = J.Map(J.Read(Path.Combine(DataDir, "companion-settings.json"), null));
+                foreach (var pair in saved)
+                    if (animationSettings.ContainsKey(pair.Key)) animationSettings[pair.Key] = pair.Value;
+                if (!saved.ContainsKey("scale")) animationSettings["scale"] = J.Str(saved, "size", "normal") == "small" ? 75 : J.Str(saved, "size", "normal") == "large" ? 130 : 100;
+            } catch (Exception error) { Log(error.Message); }
+            animationPositionTimer.Tick += (s, e) => { animationPositionTimer.Stop(); SaveAnimationPosition(); };
+            panelPositionTimer.Tick += (s, e) => { panelPositionTimer.Stop(); SavePanelBounds(); };
         }
+
+        private void SaveAnimationPosition() {
+            if (animationWindow != null && !animationWindow.IsDisposed)
+                J.Save(Path.Combine(DataDir, "companion-animation-position.json"), J.Obj("x", animationWindow.Left, "y", animationWindow.Top));
+        }
+
+        private void SavePanelBounds() {
+            if (PanelWindow != null && !PanelWindow.IsDisposed)
+                J.Save(Path.Combine(DataDir, "jianying-floating-bounds.json"), J.Obj("x", PanelWindow.Left, "y", PanelWindow.Top, "width", PanelWindow.Width, "height", PanelWindow.Height));
+        }
+
+        private Point PetPanelLocation() {
+            var bounds = animationWindow.VisibleBounds;
+            if (bounds.IsEmpty) bounds = new Rectangle(animationWindow.Width / 4, animationWindow.Height / 4, animationWindow.Width / 2, animationWindow.Height / 2);
+            int petLeft = animationWindow.Left + bounds.Left, petRight = animationWindow.Left + bounds.Right;
+            int petBottom = animationWindow.Top + bounds.Bottom;
+            var area = Screen.FromPoint(new Point((petLeft + petRight) / 2, petBottom)).WorkingArea;
+            int x = petLeft - PanelWindow.Width - 12;
+            if (x < area.Left && area.Right - petRight >= PanelWindow.Width + 12) x = petRight + 12;
+            x = Math.Max(area.Left, Math.Min(area.Right - PanelWindow.Width, x));
+            int y = Math.Max(area.Top, Math.Min(area.Bottom - PanelWindow.Height, petBottom - PanelWindow.Height));
+            return new Point(x, y);
+        }
+
+        private void FollowPetPanel() {
+            if (!PetVisible || PanelWindow == null || PanelWindow.IsDisposed || !PanelWindow.Visible) return;
+            var position = PetPanelLocation();
+            if (PanelWindow.Location != position) PanelWindow.Location = position;
+        }
+
+        private void PlayRandomInteraction() {
+            if (!animationWanted || animationView == null || animationView.CoreWebView2 == null) return;
+            var choices = AnimationList().Where(item => new[] { "click", "random", "turn", "move" }.Contains(J.Str(item, "category")))
+                .Select(item => J.Str(item, "id")).Where(id => id.Length > 0).ToArray();
+            if (choices.Length == 0) return;
+            var fresh = choices.Where(id => id != lastInteractionId).ToArray();
+            lastInteractionId = (fresh.Length > 0 ? fresh : choices)[animationRandom.Next(fresh.Length > 0 ? fresh.Length : choices.Length)];
+            Emit("bos:companion-play", lastInteractionId, animationView);
+        }
+
+        private object[] AnimationList() {
+            return J.Arr(J.Read(Path.Combine(ClientDir, "companion-animations", "manifest.json"), new object[0]));
+        }
+
         private async Task<object> BroadcastPet() {
-            bool taskBusy = J.Bool(jyState, "busy") || J.Bool(jyState, "recording") || J.Bool(jyState, "exporting") || wmRunning;
-            if (pet.Running && taskBusy != lastPetTaskBusy && petUpdateTask == null) { await pet.Run("task-state", taskBusy); lastPetTaskBusy = taskBusy; }
-            object state = J.Obj("visible", PetVisible, "panelOpen", PanelWindow != null && PanelWindow.Visible, "theme", theme, "settings", petSettings, "native", await pet.Status(), "update", petUpdate,
-                "pendingDropCount", pendingDrop.Length, "dropNotice", dropNotice, "renameOpen", petRename, "renamePlan", J.Get(jyState, "plan", new object[0]), "renameFileCount", J.Get(jyState, "fileCount", 0),
-                "jianying", J.Obj("ready", J.Bool(jyState, "ready"), "busy", J.Bool(jyState, "busy") || J.Bool(jyState, "recording"), "status", J.Str(jyState, "status", "引擎准备中"), "queueCount", J.Arr(J.Get(jyState, "queue")).Length, "modal", J.Get(jyState, "modal"), "lastLog", J.Arr(J.Get(jyState, "logs")).LastOrDefault()),
-                "watermark", J.Obj("running", wmRunning, "progress", J.Get(WatermarkState(), "overallProgress"), "jobs", wmJobs), "periodEnabled", workspacePeriod);
-            Emit("bos:companion-state", state); if (PanelView != null) Emit("bos:companion-state", state, PanelView); return state;
+            var state = J.Obj("visible", PetVisible, "active", animationWanted, "panelOpen", PanelWindow != null && !PanelWindow.IsDisposed && PanelWindow.Visible,
+                "settings", animationSettings, "native", J.Obj("ready", AnimationList().Length > 0, "animationCount", AnimationList().Length));
+            Emit("bos:companion-state", state);
+            if (PanelView != null) Emit("bos:companion-state", state, PanelView);
+            if (animationView != null) Emit("bos:companion-state", state, animationView);
+            return await Task.FromResult(state);
         }
-        private async Task OpenPetPanel() { if (panelOpening != null) { await panelOpening; return; } panelOpening = OpenPetPanelCore(); try { await panelOpening; } finally { panelOpening = null; } }
+
+        private async Task OpenAnimation() {
+            if (animationOpening != null) { await animationOpening; return; }
+            animationOpening = OpenAnimationCore();
+            try { await animationOpening; } finally { animationOpening = null; }
+        }
+
+        private async Task OpenAnimationCore() {
+            animationWanted = true;
+            if (animationWindow != null && !animationWindow.IsDisposed) { animationWindow.Show(); animationWindow.BringToFront(); FollowPetPanel(); return; }
+            if (AnimationList().Length == 0) throw new Exception("安装包中缺少桌面动画。");
+            animationWindow = new LayeredAnimationWindow();
+            animationWindow.Size = AnimationSize();
+            var saved = J.Read(Path.Combine(DataDir, "companion-animation-position.json"), null);
+            var area = Screen.PrimaryScreen.WorkingArea;
+            int x = (int)J.Num(saved, "x", area.Right - animationWindow.Width - 24), y = (int)J.Num(saved, "y", area.Bottom - animationWindow.Height - 24);
+            animationWindow.Location = animationWindow.ConstrainForPeek(new Point(x, y), area);
+            animationWindow.Move += (s, e) => { FollowPetPanel(); animationPositionTimer.Stop(); animationPositionTimer.Start(); };
+            animationWindow.PetClicked += (s, e) => PlayRandomInteraction();
+            animationWindow.PetCloseRequested += async (s, e) => {
+                try {
+                    if (PanelWindow != null) PanelWindow.Hide();
+                    await CompanionAction("hide", null);
+                } catch (Exception error) { Notify(error.Message); }
+            };
+            animationWindow.FormClosing += (s, e) => { if (!Exiting) { e.Cancel = true; animationWindow.Hide(); BroadcastPet(); } };
+            animationWindow.DoubleClick += async (s, e) => { try { await OpenPetPanel(); } catch (Exception error) { Notify(error.Message); } };
+            animationSourceWindow = new Form { FormBorderStyle = FormBorderStyle.None, ShowInTaskbar = false, StartPosition = FormStartPosition.Manual, Location = new Point(-32000, -32000), Size = animationWindow.Size };
+            animationView = new WebView2 { Dock = DockStyle.Fill, DefaultBackgroundColor = Color.Transparent };
+            animationSourceWindow.Controls.Add(animationView);
+            animationSourceWindow.Show();
+            animationView.CreateControl();
+            await InitializeView(animationView, "main", Origin + "/companion-animation.html", true);
+            animationFrameTimer.Tick -= RefreshAnimationFrame;
+            animationFrameTimer.Tick += RefreshAnimationFrame;
+            animationFrameTimer.Start();
+        }
+
+        private async void RefreshAnimationFrame(object sender, EventArgs args) {
+            if (animationFrameBusy || !animationWanted || animationWindow == null || animationWindow.IsDisposed || animationView == null || animationView.CoreWebView2 == null) return;
+            animationFrameBusy = true;
+            try {
+                using (var stream = new MemoryStream()) {
+                    await animationView.CoreWebView2.CapturePreviewAsync(Microsoft.Web.WebView2.Core.CoreWebView2CapturePreviewImageFormat.Png, stream);
+                    stream.Position = 0;
+                    using (var bitmap = new Bitmap(stream)) {
+                        animationWindow.SetFrame(bitmap);
+                        if (animationWanted && !animationWindow.Visible) { animationWindow.Show(); FollowPetPanel(); await BroadcastPet(); }
+                    }
+                }
+            } catch (Exception error) { if (Environment.GetEnvironmentVariable("XM_NATIVE_QA") == "1") Log("animation-frame " + error.Message); }
+            finally { animationFrameBusy = false; }
+        }
+
+        private Size AnimationSize() {
+            double scale = Math.Max(70, Math.Min(160, J.Num(animationSettings, "scale", 100))) / 100;
+            return new Size((int)Math.Round(220 * scale), (int)Math.Round(270 * scale));
+        }
+
+        private async Task OpenPetPanel() {
+            if (panelOpening != null) { await panelOpening; return; }
+            panelOpening = OpenPetPanelCore();
+            try { await panelOpening; } finally { panelOpening = null; }
+        }
+
         private async Task OpenPetPanelCore() {
-            try { jyState = await jyEngine.Call("status"); } catch (Exception error) { Log("panel-engine " + error.Message); }
             if (PanelWindow == null || PanelWindow.IsDisposed) {
-                PanelWindow = new StudioWindow(true) { Opacity = .95 }; PanelView = new WebView2 { Dock = DockStyle.Fill, DefaultBackgroundColor = Color.Transparent }; PanelWindow.Controls.Add(PanelView);
-                var position = J.Read(Path.Combine(DataDir, "companion-panel-position.json"), null); var point = new Point((int)J.Num(position, "x", Cursor.Position.X), (int)J.Num(position, "y", Cursor.Position.Y)); var area = Screen.FromPoint(point).WorkingArea;
-                PanelWindow.Location = new Point(Math.Max(area.Left, Math.Min(area.Right - PanelWindow.Width, (int)J.Num(position, "x", area.Right - 370))), Math.Max(area.Top, Math.Min(area.Bottom - PanelWindow.Height, (int)J.Num(position, "y", area.Bottom - 520))));
-                PanelWindow.Move += (s, e) => J.Save(Path.Combine(DataDir, "companion-panel-position.json"), J.Obj("x", PanelWindow.Left, "y", PanelWindow.Top));
-                PanelWindow.FormClosing += (s, e) => { if (!Exiting) { e.Cancel = true; PanelWindow.Hide(); } };
+                PanelWindow = new StudioWindow(true) { Opacity = 1, Size = new Size(590, 700), MinimumSize = new Size(450, 400), CornerRadius = 8 };
+                var saved = J.Read(Path.Combine(DataDir, "jianying-floating-bounds.json"), null);
+                int width = (int)J.Num(saved, "width", 590), height = (int)J.Num(saved, "height", 700);
+                PanelWindow.Size = new Size(Math.Max(450, width), Math.Max(400, height));
+                var area = Screen.FromPoint(PetVisible ? animationWindow.Location : Cursor.Position).WorkingArea;
+                int near = area.Right - PanelWindow.Width - 24;
+                int x = (int)J.Num(saved, "x", near), y = (int)J.Num(saved, "y", area.Bottom - PanelWindow.Height - 24);
+                PanelWindow.Location = new Point(Math.Max(area.Left, Math.Min(area.Right - PanelWindow.Width, x)), Math.Max(area.Top, Math.Min(area.Bottom - PanelWindow.Height, y)));
+                PanelWindow.Move += (s, e) => { panelPositionTimer.Stop(); panelPositionTimer.Start(); };
+                PanelWindow.ResizeEnd += (s, e) => { FollowPetPanel(); SavePanelBounds(); };
+                PanelWindow.FormClosing += (s, e) => { if (!Exiting) { e.Cancel = true; PanelWindow.Hide(); BroadcastPet(); } };
+                PanelView = new WebView2 { Dock = DockStyle.Fill, DefaultBackgroundColor = PanelWindow.BackColor };
+                PanelWindow.Controls.Add(PanelView);
                 var handle = PanelWindow.Handle; PanelView.CreateControl();
-                await InitializeView(PanelView, "main", Origin + "/companion-panel.html", true);
-            } else PanelWindow.Show();
+                await InitializeView(PanelView, "main", Origin + "/index.html?floating=jianying", true);
+            }
+            if (PanelWindow.WindowState == FormWindowState.Minimized) PanelWindow.WindowState = FormWindowState.Normal;
+            if (PetVisible) PanelWindow.Location = PetPanelLocation();
+            PanelWindow.Show(); PanelWindow.BringToFront();
             await BroadcastPet();
         }
+
         private async Task<object> CompanionAction(string action, object value) {
-            if (action == "drop-choice") { await ChoosePetDrop(Convert.ToString(value)); return await BroadcastPet(); }
-            if (action == "rename-preview" || action == "rename-run") {
-                jyState = await jyEngine.Call(action == "rename-preview" ? "preview" : "rename", action == "rename-preview" ? J.Obj("folder", "", "template", Convert.ToString(value), "ai", false) : J.Obj());
-                return await BroadcastPet();
-            }
-            if (action == "rename-close") { petRename = false; return await BroadcastPet(); }
-            if (action == "animations") return J.Get(pet.Manifest(), "animations", new object[0]);
-            if (action == "check-update") { await CheckPetUpdate(); return await BroadcastPet(); }
-            if (action == "install-update") { await InstallPetUpdate(); return await BroadcastPet(); }
             if (action == "sync") return await BroadcastPet();
-            if (petUpdateTask != null) throw new Exception("桌宠正在更新，请稍后操作。");
-            if (action == "show" || action == "hide" || action == "toggle") {
-                bool show = action == "show" || action == "toggle" && !PetVisible;
-                if (show || pet.Running) await pet.Run("visible", show);
-                if (!show && PanelWindow != null) PanelWindow.Hide();
-            } else if (action == "panel") { if (Equals(value, true) || Equals(value, "toggle") && (PanelWindow == null || !PanelWindow.Visible)) await OpenPetPanel(); else if (PanelWindow != null) PanelWindow.Hide(); }
-            else if (action == "update-settings") { foreach (var pair in J.Map(value)) if (petSettings.ContainsKey(pair.Key)) petSettings[pair.Key] = pair.Value; petSettings["palette"] = "original"; string name = J.Str(petSettings, "name").Trim(); petSettings["name"] = name.Length == 0 ? "大肥鱼" : name.Substring(0, Math.Min(20, name.Length)); J.Save(Path.Combine(DataDir, "companion-settings.json"), petSettings);
-                var patch = J.Obj(); if (J.Map(value).ContainsKey("size")) patch["scale"] = J.Str(value, "size") == "small" ? .5 : J.Str(value, "size") == "large" ? 1 : .72;
-                if (J.Map(value).ContainsKey("roam")) patch["no_move"] = !J.Bool(value, "roam"); if (J.Map(value).ContainsKey("sound")) patch["click_sound_enabled"] = J.Bool(value, "sound"); if (J.Map(value).ContainsKey("volume")) patch["click_sound_volume"] = Math.Max(0, Math.Min(1, J.Num(value, "volume") / 100)); if (J.Map(value).ContainsKey("idleInterval")) patch["animation_gap_seconds"] = J.Num(value, "idleInterval"); if (patch.Count > 0) await pet.Run("update", patch);
-            } else if (new[] { "native-settings", "native-update", "native-play", "reset-position", "spawn", "chat", "todo" }.Contains(action)) await pet.Run(action == "native-settings" ? "settings" : action == "native-update" ? "update" : action == "native-play" ? "play" : action, value);
-            else if (action == "react") { var clips = J.Arr(J.Get(pet.Manifest(), "animations")).Where(x => J.Str(x, "category") == "click").ToArray(); if (clips.Length > 0) await pet.Run("play", J.Str(clips[new Random().Next(clips.Length)], "id")); }
-            else if (action == "launch-jianying" || action == "launch-jy") await QuickLaunch("launch", null);
-            else if (action == "navigate") { OpenMain(); Emit("bos:tray-navigate", Convert.ToString(value)); }
-            else if (action == "workspace") { OpenMain(); Emit("bos:tray-navigate", "workspace"); }
-            else if (action == "period" || action == "toggle-period") await ConfigurePeriod(!workspacePeriod, "compatible", false);
-            else if (action == "jy-stop") await ProgressAction("stop");
-            else if (action.StartsWith("jy-")) { OpenMain(); Emit("bos:companion-request", J.Obj("action", action, "value", value)); }
-            else if (action == "wm-add") await WatermarkAction("choose-videos", null);
-            else if (action == "wm-run") await WatermarkAction(wmRunning ? "cancel" : "start", null);
-            else if (action == "wm-start") await WatermarkAction("start", null);
-            else if (action == "wm-cancel") await WatermarkAction("cancel", null);
-            else if (action == "wm-open") { var job = wmJobs.Find(x => J.Str(x, "status") == "done" && J.Str(x, "outputPath") == Convert.ToString(value)); if (job == null) throw new Exception("找不到已完成的水印视频。"); await WatermarkAction("open-job", J.Str(job, "id")); }
-            else throw new Exception("未知桌宠操作：" + action);
+            if (action == "animations") return AnimationList();
+            if (action == "show" || action == "toggle" && !PetVisible) {
+                await OpenAnimation();
+                if (animationView != null && animationView.CoreWebView2 != null) await animationView.CoreWebView2.ExecuteScriptAsync("document.getElementById('character')?.play().catch(() => {})");
+            } else if (action == "hide" || action == "toggle") {
+                animationWanted = false;
+                if (animationWindow != null) animationWindow.Hide();
+                if (animationView != null && animationView.CoreWebView2 != null) await animationView.CoreWebView2.ExecuteScriptAsync("document.getElementById('character')?.pause()");
+            }
+            else if (action == "panel") {
+                bool open = Equals(value, true) || Equals(value, "toggle") && (PanelWindow == null || !PanelWindow.Visible);
+                if (open) {
+                    await OpenAnimation();
+                    if (animationView != null && animationView.CoreWebView2 != null) await animationView.CoreWebView2.ExecuteScriptAsync("document.getElementById('character')?.play().catch(() => {})");
+                    await OpenPetPanel();
+                } else if (PanelWindow != null) PanelWindow.Hide();
+            } else if (action == "play") {
+                string id = Convert.ToString(value);
+                if (!AnimationList().Any(item => J.Str(item, "id") == id)) throw new Exception("找不到该动画。");
+                await OpenAnimation(); Emit("bos:companion-play", id, animationView);
+            } else if (action == "update-settings") {
+                var values = J.Map(value);
+                if (values.ContainsKey("scale")) {
+                    double scale = J.Num(value, "scale", -1);
+                    if (scale < 70 || scale > 160) throw new Exception("动画大小须在 70% 到 160% 之间。");
+                    animationSettings["scale"] = (int)Math.Round(scale);
+                }
+                if (values.ContainsKey("motion")) animationSettings["motion"] = J.Bool(value, "motion");
+                if (values.ContainsKey("selfTalk")) animationSettings["selfTalk"] = J.Bool(value, "selfTalk");
+                if (values.ContainsKey("talkInterval")) animationSettings["talkInterval"] = Math.Max(15, Math.Min(600, (int)J.Num(value, "talkInterval", 90)));
+                if (values.ContainsKey("bubbleBorderColor")) {
+                    string color = J.Str(value, "bubbleBorderColor");
+                    if (!System.Text.RegularExpressions.Regex.IsMatch(color, "^#[0-9a-fA-F]{6}$")) throw new Exception("气泡边缘颜色格式无效。");
+                    animationSettings["bubbleBorderColor"] = color;
+                }
+                foreach (var key in new[] { "bubbleX", "bubbleY" }) {
+                    if (!values.ContainsKey(key)) continue;
+                    double position = J.Num(value, key, -1);
+                    if (position < 0 || position > 100) throw new Exception("气泡位置须在 0% 到 100% 之间。");
+                    animationSettings[key] = (int)Math.Round(position);
+                }
+                if (values.ContainsKey("phrases")) {
+                    var phrases = J.Arr(J.Get(value, "phrases")).OfType<string>().Select(line => line.Trim()).Where(line => line.Length > 0).Take(30).Select(line => line.Substring(0, Math.Min(80, line.Length))).ToArray();
+                    if (phrases.Length == 0) throw new Exception("请至少填写一句自言自语内容。");
+                    animationSettings["phrases"] = phrases;
+                }
+                J.Save(Path.Combine(DataDir, "companion-settings.json"), animationSettings);
+                if (values.ContainsKey("scale") && animationWindow != null) {
+                    var oldSize = animationWindow.Size;
+                    var oldBounds = animationWindow.VisibleBounds;
+                    if (oldBounds.IsEmpty) oldBounds = new Rectangle(0, 0, oldSize.Width, oldSize.Height);
+                    int center = animationWindow.Left + oldBounds.Left + oldBounds.Width / 2;
+                    int bottom = animationWindow.Top + oldBounds.Bottom;
+                    animationWindow.Size = AnimationSize();
+                    animationWindow.RescaleVisibleBounds(oldSize);
+                    animationSourceWindow.Size = animationWindow.Size;
+                    var bounds = animationWindow.VisibleBounds;
+                    var area = Screen.FromPoint(new Point(center, bottom)).WorkingArea;
+                    animationWindow.Location = animationWindow.ConstrainForPeek(new Point(center - bounds.Left - bounds.Width / 2, bottom - bounds.Bottom), area);
+                }
+            } else if (action == "focus-workbench") {
+                if (PanelWindow != null) PanelWindow.Hide();
+                OpenMain(); Emit("bos:tray-navigate", Equals(value, "providers") ? "providers" : "jianying");
+            } else if (action == "reset-position") {
+                if (animationWindow != null) {
+                    var area = Screen.PrimaryScreen.WorkingArea;
+                    var bounds = animationWindow.VisibleBounds;
+                    if (bounds.IsEmpty) bounds = new Rectangle(0, 0, animationWindow.Width, animationWindow.Height);
+                    animationWindow.Location = animationWindow.ConstrainForPeek(new Point(area.Right - bounds.Right - 24, area.Bottom - bounds.Bottom - 24), area);
+                    animationWindow.Show(); FollowPetPanel();
+                }
+                else await OpenAnimation();
+            } else throw new Exception("未知桌面动画操作：" + action);
             return await BroadcastPet();
         }
-        private async Task StopCompanion() { petTimer.Stop(); await pet.Stop(); }
+
+        private Task StopCompanion() {
+            animationWanted = false;
+            animationFrameTimer.Stop(); animationFrameTimer.Dispose();
+            animationPositionTimer.Stop(); SaveAnimationPosition(); animationPositionTimer.Dispose();
+            panelPositionTimer.Stop(); SavePanelBounds(); panelPositionTimer.Dispose();
+            if (animationSourceWindow != null) animationSourceWindow.Dispose();
+            if (animationWindow != null) animationWindow.Dispose();
+            return Task.CompletedTask;
+        }
     }
 }

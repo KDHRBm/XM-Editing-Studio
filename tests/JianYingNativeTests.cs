@@ -155,6 +155,22 @@ internal static class JianYingNativeTests
                 Set("_captureHome",new Func<Rectangle,Bitmap>(area=>{Set("_stopFlag",true);return capture(area);}));
                 bool cancelled=false;try {Call("WaitForDraftHome",drafts[0],gen,4,.01);}catch(OperationCanceledException){cancelled=true;}
                 Check(cancelled,"F10 interrupts return-home verification before clicking"); Set("_stopFlag",false);
+                Set("_captureHome",capture);
+                var anchors=(IDictionary)type.GetField("CardAnchors").GetValue(scope);
+                var targetAnchors=(Array)anchors[point]; var originalTitle=targetAnchors.GetValue(1);
+                var blankTitle=Call("MakeDraftAnchor",scene,new Rectangle(res[0]-box.Width-10,res[1]-80,box.Width,32),new Rectangle(0,0,res[0],res[1]));
+                targetAnchors.SetValue(blankTitle,1);
+                Reject(()=>Call("WaitForDraftHome",drafts[0],gen,2,0.0),"a weak AI title box alone cannot authorize a draft click");
+                for(int n=0;n<2;n++) {
+                    var neighbor=new Rectangle(1100+n*250,500,130,70);
+                    using(var brush=new SolidBrush(n==0?Color.Firebrick:Color.DarkGreen))g.FillRectangle(brush,neighbor);
+                    g.DrawLine(Pens.White,neighbor.Left,neighbor.Top,neighbor.Right,neighbor.Bottom);
+                    var extra=Array.CreateInstance(targetAnchors.GetType().GetElementType(),2);
+                    extra.SetValue(Call("MakeDraftAnchor",scene,neighbor,new Rectangle(0,0,res[0],res[1])),0);
+                    anchors[new Point(neighbor.Left+neighbor.Width/2,neighbor.Top+neighbor.Height/2)]=extra;
+                }
+                Check((Point)Call("WaitForDraftHome",drafts[0],gen,3,0.0)==moved,"unique cover and two matching neighboring cards recover from a weak AI title box");
+                targetAnchors.SetValue(originalTitle,1);
             } finally {Set("_homeWindow",oldWindow);Set("_homeFrame",oldFrame);Set("_captureHome",oldCapture);Set("_stopFlag",false);}
         }
     }
@@ -201,8 +217,22 @@ internal static class JianYingNativeTests
             Reject(() => Call("ParseCards", cards.Replace("\"visibleCount\":13", "\"visibleCount\":8"), scope), "incomplete count rejected");
             Reject(() => Call("ParseCards", cards.Replace("\"visibleCount\":13", "\"visibleCount\":13.1"), scope), "fractional count rejected");
             Reject(() => Call("ParseCards", "{\"drafts\":[" + Card(0).Replace("\"right\":150", "\"right\":0") + "]}", scope), "reversed bounds rejected");
+            string impossibleRow = "{\"coordinateSpace\":\"normalized_1000\",\"imageWidth\":2248,\"imageHeight\":802,\"visibleCount\":1,\"drafts\":[{\"kind\":\"draft\",\"name\":\"亡妻归来45\",\"bounds\":{\"left\":1091,\"top\":2,\"right\":1148,\"bottom\":140}}]}";
+            try { Call("ParseCards", impossibleRow, scope); throw new Exception("out-of-range DeepSeek card accepted"); }
+            catch (InvalidOperationException ex) { Check(ex.Message.Contains("left") && ex.Message.Contains("1091") && ex.Message.Contains("0–1000"), "out-of-range DeepSeek coordinates identify the invalid field and value"); }
             var folders = (List<Tuple<int, int, string>>)Call("ParseCards", "{\"drafts\":[" + Card(0).Replace("\"draft\"", "\"folder\"") + "]}", scope);
             Check(folders.Count == 0, "folder tiles excluded");
+            using (var image = new Bitmap(500, 400)) using (var stream = new MemoryStream()) {
+                image.Save(stream, ImageFormat.Png);
+                string proof = Convert.ToBase64String(stream.ToArray());
+                var thinHeading = Call("ParseScope", Scope("草稿").Replace("\"bottom\":230", "\"bottom\":201"), 500, 400);
+                try { Call("RememberDraftAnchors", thinHeading, proof, new Rectangle(0, 0, 500, 400), 96); throw new Exception("thin heading accepted"); }
+                catch (InvalidOperationException error) { Check(error.Message.Contains("草稿标题定位框太小"), "thin heading gives a repairable scan error"); }
+                var thinCard = Call("ParseScope", Scope("草稿"), 500, 400);
+                Call("ParseCards", "{\"drafts\":[" + Card(0).Replace("\"right\":150", "\"right\":1") + "]}", thinCard);
+                try { Call("RememberDraftAnchors", thinCard, proof, new Rectangle(0, 0, 500, 400), 96); throw new Exception("thin card accepted"); }
+                catch (InvalidOperationException error) { Check(error.Message.Contains("草稿卡片缩略图或名称区域太小"), "thin card gives a repairable scan error"); }
+            }
             string pixelCard = "{\"coordinateSpace\":\"pixels\",\"imageWidth\":800,\"imageHeight\":400,\"visibleCount\":1,\"drafts\":[{\"kind\":\"draft\",\"name\":\"像素草稿\",\"bounds\":{\"left\":80,\"top\":40,\"right\":240,\"bottom\":120}}]}";
             string normalizedCard = pixelCard.Replace("pixels", "normalized_1000").Replace("\"left\":80", "\"left\":100").Replace("\"top\":40", "\"top\":100").Replace("\"right\":240", "\"right\":300").Replace("\"bottom\":120", "\"bottom\":300");
             Check(((List<Tuple<int,int,string>>)Call("ParseCards", pixelCard, scope))[0].Equals(((List<Tuple<int,int,string>>)Call("ParseCards", normalizedCard, scope))[0]), "pixel coordinates below 1000 are not mistaken for normalized coordinates");
@@ -220,6 +250,23 @@ internal static class JianYingNativeTests
             Reject(()=>Call("ValidateCoordinateContract",pixelCard.Replace("\"imageWidth\":800","\"imageWidth\":true"),new Size(800,400)),"non-numeric image sizes rejected");
             Reject(()=>Call("ValidateCoordinateContract",pixelCard.Replace("\"imageHeight\":400,",""),new Size(800,400)),"missing image dimensions cannot silently use defaults");
             Check(((Point)Call("TranslatePoint", new Point(400,300), new[] { 100,100,1200,800,144 }, new[] { -200,150,1200,800,144 })) == new Point(100,350), "window movement translated once including negative desktop origin");
+            var translated = new object[] { new Point(2426,16), new[] {-8,-8,2576,1408,96}, new[] {960,373,640,646,96}, Point.Empty };
+            Check(!(bool)Call("TryTranslatePoint", translated) && (Point)translated[3] == new Point(2426,16), "previous export dialog cannot be mistaken for the next editor window");
+            translated[2] = new[] {12,22,2576,1408,96};
+            Check((bool)Call("TryTranslatePoint", translated) && (Point)translated[3] == new Point(2446,46), "next editor window becomes usable after the transient dialog clears");
+            var workArea = new Rectangle(0,0,2560,1400);
+            var maximized = new object[] { "export", new Point(2426,16), new[] {-8,-8,2576,1408,96}, new[] {0,0,2560,1400,96}, workArea, Point.Empty };
+            Check((bool)Call("TryTranslateButtonPoint", maximized) && (Point)maximized[5] == new Point(2426,16), "same visible maximized editor accepts borderless Qt frame without moving the button");
+            maximized[3] = new[] {0,0,2400,1300,96};
+            Check(!(bool)Call("TryTranslateButtonPoint", maximized), "a genuinely resized editor is still rejected");
+            maximized[0] = "confirm"; maximized[3] = new[] {0,0,2560,1400,96};
+            Check(!(bool)Call("TryTranslateButtonPoint", maximized), "modal button never inherits maximized editor tolerance");
+            Check((bool)Call("ShouldMaximizeEditor", "export", new[] {-8,-8,2576,1408,96}, new[] {640,360,1469,768,96}, workArea), "restored editor is maximized before using recorded export coordinate");
+            Check(!(bool)Call("ShouldMaximizeEditor", "export", new[] {-8,-8,2576,1408,96}, new[] {960,336,640,720,96}, workArea), "export modal is never maximized as an editor");
+            Check((bool)Call("ShouldUseMainEditor", "export", new[] {2213,1271,334,108,96}, new[] {640,360,1469,768,96}, false), "tiny Jianying foreground popup yields to the visible editor");
+            Check((bool)Call("ShouldUseMainEditor", "export", new[] {0,0,2560,1400,96}, new[] {640,360,1469,768,96}, true), "draft home in foreground yields to the opened editor");
+            Check(!(bool)Call("ShouldUseMainEditor", "confirm", new[] {960,336,640,720,96}, new[] {0,0,2560,1400,96}, false), "export confirmation modal is not replaced by the editor");
+            Check(!(bool)Call("ShouldUseMainEditor", "export", new[] {2213,1271,334,108,96}, new[] {2213,1271,334,108,96}, false), "tiny popup alone cannot authorize an export click");
             Reject(() => Call("TranslatePoint", Point.Empty, new[] {0,0,1200,800,96}, new[] {0,0,1600,900,96}), "resized draft grid rejected");
             Reject(() => Call("TranslatePoint", Point.Empty, new[] {0,0,1200,800,96}, new[] {0,0,1200,800,144}), "changed monitor DPI rejected");
             using(var templateImage = new Bitmap(81,25)) using(var scene = new Bitmap(105,49)) using(var tg = Graphics.FromImage(templateImage)) using(var sg = Graphics.FromImage(scene)) {
@@ -237,6 +284,9 @@ internal static class JianYingNativeTests
             }
             var multiline = (List<Tuple<int, int, string>>)Call("ParseCards", "{\"drafts\":[" + Card(0).Replace("草稿0", "草稿\n0") + "]}", scope);
             Check(multiline[0].Item3 == "草稿 0", "Gemini literal newline normalized");
+            string validResult = "{\"coordinateSpace\":\"normalized_1000\",\"imageWidth\":800,\"imageHeight\":400,\"drafts\":[]}";
+            Check((string)Call("JsonBody", "The previous JSON was incomplete: {\"drafts\":[{}\nFinal result:\n```json\n" + validResult + "\n```") == validResult,
+                "Gemini explanation and malformed earlier block do not corrupt the final complete result");
             Set("_draftScope", scope); Set("_drafts", parsed);
             var res = (int[])Call("GetScreenResolution");
             Set("_draftScope", Call("ParseScope", Scope("草稿 (13)"), res[0], res[1]));

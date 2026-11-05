@@ -36,33 +36,49 @@ namespace XM.Native {
                 var roots = musicRoots.ToArray();
                 return await Task.Run<object>(() => {
                     var index = new Dictionary<string, Dictionary<string, object>>(); var dirs = new List<object>(); var output = new List<object>(); int visited = 0, skipped = 0;
-                    foreach (string root in roots) {
-                        string libraryId = J.Hash(root.ToLowerInvariant()); var info = J.Obj("id", libraryId, "path", root, "count", 0, "error", ""); dirs.Add(info);
-                        try {
-                            ValidatePathChain(root);
-                            var stack = new Queue<Tuple<string, int>>(); stack.Enqueue(Tuple.Create(root, 0)); int count = 0;
-                            while (stack.Count > 0 && index.Count < 5000 && visited < 50000) {
-                                var dir = stack.Dequeue(); string[] files;
-                                try { files = Directory.GetFileSystemEntries(dir.Item1).OrderBy(x => x, StringComparer.CurrentCulture).ToArray(); } catch { if (dir.Item1 == root) throw; skipped++; continue; }
-                                foreach (string file in files) {
-                                    if (++visited > 50000 || index.Count >= 5000) break;
-                                    try {
-                                        var attrs = File.GetAttributes(file); if ((attrs & FileAttributes.ReparsePoint) != 0) { skipped++; continue; }
-                                        if ((attrs & FileAttributes.Directory) != 0) { if (dir.Item2 < 12) stack.Enqueue(Tuple.Create(file, dir.Item2 + 1)); continue; }
-                                        if (!Regex.IsMatch(file, @"\.(mp3|wav|flac|m4a|aac|ogg|opus|webm)$", RegexOptions.IgnoreCase)) continue;
-                                        string id = J.Hash(Path.GetFullPath(file).ToLowerInvariant()); if (index.ContainsKey(id)) continue;
-                                        var stat = new FileInfo(file); var track = J.Obj("id", id, "libraryId", libraryId, "title", Path.GetFileNameWithoutExtension(file), "relativePath", file.Substring(root.TrimEnd('\\').Length + 1), "size", stat.Length, "modifiedAt", (long)(stat.LastWriteTimeUtc - new DateTime(1970, 1, 1)).TotalMilliseconds);
-                                        output.Add(new Dictionary<string, object>(track)); track["filename"] = file; track["root"] = root; index[id] = track; count++;
-                                    } catch { skipped++; }
-                                }
-                            }
-                            info["count"] = count;
-                        } catch (Exception error) { info["error"] = "无法读取音乐文件夹：" + error.Message; }
+                    foreach (string root in roots) dirs.Add(J.Obj("id", J.Hash(root.ToLowerInvariant()), "path", root, "count", 0, "error", ""));
+                    for (int pass = 0; pass < 2 && index.Count < 5000 && visited < 50000; pass++) {
+                        for (int at = 0; at < roots.Length && index.Count < 5000 && visited < 50000; at++) {
+                            int quota = pass == 0 ? 5000 / roots.Length + (at < 5000 % roots.Length ? 1 : 0) : 5000;
+                            int visitLimit = pass == 0 ? Math.Min(50000, visited + Math.Max(1, 50000 / roots.Length)) : 50000;
+                            ScanMusicRoot(roots[at], (Dictionary<string, object>)dirs[at], index, output, quota, visitLimit, ref visited, ref skipped);
+                        }
                     }
-                    tracks = index; libraryCatalog = J.Obj("directories", dirs, "tracks", output, "scannedAt", J.Now(), "revision", J.Hash(J.Encode(output)), "warning", index.Count >= 5000 || visited >= 50000 ? "扫描达到范围限制，请连接更具体的目录。" : skipped > 0 ? skipped + " 个无法访问项目或链接已跳过。" : "");
+                    tracks = index; libraryCatalog = J.Obj("directories", dirs, "tracks", output, "scannedAt", J.Now(), "revision", J.Hash(J.Encode(output)), "warning", index.Count >= 5000 || visited >= 50000 ? "扫描达到范围限制；各文件夹的收录数量见下方，可连接更具体的目录。" : skipped > 0 ? skipped + " 个无法访问项目或链接已跳过。" : "");
                     return libraryCatalog;
                 });
             } finally { libraryGate.Release(); }
+        }
+        private static string MusicTitle(string file) {
+            string title = Path.GetFileNameWithoutExtension(file).Trim();
+            if (title.Length == 0) title = Path.GetFileName(file);
+            return title.Substring(0, Math.Min(title.Length, 240));
+        }
+        private static void ScanMusicRoot(string root, Dictionary<string, object> info, Dictionary<string, Dictionary<string, object>> index, List<object> output, int quota, int visitLimit, ref int visited, ref int skipped) {
+            int count = (int)info["count"];
+            if (count >= quota || J.Str(info, "error").Length > 0) return;
+            string libraryId = J.Str(info, "id");
+            try {
+                ValidatePathChain(root);
+                var stack = new Queue<Tuple<string, int>>(); stack.Enqueue(Tuple.Create(root, 0));
+                while (stack.Count > 0 && count < quota && index.Count < 5000 && visited < visitLimit) {
+                    var dir = stack.Dequeue(); string[] files;
+                    try { files = Directory.GetFileSystemEntries(dir.Item1).OrderBy(x => x, StringComparer.CurrentCulture).ToArray(); } catch { if (dir.Item1 == root) throw; skipped++; continue; }
+                    foreach (string file in files) {
+                        if (count >= quota || index.Count >= 5000 || visited >= visitLimit) break;
+                        visited++;
+                        try {
+                            var attrs = File.GetAttributes(file); if ((attrs & FileAttributes.ReparsePoint) != 0) { skipped++; continue; }
+                            if ((attrs & FileAttributes.Directory) != 0) { if (dir.Item2 < 12) stack.Enqueue(Tuple.Create(file, dir.Item2 + 1)); continue; }
+                            if (!Regex.IsMatch(file, @"\.(mp3|wav|flac|m4a|aac|ogg|opus|webm)$", RegexOptions.IgnoreCase)) continue;
+                            string id = J.Hash(Path.GetFullPath(file).ToLowerInvariant()); if (index.ContainsKey(id)) continue;
+                            var stat = new FileInfo(file); var track = J.Obj("id", id, "libraryId", libraryId, "title", MusicTitle(file), "relativePath", file.Substring(root.TrimEnd('\\').Length + 1), "size", stat.Length, "modifiedAt", (long)(stat.LastWriteTimeUtc - new DateTime(1970, 1, 1)).TotalMilliseconds);
+                            output.Add(new Dictionary<string, object>(track)); track["filename"] = file; track["root"] = root; index[id] = track; count++;
+                        } catch { skipped++; }
+                    }
+                }
+                info["count"] = count;
+            } catch (Exception error) { info["error"] = "无法读取音乐文件夹：" + error.Message; }
         }
         private string ResolveTrack(string id) {
             Dictionary<string, object> track; if (!tracks.TryGetValue(id, out track)) throw new Exception("音乐已移除或曲库尚未加载，请刷新。");
@@ -79,7 +95,6 @@ namespace XM.Native {
                     if (e.Request.Method != "GET" && e.Request.Method != "HEAD") { e.Response = core.Environment.CreateWebResourceResponse(null, 405, "Method Not Allowed", "Allow: GET, HEAD"); return; }
                     if (e.Request.Headers.Contains("Origin") && e.Request.Headers.GetHeader("Origin") != Origin || e.Request.Headers.Contains("Sec-Fetch-Site") && e.Request.Headers.GetHeader("Sec-Fetch-Site") == "cross-site") { e.Response = core.Environment.CreateWebResourceResponse(null, 403, "Forbidden", "Cache-Control: no-store"); return; }
                     if (uri.AbsolutePath.StartsWith("/local-music/")) file = ResolveTrack(Uri.UnescapeDataString(uri.AbsolutePath.Substring(13)));
-                    else if (uri.AbsolutePath.StartsWith("/companion-assets/")) { var rel = Uri.UnescapeDataString(uri.AbsolutePath.Substring(18)); if (!rel.EndsWith(".webm", StringComparison.OrdinalIgnoreCase)) throw new Exception("无效资源。"); file = J.Under(Path.Combine(PetDirectory, "_internal", "assets", "characters"), rel.Replace('/', Path.DirectorySeparatorChar)); }
                     else file = J.Under(ClientDir, Uri.UnescapeDataString(uri.AbsolutePath == "/" ? "index.html" : uri.AbsolutePath.Substring(1)).Replace('/', Path.DirectorySeparatorChar));
                     long size = new FileInfo(file).Length, start = 0, end = size - 1; bool partial = e.Request.Headers.Contains("Range");
                     if (partial) {

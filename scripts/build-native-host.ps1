@@ -60,6 +60,14 @@ $nativeResources = Join-Path $nativeStage 'resources'
 
 New-Item -ItemType Directory -Path $nativeResources -Force | Out-Null
 
+$oldCompanion = Join-Path $nativeResources 'companion'
+if (Test-Path -LiteralPath $oldCompanion) {
+  $resolvedStage = [IO.Path]::GetFullPath($nativeStage).TrimEnd('\')
+  $resolvedOld = [IO.Path]::GetFullPath($oldCompanion)
+  if (-not $resolvedOld.StartsWith($resolvedStage + '\', [StringComparison]::OrdinalIgnoreCase)) { throw 'Companion cleanup path escaped build stage' }
+  Remove-Item -LiteralPath $resolvedOld -Recurse -Force
+}
+
 $clientTarget = Join-Path $nativeResources 'client'
 
 New-Item -ItemType Directory -Path $clientTarget -Force | Out-Null
@@ -90,12 +98,7 @@ Copy-Item -LiteralPath (Join-Path $projectRoot 'app/THIRD_PARTY_NOTICES.txt') -D
 
 $periodHash = (Get-FileHash -LiteralPath (Join-Path $nativeResources 'helpers/PeriodKeeper.exe') -Algorithm SHA256).Hash.ToLowerInvariant()
 
-@{version=(Get-Content -LiteralPath (Join-Path $projectRoot 'package.json') -Raw | ConvertFrom-Json).version;architecture='C# + WebView2';periodSha256=$periodHash} | ConvertTo-Json | Set-Content -LiteralPath (Join-Path $nativeResources 'native-manifest.json') -Encoding utf8
-
-if (-not (Test-Path -LiteralPath 'app/build/companion/xm-manifest.json')) { throw 'Build the complete companion first; see docs/COMPANION-INTEGRATION.md' }
-
-& robocopy (Join-Path $projectRoot 'app/build/companion') (Join-Path $nativeResources 'companion') /E /MT:16 /R:1 /W:1 /NFL /NDL /NJH /NJS /NP | Out-Null
-if ($LASTEXITCODE -ge 8) { throw 'Companion copy failed' }
+@{version=(Get-Content -LiteralPath (Join-Path $projectRoot 'package.json') -Raw -Encoding UTF8 | ConvertFrom-Json).version;architecture='C# + WebView2';periodSha256=$periodHash} | ConvertTo-Json | Set-Content -LiteralPath (Join-Path $nativeResources 'native-manifest.json') -Encoding utf8
 
 & node scripts/hash-native-stage.mjs $nativeStage
 

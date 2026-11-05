@@ -5,7 +5,7 @@ import { batchCandidates } from '../app/shared/batch-candidates.mjs';
 import { createBatchAnalysisQueue, nextBatchGroup } from '../app/shared/batch-analysis.mjs';
 
 const episodes = [31,32,33].map(n=>({id:`ep-${n}`,episodeNumber:n,title:`第${n}集`,script:`第${n}集\n[EN] A: Where are you?\n△ 追逐\n[EN] B: Run!`}));
-const tracks = [{id:'warm',title:'温暖钢琴'}, {id:'dark',title:'悬疑弦乐'}, {id:'sad',title:'悲伤钢琴'}];
+const tracks = [{id:'warm',title:'温暖钢琴'}, {id:'dark',title:'悬疑弦乐'}, {id:'sad',title:'悲伤钢琴'}, {id:'hope',title:'希望钢琴'}, {id:'rise',title:'递进弦乐'}, {id:'calm',title:'平静钢琴'}];
 const keywords = input => JSON.stringify({episodes:input.episodes.map(e=>({id:e.id,summary:'剧情与情绪',keywords:['紧张弦乐']}))});
 const segmentedKeywords = input => JSON.stringify({episodes:input.episodes.map(e=>({id:e.id,summary:'失散与追逐',keywords:['钢琴','紧张'],segments:[{title:'失散',startLine:1,endLine:2,summary:'悲伤失落',keywords:['melancholic']},{title:'追逐',startLine:3,endLine:4,summary:'紧张追逐',keywords:['紧张弦乐']}]})).reverse()});
 const context = messages => JSON.parse(messages[1].content);
@@ -29,10 +29,10 @@ test('31 has music, 32/33 empty: one joint review completes both later episodes,
     if(requests.length===2) return JSON.stringify({episodes:input.episodes.map((episode,index)=>({id:episode.id,matches:index===0?[{id:'dark',reason:'第一集悬疑'}]:[]}))});
     assert.deepEqual(input.episodes.map(e=>e.id),['ep-31','ep-32','ep-33']);
     assert.ok(input.episodes.every(e=>e.candidates.length));
-    return JSON.stringify({episodes:input.episodes.map(e=>({id:e.id,matches:[{id:'dark',reason:'同一音乐也适合此集紧张剧情'}]})).reverse()});
+    return JSON.stringify({episodes:input.episodes.map(e=>({id:e.id,matches:[{id:{'ep-31':'warm','ep-32':'sad','ep-33':'hope'}[e.id],reason:'根据本集剧情选用不同音乐'}]})).reverse()});
   });
   assert.equal(requests.length,3);
-  assert.ok(result.episodes.every(e=>e.value.matches[0].id==='dark'));
+  assert.deepEqual(result.episodes.map(e=>e.value.matches[0]?.id),['dark','sad','hope']);
   assert.equal(result.episodes[0].value.matches[0].reason,'第一集悬疑');
 });
 
@@ -50,21 +50,23 @@ test('multi-episode segments are planned jointly and every segment keeps its own
   const result=await analyzeBatchMusic({episodes,tracks,segmented:true,segmentCount:3},async messages=>{
     const input=context(messages);assert.equal(input.episodes.length,3);
     if(++calls===1){assert.equal(input.episodes[2].numberedScript.at(-1).line,4);assert.equal(input.episodes[0].script,undefined);return segmentedKeywords(input);}
-    return JSON.stringify({episodes:input.episodes.map(e=>({id:e.id,segments:e.segments.map(s=>({id:s.id,matches:[{id:s.id==='segment-1'?'sad':'dark',reason:s.summary}]})).reverse()})).reverse()});
+    const ids = { 'ep-31':['sad','dark'], 'ep-32':['warm','hope'], 'ep-33':['rise','calm'] };
+    return JSON.stringify({episodes:input.episodes.map(e=>({id:e.id,segments:e.segments.map((s,index)=>({id:s.id,matches:[{id:ids[e.id][index],reason:s.summary}]})).reverse()})).reverse()});
   });
   assert.equal(calls,3);assert.deepEqual(result.episodes.map(e=>e.id),episodes.map(e=>e.id));
-  for(const {value} of result.episodes){assert.equal(value.segmented,true);assert.equal(value.segments.length,2);assert.equal(value.segments[0].matches[0].id,'sad');assert.equal(value.segments[1].matches[0].id,'dark');assert.equal(value.matches.length,2);assert.equal(value.segments[1].endLine,4);assert.equal(JSON.stringify(value).includes('candidates'),false);}
+  for(const {id,value} of result.episodes){assert.equal(value.segmented,true);assert.equal(value.segments.length,2);assert.deepEqual(value.segments.map(s=>s.matches[0]?.id),{ 'ep-31':['sad','dark'], 'ep-32':['warm','hope'], 'ep-33':['rise','calm'] }[id]);assert.equal(value.matches.length,2);assert.equal(value.segments[1].endLine,4);assert.equal(JSON.stringify(value).includes('candidates'),false);}
 });
 
 test('empty segment recheck includes only missing sections across episodes and retains successful sections', async () => {
   let calls=0;
   const result=await analyzeBatchMusic({episodes,tracks,segmented:true,segmentCount:3},async messages=>{
     const input=context(messages);if(++calls===1)return segmentedKeywords(input);
-    if(calls===2)return JSON.stringify({episodes:input.episodes.map(e=>({id:e.id,segments:e.segments.map((s,index)=>({id:s.id,matches:index===0?[{id:'sad',reason:'已匹配悲伤'}]:[]}))}))});
-    assert.equal(input.episodes.length,3);assert.ok(input.episodes.every(e=>e.segments.length===2));
-    return JSON.stringify({episodes:input.episodes.map(e=>({id:e.id,segments:e.segments.map(s=>({id:s.id,matches:[{id:s.id==='segment-1'?'sad':'dark',reason:'复核匹配悬疑'}]}))}))});
+    const ids = { 'ep-31':['sad','dark'], 'ep-32':['warm','hope'], 'ep-33':['rise','calm'] };
+    if(calls===2)return JSON.stringify({episodes:input.episodes.map(e=>({id:e.id,segments:e.segments.map((s,index)=>({id:s.id,matches:index===0?[{id:ids[e.id][0],reason:'已匹配剧情'}]:[]}))}))});
+    assert.equal(input.episodes.length,3);assert.ok(input.episodes.every(e=>e.segments.length===2 && e.segments[0].acceptedMatches[0].id===ids[e.id][0]));
+    return JSON.stringify({episodes:input.episodes.map(e=>({id:e.id,segments:e.segments.map(s=>({id:s.id,matches:s.id==='segment-1'?[]:[{id:ids[e.id][1],reason:'复核匹配悬疑'}]}))}))});
   });
-  assert.equal(calls,3);assert.ok(result.episodes.every(e=>e.value.segments[0].matches[0].reason==='已匹配悲伤' && e.value.segments[1].matches.length===1));
+  assert.equal(calls,3);assert.ok(result.episodes.every(e=>e.value.segments[0].matches[0].reason==='已匹配剧情' && e.value.segments[1].matches.length===1));
 });
 
 test('segmented batches reject missing segments, incomplete story coverage, and nonlocal track IDs', async () => {

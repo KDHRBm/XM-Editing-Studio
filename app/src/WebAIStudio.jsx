@@ -2,6 +2,7 @@ import { WEB_AI_PROVIDERS, clipWebAISlot } from '../shared/web-ai.mjs';
 import { useScriptProjects } from './ScriptProjects.jsx';
 
 export function WebAIStudio({ active, onNavigate }) {
+  const floating = new URLSearchParams(globalThis.location?.search || '').has('floating');
   const [manualProvider, setProvider] = i.useState(() => { try { return WEB_AI_PROVIDERS.some(p => p.id === localStorage.getItem('xm.web-ai.provider')) ? localStorage.getItem('xm.web-ai.provider') : 'deepseek'; } catch { return 'deepseek'; } });
   const [task, setTask] = i.useState(null), [opened, setOpened] = i.useState(''), [manualReply, setManualReply] = i.useState('');
   const taskRef = i.useRef(null);
@@ -17,7 +18,7 @@ export function WebAIStudio({ active, onNavigate }) {
   const current = WEB_AI_PROVIDERS.find(item => item.id === provider);
   const changeProvider = value => { setProvider(value); if (opened) setOpened(value); setStatus(null); setError(''); try { localStorage.setItem('xm.web-ai.provider', value); } catch { /* selection works for this session */ } };
   i.useEffect(() => {
-    if (!ready) return;
+    if (!ready || floating) return;
     if (!visible) { void api.layoutWebAI({ visible: false }).catch(() => {}); return; }
     let live = true, frame = 0, last = '', polling = false;
     setStatus(null); setError(''); setNotice('');
@@ -46,7 +47,7 @@ export function WebAIStudio({ active, onNavigate }) {
     const poll = setInterval(() => { if (live) { schedule(); if (!polling) { polling = true; void api.webAIAction(provider, 'page-status').then(value => { if (live) { setStatus(value); setError(''); } }).catch(err => { if (live) setError(err.message); }).finally(() => { polling = false; }); } } }, 1500);
     schedule();
     return () => { live = false; cancelAnimationFrame(frame); clearInterval(poll); resize.disconnect(); mutation.disconnect(); window.removeEventListener('resize', schedule); window.removeEventListener('scroll', schedule, true); void api.layoutWebAI({ visible: false }).catch(() => {}); };
-  }, [visible, provider, ready]);
+  }, [visible, provider, ready, floating]);
   i.useEffect(() => {
     if (!api?.onWebAnalysisTask) return;
     let live = true, receivedEvent = false;

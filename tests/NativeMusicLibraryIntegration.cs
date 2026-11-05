@@ -6,6 +6,7 @@ namespace XM.Native {
     internal sealed partial class StudioHost {
         internal StudioHost(string testProfile) { DataDir = testProfile; }
         internal object TestConnect(string[] folders) { return ConnectMusicFolders(folders).GetAwaiter().GetResult(); }
+        internal string TestMusicTitle(string file) { return MusicTitle(file); }
         internal object TestAddFolders(params string[] folders) { return AddQuickFolders(folders).GetAwaiter().GetResult(); }
         internal object TestRemoveFolder(string id) { return QuickLaunch("removeFolder",id).GetAwaiter().GetResult(); }
     }
@@ -44,6 +45,8 @@ internal static class NativeMusicLibraryIntegration {
             File.WriteAllText(Path.Combine(music,"紧张.mp3"),"fixture"); File.WriteAllText(Path.Combine(nested,"温暖.wav"),"fixture");
             File.WriteAllText(Path.Combine(music,"notes.txt"),"ignored");
             using(var host=new StudioHost(profile)) {
+                Check(host.TestMusicTitle("音乐"+new string('字',245)+".mp3").Length==240,"Long filenames fit the analysis title limit");
+                Check(host.TestMusicTitle(".mp3")==".mp3","Extension-only filenames retain a usable title");
                 var catalog=host.TestConnect(new[]{music,nested});
                 Check(J.Arr(J.Get(catalog,"tracks")).Length==2,"Recursive music scanning deduplicates overlapping roots");
                 catalog=host.TestConnect(new[]{music.ToUpperInvariant()+"\\"});
@@ -53,6 +56,17 @@ internal static class NativeMusicLibraryIntegration {
                 Check(File.ReadAllText(Path.Combine(profile,"music-library.json"))==saved,"Invalid drop leaves persisted configuration unchanged");
                 File.WriteAllText(Path.Combine(nested,"新音乐.flac"),"fixture");
                 Check(J.Arr(J.Get(host.TestConnect(new[]{music}),"tracks")).Length==3,"Repeat drop rescans newly added music");
+            }
+            string crowded=Path.Combine(root,"crowded"), secondary=Path.Combine(root,"E music");
+            Directory.CreateDirectory(crowded); Directory.CreateDirectory(secondary);
+            for(int n=0;n<5000;n++)File.WriteAllText(Path.Combine(crowded,n.ToString("D4")+".mp3"),"fixture");
+            File.WriteAllText(Path.Combine(secondary,"E盘歌曲.mp3"),"fixture");
+            using(var host=new StudioHost(Path.Combine(root,"fair-profile"))) {
+                var catalog=host.TestConnect(new[]{crowded,secondary});
+                var directories=J.Arr(J.Get(catalog,"directories"));
+                Check(J.Arr(J.Get(catalog,"tracks")).Length==5000,"Music catalog retains the global limit");
+                Check((int)J.Num(directories[1],"count")==1,"A later music folder receives an index slot");
+                Check(J.Arr(J.Get(catalog,"tracks")).Any(track=>J.Str(track,"title")=="E盘歌曲"),"Later drive music remains available");
             }
             CheckFolders(root,profile);
             Console.WriteLine("Native music recursion and shortcut drop persistence passed"); return 0;

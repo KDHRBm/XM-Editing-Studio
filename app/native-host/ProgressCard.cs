@@ -27,6 +27,8 @@ namespace XM.Native {
         private Task progressOpening;
         private object currentProgress;
         private bool progressDismissed, progressSuppressed, progressReady;
+        private bool webScanActive;
+        private bool restorePanelAfterCapture;
         private async void HandleEngineEvent(Dictionary<string, object> message) {
             try {
                 string name = J.Str(message, "event");
@@ -35,16 +37,26 @@ namespace XM.Native {
                     string stage = J.Str(message, "stage"), id = J.Str(message, "id");
                     if (id.Length == 0 || stage != "preparing" && (J.Str(currentProgress, "id") != id || Terminal(currentProgress))) return;
                     message["operation"] = name == "export-progress" ? "export" : name == "recording-progress" ? "recording" : "scan";
-                    if (Terminal(message)) Emit("bos:native-ai-cancel", null);
-                    ShowProgress(message); return;
+                    if (Terminal(message)) {
+                        Emit("bos:native-ai-cancel", null);
+                        if (jyAiView != null && jyAiView != MainView) Emit("bos:native-ai-cancel", null, jyAiView);
+                        if (name == "scan-progress") {
+                            if (webScanActive && stage == "complete") Emit("bos:tray-navigate", "jianying");
+                            webScanActive = false;
+                        }
+                    }
+                    ShowProgress(message);
+                    if (Terminal(message) && restorePanelAfterCapture) { restorePanelAfterCapture = false; await OpenPetPanel(); }
+                    return;
                 }
                 if (name == "scan-capture" || name == "recording-capture") {
                     if (J.Str(message, "id") != J.Str(currentProgress, "id") || Terminal(currentProgress)) return;
-                    progressSuppressed = true; if (progressWindow != null) progressWindow.Hide(); if (PanelWindow != null) PanelWindow.Hide();
+                    progressSuppressed = true; if (progressWindow != null) progressWindow.Hide();
+                    if (PanelWindow != null && PanelWindow.Visible) { restorePanelAfterCapture = true; PanelWindow.Hide(); }
                     await Task.Delay(160);
                     await jyEngine.Call(name == "scan-capture" ? "scan_capture_ready" : "recording_capture_ready", J.Obj("id", J.Str(message, "id"), "token", J.Str(message, "token"), "error", "")); return;
                 }
-                if (name == "ai") Emit("bos:native-ai", message);
+                if (name == "ai") Emit("bos:native-ai", message, jyAiView == null || jyAiView.IsDisposed ? MainView : jyAiView);
             } catch (Exception error) { Notify(error.Message); }
         }
         private static bool Terminal(object state) { return new[] { "complete", "error", "cancelled" }.Contains(J.Str(state, "stage")); }
@@ -77,8 +89,8 @@ namespace XM.Native {
         }
         private async Task<object> ProgressAction(string action) {
             if (action == "state") return currentProgress;
-            if (action == "stop") { Emit("bos:native-ai-cancel", null); jyState = await jyEngine.Call("stop"); return jyState; }
-            if (action == "reveal-web-ai") { OpenMain(); return null; }
+            if (action == "stop") { Emit("bos:native-ai-cancel", null); if (jyAiView != null && jyAiView != MainView) Emit("bos:native-ai-cancel", null, jyAiView); jyState = await jyEngine.Call("stop"); return jyState; }
+            if (action == "reveal-web-ai") { OpenMain(); Emit("bos:tray-navigate", "webai"); Emit("bos:open-web-ai", "deepseek"); return null; }
             if (action == "open" && PassiveProgress) return null;
             progressDismissed = true; if (progressWindow != null) progressWindow.Hide(); if (action == "open") OpenMain(); return null;
         }

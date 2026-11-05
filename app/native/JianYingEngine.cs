@@ -78,6 +78,9 @@ internal static class NativeWin32
     public static extern IntPtr GetForegroundWindow();
 
     [DllImport("user32.dll")]
+    public static extern bool ShowWindow(IntPtr hWnd, int command);
+
+    [DllImport("user32.dll")]
     public static extern uint GetWindowThreadProcessId(IntPtr hWnd, out uint lpdwProcessId);
 
     public delegate bool EnumWindowCallback(IntPtr window, IntPtr unused);
@@ -88,6 +91,11 @@ internal static class NativeWin32
     // Discover visible top-level windows without changing foreground focus.
     public static IntPtr FindJianyingWindow()
     {
+        return FindJianyingWindow(IntPtr.Zero, IntPtr.Zero);
+    }
+
+    public static IntPtr FindJianyingWindow(IntPtr excludedHome, IntPtr excludedForeground)
+    {
         var ids = new HashSet<uint>();
         foreach (var process in Process.GetProcessesByName("JianyingPro"))
             using (process) { try { ids.Add((uint)process.Id); } catch (InvalidOperationException) { } }
@@ -95,7 +103,8 @@ internal static class NativeWin32
         if (ids.Count == 0) return best;
         EnumWindows((window, unused) => {
             uint pid; GetWindowThreadProcessId(window, out pid); RECT rect;
-            if (!ids.Contains(pid) || !IsWindowVisible(window) || !GetWindowRect(window, out rect)) return true;
+            if (!ids.Contains(pid) || window == excludedHome || window == excludedForeground ||
+                !IsWindowVisible(window) || !GetWindowRect(window, out rect)) return true;
             int width = rect.Right - rect.Left, height = rect.Bottom - rect.Top;
             if (width < 300 || height < 200) return true;
             long score = (long)width * height;
@@ -933,7 +942,7 @@ internal sealed partial class JianYingEngine
         }
     }
 
-    private string RequestAiText(string prompt, string base64Image, int gen)
+    private string RequestAiText(string prompt, string base64Image, int gen, bool fallback = false)
     {
         string token = Guid.NewGuid().ToString("N");
         var slot = new AiRequestSlot();
@@ -946,7 +955,8 @@ internal sealed partial class JianYingEngine
             { "event", "ai" },
             { "token", token },
             { "prompt", prompt },
-            { "image", base64Image }
+            { "image", base64Image },
+            { "fallback", fallback }
         });
         try
         {
@@ -1076,7 +1086,13 @@ internal sealed partial class JianYingEngine
         {
             CheckInterrupted(gen);
             RequireJianyingForeground();
-            Point point = ResolveButton(step, coords);
+            Point point;
+            if (!TryResolveButton(step, coords, out point))
+            {
+                streak = 0; previous = null;
+                InterruptibleWait(.5, gen);
+                continue;
+            }
             if (!avoided.HasValue || avoided.Value != point) { AvoidExportTarget(point, gen); avoided = point; }
             Point? candidate = LocateRecordedButton(step, point);
             // Legacy templates have no image. Sample the entire local button structure,

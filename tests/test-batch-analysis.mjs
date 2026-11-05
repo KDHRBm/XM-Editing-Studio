@@ -88,9 +88,17 @@ test('all episodes share joint model requests and one bounded review and results
   const result = await analyzeBatchMusic(request, async messages => reply(messages, requests));
   assert.equal(requests.length, 3); assert.ok(requests.every(context => context.episodes.length === 3));
   assert.deepEqual(result.episodes.map(episode => episode.id), request.episodes.map(episode => episode.id));
-  assert.ok(result.episodes.every(episode => episode.value.matches[0].id === 'piano'));
+  assert.equal(result.episodes[0].value.matches[0].id, 'piano');
+  assert.ok(result.episodes.slice(1).every(episode => episode.value.matches.every(match => match.id !== 'piano')));
   const empty = []; const noMusic = await analyzeWithWeb('batch-library-match', { ...request, tracks: [] }, async messages => reply(messages, empty));
   assert.equal(empty.length, 1); assert.ok(noMusic.episodes.every(episode => !episode.value.matches.length));
+});
+test('recent music is excluded for three episodes and becomes available afterward', async () => {
+  const make = episodeNumber => ({ ...request, episodes: [{ ...request.episodes[0], episodeNumber }], recentEpisodes: [{ episodeNumber: 1, trackIds: ['piano'] }] });
+  const blocked = await analyzeBatchMusic(make(3), async messages => reply(messages, []));
+  assert.ok(blocked.episodes[0].value.matches.every(match => match.id !== 'piano'));
+  const available = await analyzeBatchMusic(make(4), async messages => reply(messages, []));
+  assert.equal(available.episodes[0].value.matches[0].id, 'piano');
 });
 test('batch matching rejects omitted/duplicate episodes and invented tracks', async () => {
   for (const invalid of [{ episodes: [] }, { episodes: request.episodes.map(() => ({ id: 'episode-0', summary: 'x', keywords: ['钢琴'] })) }]) await assert.rejects(analyzeBatchMusic(request, async () => JSON.stringify(invalid)), /集数/);

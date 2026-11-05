@@ -215,12 +215,20 @@
 .bos-theme-check {width:17px;height:17px;display:grid;place-items:center;flex-shrink:0;border:1px solid var(--line);border-radius:50%;color:var(--lime);font-size:11px}
 .bos-appearance-choice[aria-pressed="true"] .bos-theme-check {border-color:var(--lime);background:var(--panel-raised)}
 .bos-appearance-status {margin:18px 0 0;font-size:11px;line-height:1.6;color:var(--ui-muted)}
+.bos-theme-toolbar {display:flex;align-items:center;justify-content:space-between;gap:12px;margin:0 0 16px}
+.bos-theme-families {display:flex;gap:4px;min-width:0;padding:4px;border:1px solid var(--ui-border);border-radius:var(--ui-control);background:var(--ui-input)}
+.bos-theme-families button {min-width:0;padding:8px 12px;border:0;border-radius:calc(var(--ui-control) - 2px);background:transparent;color:var(--ui-muted);font-size:12px;white-space:nowrap;cursor:pointer}
+.bos-theme-families button[aria-selected="true"] {background:var(--ui-soft);color:var(--ui-accent)}
+.bos-theme-search {min-width:150px;max-width:260px;width:35%;padding:8px 10px;border:1px solid var(--ui-border);border-radius:var(--ui-control);background:var(--ui-input);color:var(--ui-text);font:inherit;font-size:12px}
+.bos-theme-custom-color {display:flex;align-items:center;gap:12px;margin-top:14px;color:var(--ui-muted);font-size:12px}
+.bos-theme-custom-color input {width:48px;height:32px;padding:2px;border:1px solid var(--ui-border);border-radius:var(--ui-control);background:var(--ui-input);cursor:pointer}
 @media(max-width:980px) {.bos-appearance-grid{grid-template-columns:repeat(2,minmax(0,1fr))}}
 @media(max-width:680px) {
   .app-shell[data-bos-theme] .nav-item{min-height:42px}
   .bos-appearance{padding:17px}.bos-appearance-heading{flex-wrap:wrap;gap:10px}
   .bos-appearance-heading h2{font-size:21px}.bos-appearance-grid{gap:8px}
   .bos-theme-mini{height:86px}.bos-theme-caption small{font-size:9px}
+  .bos-theme-toolbar{align-items:stretch;flex-direction:column}.bos-theme-families{overflow:auto}.bos-theme-search{width:100%;max-width:none}
   .app-shell[data-bos-theme] .bos-engine{flex-wrap:wrap}
 }
 @media(prefers-reduced-motion:reduce) {.app-shell[data-bos-theme] *{animation:none!important;transition:none!important}}

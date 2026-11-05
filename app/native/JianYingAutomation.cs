@@ -11,6 +11,7 @@ internal sealed partial class JianYingEngine
     private Dictionary<string, string> _buttonImages = new Dictionary<string, string>();
     private Dictionary<string, string> _recordingImages;
     private Dictionary<string, int[]> _coordinateFrames = new Dictionary<string, int[]>();
+    private int[] _lastButtonFrame;
     private Dictionary<string, int[]> _recordingFrames;
     // Capture dependencies also allow regression tests without moving the user's mouse.
     private Func<Point> _readCursor = ReadCursor;
@@ -47,17 +48,75 @@ internal sealed partial class JianYingEngine
         return new Point(point.X + after[0] - before[0], point.Y + after[1] - before[1]);
     }
 
-    private Point ResolveButton(string step, Dictionary<string, int[]> coords)
+    private static bool TryTranslatePoint(Point point, int[] before, int[] after, out Point translated)
+    {
+        translated = point;
+        if (before == null || after == null || before.Length != 5 || after.Length != 5 ||
+            Math.Abs(before[2] - after[2]) > 2 || Math.Abs(before[3] - after[3]) > 2 || before[4] != after[4])
+            return false;
+        translated = new Point(point.X + after[0] - before[0], point.Y + after[1] - before[1]);
+        return true;
+    }
+
+    private static bool TryTranslateButtonPoint(string step, Point point, int[] before, int[] after, Rectangle workingArea, out Point translated)
+    {
+        if (TryTranslatePoint(point, before, after, out translated)) return true;
+        if (step != "export" || before == null || after == null || before.Length != 5 || after.Length != 5 || before[4] != after[4]) return false;
+        var recorded = Rectangle.Intersect(new Rectangle(before[0], before[1], before[2], before[3]), workingArea);
+        var current = Rectangle.Intersect(new Rectangle(after[0], after[1], after[2], after[3]), workingArea);
+        if (recorded != current || recorded.Width < workingArea.Width * .8 || recorded.Height < workingArea.Height * .8) return false;
+        // Maximized Qt windows alternate between invisible outer borders and borderless bounds.
+        translated = point;
+        return true;
+    }
+
+    private static bool ShouldMaximizeEditor(string step, int[] recorded, int[] current, Rectangle workingArea)
+    {
+        if (step != "export" || recorded == null || current == null || recorded.Length != 5 || current.Length != 5 ||
+            recorded[4] != current[4] || current[2] < 1000 || current[3] < 600) return false;
+        var expected = Rectangle.Intersect(new Rectangle(recorded[0], recorded[1], recorded[2], recorded[3]), workingArea);
+        var shown = Rectangle.Intersect(new Rectangle(current[0], current[1], current[2], current[3]), workingArea);
+        return expected.Width >= workingArea.Width * .8 && expected.Height >= workingArea.Height * .8 &&
+            shown.Width < workingArea.Width * .8 && shown.Height < workingArea.Height * .8;
+    }
+
+    private static bool ShouldUseMainEditor(string step, int[] foreground, int[] candidate, bool foregroundIsHome)
+    {
+        return step == "export" && foreground != null && candidate != null &&
+            (foregroundIsHome || foreground[2] < 1000 || foreground[3] < 600) &&
+            candidate[2] >= 1000 && candidate[3] >= 600;
+    }
+
+    private bool TryResolveButton(string step, Dictionary<string, int[]> coords, out Point point)
     {
         int[] p = coords[step];
-        var point = new Point(p[0], p[1]);
+        point = new Point(p[0], p[1]);
         int[] frame;
-        if (_coordinateFrames.TryGetValue(step, out frame))
+        if (!_coordinateFrames.TryGetValue(step, out frame)) return true;
+        RequireJianyingForeground();
+        IntPtr window = NativeWin32.GetAncestor(NativeWin32.GetForegroundWindow(), 2);
+        _lastButtonFrame = WindowFrame(window);
+        bool foregroundIsHome = _draftScope != null && window == _draftScope.Window;
+        if (step == "export" && (foregroundIsHome || _lastButtonFrame[2] < 1000 || _lastButtonFrame[3] < 600))
         {
-            RequireJianyingForeground();
-            point = TranslatePoint(point, frame, WindowFrame(NativeWin32.GetAncestor(NativeWin32.GetForegroundWindow(), 2)));
+            IntPtr editor = NativeWin32.FindJianyingWindow(_draftScope == null ? IntPtr.Zero : _draftScope.Window, window);
+            if (editor != IntPtr.Zero && editor != window)
+            {
+                int[] editorFrame = WindowFrame(editor);
+                if (ShouldUseMainEditor(step, _lastButtonFrame, editorFrame, foregroundIsHome))
+                {
+                    window = editor;
+                    _lastButtonFrame = editorFrame;
+                }
+            }
         }
-        return point;
+        Rectangle workingArea = System.Windows.Forms.Screen.FromHandle(window).WorkingArea;
+        if (ShouldMaximizeEditor(step, frame, _lastButtonFrame, workingArea))
+        {
+            NativeWin32.ShowWindow(window, 3);
+            return false;
+        }
+        return TryTranslateButtonPoint(step, point, frame, _lastButtonFrame, workingArea, out point);
     }
 
     private static void ValidateRecordedStep(string step, Point point, Dictionary<string, int[]> coords)
@@ -156,22 +215,44 @@ internal sealed partial class JianYingEngine
 
     private void ClickButton(string step, Dictionary<string, int[]> coords, int gen)
     {
-        Point point = ResolveButton(step, coords);
-        AvoidExportTarget(point, gen);
-        if (_buttonImages.ContainsKey(step))
+        Point point = Point.Empty;
+        Point? found = null;
+        Point? previous = null;
+        int stable = 0;
+        bool matchedWindow = false;
+        for (int n = 0; n < 60; n++)
         {
-            Point? found = null;
-            for (int n = 0; n < 20; n++)
+            CheckInterrupted(gen);
+            if (TryResolveButton(step, coords, out point))
             {
-                CheckInterrupted(gen); RequireJianyingForeground();
-                point = ResolveButton(step, coords); found = LocateRecordedButton(step, point);
-                if (found.HasValue) break;
-                InterruptibleWait(.5, gen);
+                matchedWindow = true;
+                if (_buttonImages.ContainsKey(step)) found = LocateRecordedButton(step, point);
+                else if (NativeWin32.IsJianyingWindow(NativeWin32.WindowFromPoint(new NativeWin32.POINT { X = point.X, Y = point.Y })) &&
+                    (step != "export" || ExportButtonVisible(point))) found = point;
+                else found = null;
+                stable = found.HasValue && previous.HasValue && Math.Abs(found.Value.X - previous.Value.X) <= 2 && Math.Abs(found.Value.Y - previous.Value.Y) <= 2 ? stable + 1 : found.HasValue ? 1 : 0;
+                previous = found;
+                if (stable >= 2) break;
             }
-            if (!found.HasValue) throw new InvalidOperationException("未找到录制的按钮（" + step + "），已停止以免误点，请确认界面或重新录制。");
-            point = found.Value;
+            else { found = null; previous = null; stable = 0; }
+            InterruptibleWait(.5, gen);
         }
-        SafeClick(point.X, point.Y, gen);
+        if (stable < 2) throw new InvalidOperationException(matchedWindow
+            ? "未找到录制的按钮（" + step + "），已停止以免误点，请确认界面或重新录制。"
+            : "等待剪映切换到录制窗口超时（" + step + "）。当前窗口：" + (_lastButtonFrame == null ? "未知" : string.Join(",", _lastButtonFrame)) + "；请确认草稿已打开且窗口大小和显示缩放未改变。");
+        Point target = found.Value;
+        AvoidExportTarget(target, gen);
+        SafeClick(target.X, target.Y, gen, () => {
+            Point current;
+            if (!TryResolveButton(step, coords, out current) || Math.Abs(current.X - point.X) > 2 || Math.Abs(current.Y - point.Y) > 2)
+                throw new InvalidOperationException("剪映窗口在点击前发生切换，已停止点击。");
+        });
+    }
+
+    private static bool ExportButtonVisible(Point point)
+    {
+        using (var patch = CaptureArea(new Rectangle(point.X - 20, point.Y - 8, 41, 17)))
+            return LegacyButtonReady("return_home", patch);
     }
 
     private void AvoidExportTarget(Point point, int gen)

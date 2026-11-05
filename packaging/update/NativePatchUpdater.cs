@@ -56,7 +56,13 @@ internal static class NativePatchUpdater {
         Need(manifest.baselines != null && manifest.baselines.Length > 0, "更新包缺少兼容版本清单，请重新下载。");
         Need(manifest.baselines.Any(item => version == item.version + ".0") || version == manifest.version + ".0", "此增量更新包支持原版 " + Supported(manifest) + "。旧版本请先升级到 " + manifest.baseVersion + " 完整版。");
         Closed(target);
-        foreach (var file in manifest.changed) Verify(Child(Path.Combine(Root,"payload"),file.name),file.after);
+        string payloadRoot = Path.Combine(Root,"payload");
+        Need(Directory.Exists(payloadRoot), "更新包未完整解压：请让更新器 EXE 与 payload 文件夹保持在同一目录，不要单独移动 EXE。");
+        foreach (var file in manifest.changed) {
+            string source = Child(payloadRoot,file.name);
+            Need(File.Exists(source), "更新包缺少 payload 文件：" + file.name + "。请重新解压整个 ZIP，再运行外层的更新器 EXE。");
+            Verify(source,file.after);
+        }
         // Check the installed components that are deliberately omitted from this small package.
         foreach (var file in manifest.retained) Verify(Child(target,file.Key),file.Value);
         var current = manifest.changed.ToDictionary(file => file.name, file => File.Exists(Child(target,file.name)) ? Hash(Child(target,file.name)) : "");

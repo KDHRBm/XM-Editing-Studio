@@ -1,10 +1,8 @@
 小马剪辑台：第三方组件说明
 
-完整桌宠组件：MerZlin/dsh-pet-indesktop v4.3.4 (MIT), commit 5d56d29。
-运行文件与 106 段 WebM：resources/companion/_internal。
-本地适配只修改启动入口并增加 XM 通信桥，保留原版模块及资源。
-完整许可与依赖声明：resources/companion/_internal/LICENSE、THIRD_PARTY_NOTICES.md。
-构建与来源校验：docs/COMPANION-INTEGRATION.md。
+桌面角色仅保留原项目整理的 106 段 WebM 动画，安装在 resources/client/companion-animations。
+动画显示与自言自语气泡由 XM剪辑台 C# + WebView2 实现；未分发原桌宠运行程序及其聊天、识屏和更新模块。
+动画来源：MerZlin/dsh-pet-indesktop v4.3.4 (MIT), commit 5d56d29。
 来源：https://github.com/MerZlin/dsh-pet-indesktop
 原始素材来源：https://github.com/PC2005-cloud/dsh-pet
 角色 OC「溟月」画师：上善无形。动画素材由社区成员整理制作。
@@ -226,4 +224,4 @@ Adapted from user-provided JianYing-AI-Pro 2.1 main.py (SHA256 9a411111454eabd7e
 The former Python runtime is no longer distributed. The C# JianYing engine is adapted from Kirota233/XM-Editing-Studio v1.5.1, commit 738e9798b3ba6d8b5d4d80b5d3a454c0449cb4a4. Original source: https://github.com/Kirota233/XM-Editing-Studio . Local additions preserve scoped draft scanning, official DeepSeek web integration, progress protocols and encrypted-draft compatibility. Upstream did not supply a repository-wide license at this tag.
 
 Fork v1.6.4 workflow reference: https://github.com/Kirota233/XM-Editing-Studio/releases/tag/v1.6.4
-Subtitle path persistence, recursive pet file drop workflow, punctuation layout and waiting feedback adapted to the original C# host.
+Subtitle path persistence, punctuation layout and waiting feedback adapted to the original C# host.

@@ -2,7 +2,7 @@ import { PetNavIcon } from './NavigationIcons.jsx';
 
 
 
-const idle = { status: 'idle', currentVersion: '1.4.6', progress: 0 };
+const idle = { status: 'idle', currentVersion: '1.4.8', progress: 0 };
 
 
 
@@ -22,9 +22,9 @@ export function TitleBar({ onNavigate }) {
 
     petStarting.current = true; setPetBusy(true); setPetError('');
 
-    try { if (!api?.companionAction) throw new Error('请在桌面程序中开启桌宠。'); await api.companionAction('show'); }
+    try { if (!api?.companionAction) throw new Error('请在桌面程序中开启动画。'); await api.companionAction('show'); }
 
-    catch (error) { setPetError(error.message || '桌宠启动失败，请重试。'); }
+    catch (error) { setPetError(error.message || '动画启动失败，请重试。'); }
 
     finally { petStarting.current = false; setPetBusy(false); }
 
@@ -98,7 +98,7 @@ export function TitleBar({ onNavigate }) {
 
     <div className="bos-titlebar-actions">
 
-      <button type="button" className="bos-pet-entry" title={petError || (petBusy ? '桌宠启动中…' : `${petName} · 开启桌宠`)} aria-label="开启桌宠" disabled={petBusy} onClick={showPet}><PetNavIcon size={21} /></button>
+      <button type="button" className="bos-pet-entry" title={petError || (petBusy ? '动画启动中…' : `${petName} · 显示桌面动画`)} aria-label="显示桌面动画" disabled={petBusy} onClick={showPet}><PetNavIcon size={21} /></button>
 
       {petError && <span role="alert" className="bos-pet-start-error">{petError}</span>}
 
