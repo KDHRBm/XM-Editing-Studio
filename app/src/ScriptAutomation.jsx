@@ -1,6 +1,6 @@
 import { MusicDragButton } from './MusicDragButton.jsx';
 import { connectScriptQueue } from './ScriptQueueBridge.mjs';
-import { SCRIPT_LIMIT, splitScript, isGeminiModel, isSunoModel } from '../shared/script-score.mjs';
+import { SCRIPT_LIMIT, splitScript, isScriptAnalysisModel, isSunoModel } from '../shared/script-score.mjs';
 import { QUEUE_KEY, createScriptQueue } from '../shared/script-queue.mjs';
 import { importScriptScore, syncScriptMusic, cancelLocalMusicHistory } from './MusicStudio.jsx';
 import { findLocalSelections, localSelectionScope } from '../shared/local-music-selection.mjs';
@@ -87,7 +87,7 @@ export function ScriptAutomation({ providers, automation, onNavigate }) {
     return next;
   });
   const models = providers.flatMap(provider => (provider.models || []).map(model => ({ key: `${provider.id}::${model}`, providerId: provider.id, protocol: provider.protocol, baseUrl: provider.baseUrl, provider, model })));
-  const geminis = [...models.filter(m => isGeminiModel(m.provider, m.model)), ...WEB_ANALYZERS];
+  const geminis = [...models.filter(m => isScriptAnalysisModel(m.provider, m.model)), ...WEB_ANALYZERS];
   const sunos = models.filter(m => isSunoModel(m.provider, m.model));
   const gemini = geminis.find(m => m.key === draft.geminiKey) || geminis[0];
   const libraryGemini = geminis.find(m => m.key === draft.libraryGeminiKey) || geminis[0];
@@ -107,7 +107,7 @@ export function ScriptAutomation({ providers, automation, onNavigate }) {
   const perform = async fn => { setError(''); try { await fn(); } catch (err) { setError(err.message || '操作失败。'); } };
   const enqueue = start => perform(() => {
     if (!gemini || !suno) throw new Error('请选择剧本分析模型，并配置 Suno 音乐模型。');
-    if (!analysisReady(gemini) || !suno.provider.apiKey?.trim()) throw new Error('所选 API 连接缺少密钥，请先补充。DeepSeek、豆包网页版只需登录账号。');
+    if (!analysisReady(gemini) || !suno.provider.apiKey?.trim()) throw new Error('所选 API 连接缺少密钥，请先补充；网页版分析需先登录账号。');
     if (extraction.error) throw new Error(extraction.error);
     const lines = subtitleLines;
     const id = queue.add({ ...draft, lines }, gemini, suno, directory);

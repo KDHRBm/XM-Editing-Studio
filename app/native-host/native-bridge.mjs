@@ -62,6 +62,8 @@ window.fetch = async (input, options = {}) => {
 
 let visibleProvider = '', aiLayoutRequest = 0, jyConnection = null, jyFallbackGemini = null, jyUseFallback = false, jyController;
 on('bos:open-web-ai', provider => window.dispatchEvent(new CustomEvent('xm-open-web-ai', { detail: provider })));
+on('bos:batch-analysis-stop', () => window.dispatchEvent(new Event('xm-batch-analysis-stop')));
+on('bos:batch-analysis-dismiss', () => window.dispatchEvent(new Event('xm-batch-analysis-dismiss')));
 const driver = {
   visible: id => id === visibleProvider,
   run: (provider, input, signal) => runNativeWebAI(invoke, provider, input, signal),
@@ -138,9 +140,10 @@ const wm = (action, value) => invoke('watermark-action', { action, value });
 window.scanCard = Object.freeze({state:()=>invoke('progress-action',{action:'state'}), action:action=>invoke('progress-action',{action}),subscribe:fn=>on('bos:scan-card-progress',fn)});
 window.blackObsidian = Object.freeze({
   runtime: 'csharp-webview2',
+  reportBatchProgress: progress => invoke('batch-progress', { progress }),
   getUpdaterStatus: () => invoke('updater-status'), updaterAction: action => invoke('updater-action', { action }, 25 * 60000), onUpdaterState: fn => on('bos:updater-state', fn),
   setTitlebarTheme: (theme, light = false) => invoke('titlebar-theme', { theme, light }), onTrayNavigate: fn => on('bos:tray-navigate', fn),
-  companionAction: (action, value) => invoke('companion-action', { action, value }, 25 * 60000), onCompanionState: fn => on('bos:companion-state', fn), onCompanionTheme: fn => on('bos:companion-theme', fn), onCompanionPlay: fn => on('bos:companion-play', fn), windowControl: action => invoke('window-control', { action }),
+  companionAction: (action, value) => invoke('companion-action', { action, value }, 25 * 60000), onCompanionState: fn => on('bos:companion-state', fn), onCompanionTheme: fn => on('bos:companion-theme', fn), onCompanionPlay: fn => on('bos:companion-play', fn), onCompanionPreviewBubble: fn => on('bos:companion-preview-bubble', fn), windowControl: action => invoke('window-control', { action }),
   layoutWebAI: async input => {
     const request = ++aiLayoutRequest;
     if (!input.visible) visibleProvider = '';

@@ -12,14 +12,18 @@ if(stageIndex>=0&&!stageArg)throw Error('--stage requires a complete native buil
 const baseVersionIndex=args.indexOf('--base-version');
 const baseVersionArg=baseVersionIndex<0?'1.4.2':args.splice(baseVersionIndex,2)[1];
 if(!/^\d+\.\d+\.\d+$/.test(baseVersionArg))throw Error('--base-version requires a version such as 1.4.8');
+const priorInstallIndex=args.indexOf('--prior-install');
+const priorInstallArg=priorInstallIndex<0?null:args.splice(priorInstallIndex,2)[1];
+if(priorInstallIndex>=0&&!priorInstallArg)throw Error('--prior-install requires an installed native application directory');
 const [baseArg, hostArg, clientArg, outArg, ...priorManifestArgs] = args;
-if (!outArg) throw Error('Usage: node scripts/build-native-patch.mjs baseline-app new-host new-client output [known-prior-native-files.json ...] [--base-version 1.4.8] [--stage complete-native-build] [--jianying new-engine-directory]');
+if (!outArg) throw Error('Usage: node scripts/build-native-patch.mjs baseline-app new-host new-client output [known-prior-native-files.json ...] [--base-version 1.4.8] [--stage complete-native-build] [--prior-install installed-app] [--jianying new-engine-directory]');
 const base=path.resolve(baseArg), host=path.resolve(hostArg), client=path.resolve(clientArg), output=path.resolve(outArg);
 const version=JSON.parse(await fs.readFile('package.json','utf8')).version;
 const baselineBytes=await fs.readFile(path.join(base,'native-files.json'));
 const baseline=JSON.parse(baselineBytes);
 if(baseline.version!==baseVersionArg||baseline.architecture!=='csharp-webview2') throw Error('Expected original native '+baseVersionArg+' baseline');
-const priorManifestBytes=await Promise.all(priorManifestArgs.map(file=>fs.readFile(path.resolve(file))));
+const priorInstall=priorInstallArg?path.resolve(priorInstallArg):null;
+const priorManifestBytes=await Promise.all([...priorManifestArgs.map(file=>path.resolve(file)),...(priorInstall?[path.join(priorInstall,'native-files.json')]:[])].map(file=>fs.readFile(file)));
 const priorManifests=priorManifestBytes.map(bytes=>JSON.parse(bytes));
 await fs.mkdir(output); const payload=path.join(output,'payload'); await fs.mkdir(payload);
 const hash=bytes=>createHash('sha256').update(bytes).digest('hex');
@@ -58,6 +62,20 @@ if(stageArg) {
   candidates.set('resources/native-manifest.json',Buffer.from(JSON.stringify(nativeManifest,null,2)));
 }
 const programFiles=Object.fromEntries(Object.entries(baseline.files).filter(([name])=>!name.startsWith('data/')));
+const installedFiles={};
+if(priorInstall) {
+  const installed=priorManifests.at(-1);
+  if(installed.version!==baseVersionArg||installed.architecture!==baseline.architecture)throw Error('Prior installation has the wrong version or architecture');
+  for(const name of Object.keys(programFiles)) {
+    try { installedFiles[name]=hash(await fs.readFile(path.join(priorInstall,name))); }
+    catch(error) { if(error.code!=='ENOENT')throw error; installedFiles[name]=''; }
+  }
+  for(const name of Object.keys(programFiles)) if(!candidates.has(name)&&installedFiles[name]!==programFiles[name]) {
+    const bytes=await fs.readFile(path.join(base,name));
+    if(hash(bytes)!==programFiles[name])throw Error('Baseline modified: '+name);
+    candidates.set(name,bytes);
+  }
+}
 const finalFiles={...programFiles},changed=[];
 async function add(name,bytes,before,force=false) {
   const after=hash(bytes);if(after===before&&!force)return;
@@ -66,7 +84,7 @@ async function add(name,bytes,before,force=false) {
 }
 for(const [name,bytes] of candidates) {
   if(baseline.files[name] && hash(await fs.readFile(path.join(base,name)))!==baseline.files[name])throw Error('Baseline modified: '+name);
-  await add(name,bytes,baseline.files[name],priorManifests.some(prior=>prior.files[name]!==baseline.files[name]));finalFiles[name]=hash(bytes);
+  await add(name,bytes,baseline.files[name],priorManifests.some(prior=>prior.files[name]!==baseline.files[name])||installedFiles[name]&&installedFiles[name]!==baseline.files[name]);finalFiles[name]=hash(bytes);
 }
 await add('native-files.json',Buffer.from(JSON.stringify({...baseline,version,files:finalFiles},null,2)),hash(await fs.readFile(path.join(base,'native-files.json'))));
 const retained=Object.fromEntries(Object.entries(programFiles).filter(([name])=>!changed.some(file=>file.name===name)&&(!name.startsWith('resources/companion/') || ['resources/companion/xm-manifest.json','resources/companion/dsh-pet-standalone-webm-chat.exe'].includes(name))));
@@ -74,10 +92,11 @@ for(const [name,digest] of Object.entries(retained)) if(hash(await fs.readFile(p
 const baselines=[];
 for(const bytes of [baselineBytes,...priorManifestBytes]) {
   const prior=JSON.parse(bytes);
+  const actual=priorInstall&&bytes===priorManifestBytes.at(-1)?installedFiles:null;
   const number=value=>/^\d+\.\d+\.\d+$/.test(value)?value.split('.').reduce((sum,part)=>sum*100000+Number(part),0):NaN;
   if(!Number.isFinite(number(prior.version))||number(prior.version)<number(baseline.version)||number(prior.version)>number(version)||prior.architecture!==baseline.architecture)throw Error('Unsupported prior native manifest');
-  for(const [name,digest] of Object.entries(retained))if(prior.files[name]!==digest)throw Error('Prior build requires additional component payload: '+name);
-  const files=Object.fromEntries(changed.map(file=>[file.name,file.name==='native-files.json'?hash(bytes):prior.files[file.name]||'']));
+  for(const [name,digest] of Object.entries(retained))if((actual&&Object.hasOwn(actual,name)?actual[name]:prior.files[name])!==digest)throw Error('Prior build requires additional component payload: '+name);
+  const files=Object.fromEntries(changed.map(file=>[file.name,file.name==='native-files.json'?hash(bytes):actual&&Object.hasOwn(actual,file.name)?actual[file.name]:prior.files[file.name]||'']));
   if(!baselines.some(item=>item.version===prior.version&&JSON.stringify(item.files)===JSON.stringify(files)))baselines.push({version:prior.version,files});
 }
 const manifest={version,baseVersion:baseline.version,marker:'xiaoma-editing-studio-482e9a36-9698-45e1-b24e-d2e8d9042885',changed,retained,baselines};

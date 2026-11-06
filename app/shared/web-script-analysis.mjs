@@ -22,7 +22,7 @@ async function matchWithRepair(messages, parse, ask, stage) {
   try { return parse(corrected); }
   catch (error) {
     if (error.status !== 400) throw error;
-    throw new Error(`音乐推荐自动纠正后仍未通过校验：${error.message} 请检查官网回答后重新分析，或切换其他分析模型。`);
+    throw new Error(`音乐推荐自动纠正后仍未通过校验：${error.message} 请检查模型回答后重新分析，或切换其他分析模型。`);
   }
 }
 

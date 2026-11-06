@@ -61,3 +61,26 @@
 .bos-batch-project-tools{display:flex;align-items:flex-end;justify-content:flex-end;gap:12px;flex-wrap:wrap;max-width:100%}
 @media(max-width:650px){.bos-batch-project-tools{width:100%;justify-content:flex-start}.bos-batch-project-tools .bos-batch-project-select{flex:1;min-width:160px}.bos-batch-project-heading>.bos-batch-project-select{width:100%}}
 @media(prefers-reduced-motion:reduce){.bos-batch-project-menu{animation:none}.bos-batch-project-trigger>svg{transition:none}}
+
+.bos-batch-api-progress{position:fixed;right:calc(var(--xm-rail-width,0px) + 20px);bottom:20px;z-index:60;width:min(320px,calc(100vw - 40px));padding:16px 18px;background:var(--ui-surface);color:var(--ui-text);border:1px solid var(--ui-border);border-radius:var(--ui-control);box-shadow:0 12px 36px #0005;animation:bos-batch-appear 160ms ease-out}
+.bos-batch-api-progress[data-status=running]{border-color:var(--ui-accent)}
+.bos-batch-api-progress>header,.bos-batch-api-count,.bos-batch-api-progress>footer{display:flex;align-items:center;justify-content:space-between;gap:12px}
+.bos-batch-api-progress>header{min-height:22px;margin-bottom:8px}
+.bos-batch-api-progress>strong{display:block;font-size:15px;line-height:1.4}
+.bos-batch-api-progress>small,.bos-batch-api-progress>footer small{color:var(--ui-muted);font-size:11px}
+.bos-batch-api-status{display:flex;align-items:center;gap:8px;min-height:28px;margin-top:12px;font-size:12px;line-height:1.5;overflow-wrap:anywhere}
+.bos-batch-api-status>span{width:7px;height:7px;flex:none;border-radius:50%;background:var(--ui-accent)}
+.bos-batch-api-progress[data-status=error] .bos-batch-api-status>span{background:var(--ui-danger)}
+.bos-batch-api-progress[data-status=paused] .bos-batch-api-status>span{background:var(--ui-warning)}
+.bos-batch-api-live{animation:bos-batch-api-pulse 1.5s ease-in-out infinite}
+.bos-batch-api-count{margin:11px 0 7px;font-size:11px;color:var(--ui-muted)}
+.bos-batch-api-track{height:5px;overflow:hidden;border-radius:3px;background:var(--ui-input)}
+.bos-batch-api-track>span{display:block;height:100%;background:var(--ui-accent);transition:width 220ms ease}
+.bos-batch-api-progress>footer{margin-top:13px;align-items:flex-end}
+.bos-batch-api-progress>footer small{line-height:1.5;max-width:200px}
+.app-shell .bos-batch-api-progress button{display:inline-flex;align-items:center;justify-content:center;gap:5px;flex:none;min-height:28px;padding:4px 9px;border:1px solid var(--ui-border);border-radius:var(--ui-control);background:var(--ui-input);color:var(--ui-text);font-size:11px;cursor:pointer}
+.app-shell .bos-batch-api-progress .bos-batch-api-close{width:26px;height:26px;min-height:26px;padding:0;border:0;background:transparent;color:var(--ui-muted)}
+@keyframes bos-batch-api-pulse{50%{opacity:.4}}
+@media(max-width:1050px){.bos-batch-api-progress{right:16px;bottom:16px}}
+@media(max-width:480px){.bos-batch-api-progress{right:10px;bottom:10px;width:min(320px,calc(100vw - 20px))}}
+@media(prefers-reduced-motion:reduce){.bos-batch-api-progress,.bos-batch-api-live{animation:none}.bos-batch-api-track>span{transition:none}}

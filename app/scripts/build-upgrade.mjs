@@ -54,7 +54,7 @@ code = code.replace('if(!w.preview)throw new Error', 'if(!w.preview&&!w.ok)throw
 code = code.replace('title:"让灵感发出声音",description:"选择已接入的音乐生成模型，描述你想听到的场景与情绪，直接通过中转站发起创作。"', 'title:"让灵感，自成旋律。",description:"从一种风格，到一首完整的作品。定制声音的质感，编排音乐的起承转合。"');
 replaceOnce(
   '{value:"gemini",label:"Gemini Generative"},{value:"custom",label:"自定义（OpenAI 兼容）"}],v3={openai:[],anthropic:[],gemini:[],custom:[]}',
-  '{value:"gemini",label:"Gemini AI Studio（官方免填地址）"},{value:"custom",label:"自定义（OpenAI 兼容）"},{value:"suno",label:"Suno 异步音乐"}],v3={openai:[],anthropic:[],gemini:["gemini-3.5-flash","gemini-3.5-flash-lite","gemini-3.8-flash","gemini-3.8-flash-lite"],custom:[],suno:[]}'
+  '{value:"gemini",label:"Gemini AI Studio（官方免填地址）"},{value:"deepseek",label:"DeepSeek 官方 API（免填地址）"},{value:"custom",label:"自定义（OpenAI 兼容）"},{value:"suno",label:"Suno 异步音乐"}],v3={openai:[],anthropic:[],gemini:["gemini-3.5-flash","gemini-3.5-flash-lite","gemini-3.8-flash","gemini-3.8-flash-lite"],deepseek:["deepseek-flash","deepseek-v4-pro"],custom:[],suno:[]}'
 );
 replaceOnce('[Q,Y]=i.useState("openai")', '[Q,Y]=i.useState("gemini")');
 replaceOnce('Il=(y="openai")=>{Y(y),U(!0)}', 'Il=(y="gemini")=>{Y(y),U(!0)}');
@@ -78,7 +78,7 @@ replaceProvider(
       if(!response.ok||!data.ok)throw new Error(data.error||'获取模型列表失败');
       setApiModels(data.models||[]);
       if(!(d.models||[]).length&&data.models?.length)T({models:data.models.slice(0,4)});
-      if(!data.models?.length)dl('当前密钥没有返回可生成内容的 Gemini 模型。');
+      if(!data.models?.length)dl('当前密钥没有返回可用的对话模型。');
     }catch(error){dl(error.message||'获取模型列表失败');C(!1)}
     finally{setFetchingModels(!1)}
   };var`
@@ -87,25 +87,26 @@ replaceProvider(
   '[pl,C]=i.useState(!1),hl=(v3[d.protocol]??[]).filter(q=>!(d.models||[]).includes(q));i.useEffect',
   '[pl,C]=i.useState(!1),[apiModels,setApiModels]=i.useState([]),[fetchingModels,setFetchingModels]=i.useState(!1),hl=[...new Set([...(v3[d.protocol]??[]),...apiModels])].filter(q=>!(d.models||[]).includes(q));i.useEffect(()=>{if(Q&&d.apiKey?.trim())void fetchApiModels()},[Q]);i.useEffect'
 );
-replaceProvider('const Nl=q=>{T({protocol:q})}', 'const Nl=q=>{const gem=q==="gemini";setApiModels([]);T({protocol:q,models:gem?["gemini-3.5-flash","gemini-3.5-flash-lite","gemini-3.8-flash","gemini-3.8-flash-lite"]:[],...(gem?{name:"Gemini AI Studio",description:"Google AI Studio 官方直连 · 免填 Base URL",baseUrl:"https://generativelanguage.googleapis.com/v1beta"}:{})})}');
+replaceProvider('const Nl=q=>{T({protocol:q})}', 'const Nl=q=>{const gem=q==="gemini",deep=q==="deepseek";setApiModels([]);T({protocol:q,models:gem?["gemini-3.5-flash","gemini-3.5-flash-lite","gemini-3.8-flash","gemini-3.8-flash-lite"]:deep?["deepseek-flash","deepseek-v4-pro"]:[],...(gem?{name:"Gemini AI Studio",description:"Google AI Studio 官方直连 · 免填 Base URL",baseUrl:"https://generativelanguage.googleapis.com/v1beta"}:deep?{name:"DeepSeek 官方 API",description:"DeepSeek 官方直连 · 免填 Base URL",baseUrl:"https://api.deepseek.com"}:{})})}');
 replaceProvider('className:"provider-card"', 'className:`provider-card ${d.protocol==="gemini"?"gemini-provider":""}`');
-replaceProvider('s.jsx("strong",{children:d.name}),s.jsx("span",{children:d.description||"自定义 AI 服务 · 独立协议适配"})', 's.jsx("strong",{children:d.name||"Gemini AI Studio"}),s.jsx("span",{children:d.protocol==="gemini"?"Google AI Studio 官方直连 · 免填 Base URL":d.description||"自定义 AI 服务 · 独立协议适配"})');
+replaceProvider('s.jsx("strong",{children:d.name}),s.jsx("span",{children:d.description||"自定义 AI 服务 · 独立协议适配"})', 's.jsx("strong",{children:d.name||"AI 连接"}),s.jsx("span",{children:d.protocol==="gemini"?"Google AI Studio 官方直连 · 免填 Base URL":d.protocol==="deepseek"?"DeepSeek 官方直连 · 免填 Base URL":d.description||"自定义 AI 服务 · 独立协议适配"})');
 replaceProvider('s.jsx("span",{children:"协议适配器"})', 's.jsx("span",{children:"Provider Select"})');
-replaceProvider('children:[s.jsxs("label",{className:"field-group",children:[s.jsx("span",{children:"Base URL"})', 'children:[d.protocol!=="gemini"&&s.jsxs("label",{className:"field-group",children:[s.jsx("span",{children:"Base URL"})');
+replaceProvider('children:[s.jsxs("label",{className:"field-group",children:[s.jsx("span",{children:"Base URL"})', 'children:[!["gemini","deepseek"].includes(d.protocol)&&s.jsxs("label",{className:"field-group",children:[s.jsx("span",{children:"Base URL"})');
 replaceProvider(
   's.jsx("div",{className:"model-menu-title",children:"选择可用模型"}),hl.map(q=>',
   's.jsx("div",{className:"model-menu-title",children:"选择可用模型"}),s.jsx("button",{type:"button",className:"model-fetch-action",onClick:fetchApiModels,disabled:fetchingModels||!d.apiKey?.trim(),children:fetchingModels?"正在获取模型…":"从 API 获取最新模型"}),s.jsxs("div",{className:"model-menu-list",children:[hl.map(q=>'
 );
 replaceProvider('s.jsx("p",{className:"model-empty",children:"添加你服务商提供的模型 ID"}),s.jsxs("form"', 's.jsx("p",{className:"model-empty",children:"添加你服务商提供的模型 ID"})]}),s.jsxs("form"');
-replaceProvider('disabled:j||!X||!((Il=d.baseUrl)!=null&&Il.trim())||!((Bl=d.apiKey)!=null&&Bl.trim())', 'disabled:j||!X||(d.protocol!=="gemini"&&!((Il=d.baseUrl)!=null&&Il.trim()))||!((Bl=d.apiKey)!=null&&Bl.trim())');
+replaceProvider('disabled:j||!X||!((Il=d.baseUrl)!=null&&Il.trim())||!((Bl=d.apiKey)!=null&&Bl.trim())', 'disabled:j||!X||(!["gemini","deepseek"].includes(d.protocol)&&!((Il=d.baseUrl)!=null&&Il.trim()))||!((Bl=d.apiKey)!=null&&Bl.trim())');
 replaceProvider('function S3({onClose:d,onAdd:T,initialProtocol:x="openai"})', 'function S3({onClose:d,onAdd:T,initialProtocol:x="gemini"})');
 replaceProvider(
   'const dl=v.trim()||"自定义中转站";T({id:`provider-${Date.now()}`,name:dl,description:"自定义服务 · 独立协议配置",protocol:U,baseUrl:Y.trim(),apiKey:b.trim(),models:[O.trim()],markIcon:"",tone:"custom"})',
-  'const gem=U==="gemini",dl=v.trim()||(gem?"Gemini AI Studio":"自定义中转站");T({id:`provider-${Date.now()}`,name:dl,description:gem?"Google AI Studio 官方直连 · 免填 Base URL":"自定义服务 · 独立协议配置",protocol:U,baseUrl:gem?"https://generativelanguage.googleapis.com/v1beta":Y.trim(),apiKey:b.trim(),models:O.trim()?[O.trim()]:(gem?["gemini-3.5-flash","gemini-3.5-flash-lite","gemini-3.8-flash","gemini-3.8-flash-lite"]:[]),markIcon:"",tone:"custom"})'
+  'const gem=U==="gemini",deep=U==="deepseek",dl=v.trim()||(gem?"Gemini AI Studio":deep?"DeepSeek 官方 API":"自定义中转站");T({id:`provider-${Date.now()}`,name:dl,description:gem?"Google AI Studio 官方直连 · 免填 Base URL":deep?"DeepSeek 官方直连 · 免填 Base URL":"自定义服务 · 独立协议配置",protocol:U,baseUrl:gem?"https://generativelanguage.googleapis.com/v1beta":deep?"https://api.deepseek.com":Y.trim(),apiKey:b.trim(),models:O.trim()?[O.trim()]:(gem?["gemini-3.5-flash","gemini-3.5-flash-lite","gemini-3.8-flash","gemini-3.8-flash-lite"]:deep?["deepseek-flash","deepseek-v4-pro"]:[]),markIcon:"",tone:"custom"})'
 );
 replaceProvider('children:["协议适配器",s.jsx("select"', 'children:["Provider Select",s.jsx("select"');
-replaceProvider('s.jsxs("label",{children:["Base URL",s.jsx("input",{required:!0', 'U!=="gemini"&&s.jsxs("label",{children:["Base URL",s.jsx("input",{required:!0');
-replaceProvider('children:["模型 ID",s.jsx("input",{required:!0', 'children:["模型 ID",s.jsx("input",{required:U!=="gemini"');
+replaceProvider('s.jsxs("label",{children:["Base URL",s.jsx("input",{required:!0', '!["gemini","deepseek"].includes(U)&&s.jsxs("label",{children:["Base URL",s.jsx("input",{required:!0');
+replaceProvider('children:["模型 ID",s.jsx("input",{required:!0', 'children:["模型 ID",s.jsx("input",{required:!["gemini","deepseek"].includes(U)');
+replaceProvider('密钥明文保存在此浏览器；请求会转发到你填写的服务地址。', '密钥明文保存在本机浏览器；官方 API 协议固定直连官方地址，其他协议会转发到你填写的服务地址。');
 code = code.slice(0, providerStart) + providerUi + code.slice(providerEnd);
 replaceOnce(",s.jsx(\"div\",{className:\"brand-kicker\",children:\"聚合多元模型 · 创作无限可能\"})", "");
 replaceOnce("s.jsxs(\"div\",{className:\"sidebar-foot\",children:[s.jsx(\"div\",{className:\"side-rule\"}),s.jsx(\"p\",{children:\"多重协议 · 一站接入\"}),s.jsxs(\"p\",{className:\"muted\",children:[\"让全球的模型能力\",s.jsx(\"br\",{}),\"为你的创意所用。\"]}),s.jsxs(\"div\",{className:\"local-mode\",children:[s.jsx(\"span\",{className:\"status-dot\"}),\" 本机 API 代理\"]})]})", "s.jsx(\"div\",{className:\"sidebar-foot\",children:s.jsx(\"p\",{className:\"sidebar-author\",children:\"作者：小马\"})})");

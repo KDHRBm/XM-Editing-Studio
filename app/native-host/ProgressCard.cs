@@ -61,9 +61,26 @@ namespace XM.Native {
         }
         private static bool Terminal(object state) { return new[] { "complete", "error", "cancelled" }.Contains(J.Str(state, "stage")); }
         private bool PassiveProgress { get { return new[] { "recording", "export" }.Contains(J.Str(currentProgress, "operation")) && !Terminal(currentProgress); } }
+        private void BatchProgress(object value) {
+            if (value == null) {
+                if (J.Str(currentProgress, "operation") == "batch") { currentProgress = null; if (progressWindow != null) progressWindow.Hide(); }
+                return;
+            }
+            if (currentProgress != null && J.Str(currentProgress, "operation") != "batch" && !Terminal(currentProgress)) return;
+            string id = J.Str(value, "id"), status = J.Str(value, "status"), model = J.Str(value, "model");
+            if (id.Length == 0 || id.Length > 160 || !new[] { "running", "paused", "error", "complete" }.Contains(status)) return;
+            int total = Math.Max(1, Math.Min(200, (int)J.Num(value, "total")));
+            int completed = Math.Max(0, Math.Min(total, (int)J.Num(value, "completed")));
+            int active = Math.Max(0, Math.Min(total, (int)J.Num(value, "active")));
+            int episode = Math.Max(0, (int)J.Num(value, "firstEpisode"));
+            string stage = status == "paused" ? "cancelled" : status == "running" ? active > 0 ? "running" : "preparing" : status;
+            string message = status == "running" ? active > 0 ? "正在分析第 " + episode + " 集 " + Math.Min(total, completed + 1) + "/" + total : "正在准备下一批 · 已完成 " + completed + "/" + total
+                : status == "complete" ? "剧本分析完成，已保存 " + completed + "/" + total + " 集" : status == "paused" ? "分析已中断，已完成 " + completed + "/" + total + " 集" : "分析未完成，已完成 " + completed + "/" + total + " 集";
+            ShowProgress(J.Obj("id", id, "operation", "batch", "stage", stage, "message", message, "model", model.Length > 80 ? model.Substring(0, 80) : model, "total", total, "completed", completed, "startedAt", J.Num(value, "startedAt", J.Now())));
+        }
         private async void ShowProgress(object state) {
             bool fresh = J.Str(state, "id") != J.Str(currentProgress, "id"), wasTerminal = !fresh && Terminal(currentProgress);
-            var copy = new Dictionary<string, object>(J.Map(state)); copy["startedAt"] = fresh ? J.Now() : J.Num(currentProgress, "startedAt", J.Now()); if (Terminal(state)) copy["finishedAt"] = J.Now(); currentProgress = copy;
+            var copy = new Dictionary<string, object>(J.Map(state)); copy["startedAt"] = fresh ? J.Num(state, "startedAt", J.Now()) : J.Num(currentProgress, "startedAt", J.Now()); if (Terminal(state)) copy["finishedAt"] = J.Now(); currentProgress = copy;
             if (fresh || Terminal(state)) progressDismissed = false;
             progressSuppressed = false;
             try {
@@ -89,6 +106,13 @@ namespace XM.Native {
         }
         private async Task<object> ProgressAction(string action) {
             if (action == "state") return currentProgress;
+            if (J.Str(currentProgress, "operation") == "batch") {
+                if (action == "stop") { Emit("bos:batch-analysis-stop", null); return null; }
+                progressDismissed = true; if (progressWindow != null) progressWindow.Hide();
+                if (Terminal(currentProgress)) Emit("bos:batch-analysis-dismiss", null);
+                if (action == "open") { OpenMain(); Emit("bos:tray-navigate", "batch"); }
+                return null;
+            }
             if (action == "stop") { Emit("bos:native-ai-cancel", null); if (jyAiView != null && jyAiView != MainView) Emit("bos:native-ai-cancel", null, jyAiView); jyState = await jyEngine.Call("stop"); return jyState; }
             if (action == "reveal-web-ai") { OpenMain(); Emit("bos:tray-navigate", "webai"); Emit("bos:open-web-ai", "deepseek"); return null; }
             if (action == "open" && PassiveProgress) return null;

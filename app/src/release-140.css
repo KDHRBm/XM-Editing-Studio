@@ -68,10 +68,38 @@
 .xm-floating .bos-jy-float-footer button { flex: 1; padding: 8px; border: 1px solid var(--ui-border); border-radius: 6px; background: var(--ui-raised); color: var(--ui-text); }
 .app-shell button:not(:disabled) { transition: transform 160ms ease, background-color 160ms ease, border-color 160ms ease, box-shadow 160ms ease; }
 .app-shell button:not(:disabled):active { transform: scale(.97); }
+.app-shell .nav-item { transition: transform 180ms cubic-bezier(.22,1,.36,1), background-color 180ms, border-color 180ms, color 180ms, box-shadow 180ms; }
+.app-shell .nav-item > svg { transition: transform 200ms cubic-bezier(.22,1,.36,1); }
+.app-shell .nav-item.active > svg { transform: scale(1.08); }
+.app-shell .bos-script-panel, .app-shell .bos-jy-panel, .app-shell .provider-card { transition: border-color 180ms ease, box-shadow 180ms ease; }
+.app-shell .bos-script-panel:focus-within, .app-shell .bos-jy-panel:focus-within, .app-shell .provider-card:focus-within { border-color: var(--ui-accent); }
+.app-shell .bos-batch-card-open .bos-batch-card-link { transition: transform 180ms cubic-bezier(.22,1,.36,1); }
+.app-shell .bos-batch-card-open:hover .bos-batch-card-link { transform: translateX(3px); }
+.app-shell .bos-batch-project-row { transition: background-color 150ms ease; }
+.app-shell .bos-batch-project-row:hover { background: var(--ui-soft); }
+.app-shell .bos-pet-animation-list button { transition: transform 180ms cubic-bezier(.22,1,.36,1), border-color 180ms, background-color 180ms; }
+.app-shell .bos-pet-animation-list button:hover { transform: translateY(-2px); }
+@media (hover: hover) {
+  .app-shell .nav-item:hover:not(:disabled) { transform: translateX(3px); }
+  .app-shell .bos-script button.bos-stage-tab:hover:not(:disabled) { transform: translateY(-2px) scale(1.01); box-shadow: var(--ui-shadow); }
+}
+@keyframes xm-card-enter { from { opacity: .85; } to { opacity: 1; } }
+.app-shell .bos-batch-card { animation: xm-card-enter 230ms cubic-bezier(.22,1,.36,1) backwards; }
+.app-shell .bos-batch-card:nth-child(2) { animation-delay: 20ms; }
+.app-shell .bos-batch-card:nth-child(3) { animation-delay: 40ms; }
+.app-shell .bos-batch-card:nth-child(4) { animation-delay: 60ms; }
+.app-shell .bos-batch-card:nth-child(n+5) { animation-delay: 80ms; }
+@media (hover: hover) { .app-shell .nav-item:active:not(:disabled) { transform: scale(.985); } }
+@keyframes xm-panel-in { from { opacity: .85; } to { opacity: 1; } }
 @media (max-width: 1050px) { .bos-top-stage-bar { grid-template-columns: repeat(2,minmax(0,1fr)); } }
 @media (max-width: 760px) { .bos-workspace-stage-bar { grid-template-columns: 1fr; } }
 @media (max-width: 680px) { .app-shell { height: auto; min-height: 100vh; } .app-shell .sidebar, .app-shell .main-column { height: auto; } .bos-titlebar { padding-right: 12px; } .bos-titlebar-actions button { font-size: 9px; } .bos-stage-text small { display: none; } .bos-script button.bos-stage-tab { min-height: 55px; } }
 @media (prefers-reduced-motion: reduce) { .app-shell button, .bos-script button.bos-stage-tab { transition: none; } }
+@media (prefers-reduced-motion: reduce) {
+  .app-shell .nav-item, .app-shell .nav-item > svg, .app-shell .bos-script-panel, .app-shell .bos-jy-panel, .app-shell .provider-card, .app-shell .bos-batch-card-open .bos-batch-card-link, .app-shell .bos-batch-project-row, .app-shell .bos-pet-animation-list button { transition: none; }
+  .app-shell .bos-batch-card { animation: none; }
+  .app-shell .nav-item:hover:not(:disabled), .app-shell .bos-script button.bos-stage-tab:hover:not(:disabled), .app-shell .bos-pet-animation-list button:hover { transform: none; }
+}
 
 /* Compact official-AI toolbar, like the fork; keep its native browser untransformed. */
 .bos-web-ai-bar { display: flex; align-items: flex-start; gap: 14px; padding: 14px; margin-bottom: 14px; border: 1px solid var(--ui-border); border-radius: var(--ui-radius); background: var(--ui-surface); box-shadow: var(--ui-shadow); }

@@ -5,7 +5,12 @@ import { build } from 'vite';
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 process.chdir(root);
 await fs.mkdir('app/dist/client/assets', { recursive: true });
-await fs.cp('app/public', 'app/dist/client', { recursive: true });
+const unusedPublicAssets = new Set(['assets/provider-portal-scene.png']);
+await fs.cp('app/public', 'app/dist/client', {
+  recursive: true,
+  filter: source => !unusedPublicAssets.has(path.relative('app/public', source).replaceAll('\\', '/')),
+});
+for (const asset of unusedPublicAssets) await fs.rm(path.join('app/dist/client', asset), { force: true });
 const animationSource = 'app/companion-videos';
 const animationTarget = 'app/dist/client/companion-animations';
 await fs.cp(animationSource, animationTarget, { recursive: true });

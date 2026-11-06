@@ -97,7 +97,7 @@ export function MusicLibrary({ input, projectId, savedRecommendation, onAnalysis
     if (matchState.busy) return;
     if (!input.script.trim()) { setAnalysisError('请先粘贴完整剧本。'); return; }
     if (search.error) { setAnalysisError(search.error); return; }
-    if (!analysisReady(gemini)) { setAnalysisError('请选择可用的剧本分析模型；DeepSeek、豆包网页版无需 API 配置。'); return; }
+    if (!analysisReady(gemini)) { setAnalysisError('请选择可用的剧本分析模型；网页版需登录，API 连接需填写密钥。'); return; }
     setAnalysisError(''); setAnalysisNotice(''); publish({ busy: true, error: '', analyzer: analyzerName });
     const request = { projectId, controller: new AbortController() };
     activeRequest = request;

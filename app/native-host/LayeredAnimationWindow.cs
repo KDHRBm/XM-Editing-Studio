@@ -1,5 +1,7 @@
 using System;
+using System.Collections.Generic;
 using System.Drawing;
+using System.Drawing.Drawing2D;
 using System.Drawing.Imaging;
 using System.Runtime.InteropServices;
 using System.Windows.Forms;
@@ -16,8 +18,10 @@ namespace XM.Native {
         [DllImport("gdi32.dll")] private static extern IntPtr SelectObject(IntPtr dc, IntPtr image);
         [DllImport("gdi32.dll")] private static extern bool DeleteObject(IntPtr image);
         [DllImport("user32.dll", SetLastError = true)] private static extern bool UpdateLayeredWindow(IntPtr hwnd, IntPtr screen, ref NativePoint position, ref NativeSize size, IntPtr source, ref NativePoint sourcePosition, uint colorKey, ref Blend blend, uint flags);
+        [DllImport("user32.dll", SetLastError = true)] private static extern int SetWindowRgn(IntPtr hwnd, IntPtr region, bool redraw);
 
         private bool dragging, moved, ignoreClickUp;
+        private Rectangle[] hitRuns = new Rectangle[0];
         private Point lastPointer;
         private Rectangle dragBounds;
         private readonly Timer clickTimer;
@@ -49,7 +53,22 @@ namespace XM.Native {
                     graphics.Clear(Color.Transparent);
                     graphics.DrawImage(frame, new Rectangle(0, 0, Width, Height));
                 }
-                Rectangle bounds = AlphaBounds(canvas);
+                Rectangle[] runs;
+                Rectangle bounds = AlphaBounds(canvas, out runs);
+                if (!SameRuns(hitRuns, runs)) {
+                    using (var path = new GraphicsPath()) {
+                        if (runs.Length > 0) path.AddRectangles(runs);
+                        using (var region = new Region(path))
+                        using (var context = Graphics.FromImage(canvas)) {
+                            IntPtr handle = region.GetHrgn(context);
+                            if (SetWindowRgn(Handle, handle, false) == 0) {
+                                DeleteObject(handle);
+                                throw new System.ComponentModel.Win32Exception(Marshal.GetLastWin32Error());
+                            }
+                        }
+                    }
+                    hitRuns = runs;
+                }
                 if (!bounds.IsEmpty) {
                     VisibleBounds = bounds;
                     if (!dragging) {
@@ -75,20 +94,49 @@ namespace XM.Native {
                 }
             }
         }
-        private static Rectangle AlphaBounds(Bitmap bitmap) {
+        private static bool SameRuns(Rectangle[] first, Rectangle[] second) {
+            if (first.Length != second.Length) return false;
+            for (int i = 0; i < first.Length; i++) if (first[i] != second[i]) return false;
+            return true;
+        }
+        private static void AddRun(List<Rectangle> runs, Dictionary<long, int> previous, Dictionary<long, int> current, int start, int end, int y) {
+            long key = ((long)start << 32) | (uint)(end - start);
+            int index;
+            if (previous.TryGetValue(key, out index)) {
+                var rect = runs[index];
+                rect.Height++;
+                runs[index] = rect;
+            } else {
+                index = runs.Count;
+                runs.Add(new Rectangle(start, y, end - start, 1));
+            }
+            current[key] = index;
+        }
+        private static Rectangle AlphaBounds(Bitmap bitmap, out Rectangle[] runs) {
             var area = new Rectangle(0, 0, bitmap.Width, bitmap.Height);
             var data = bitmap.LockBits(area, ImageLockMode.ReadOnly, PixelFormat.Format32bppArgb);
             try {
                 var row = new byte[bitmap.Width * 4];
+                var occupied = new List<Rectangle>();
+                var previous = new Dictionary<long, int>();
                 int left = bitmap.Width, top = bitmap.Height, right = -1, bottom = -1;
                 for (int y = 0; y < bitmap.Height; y++) {
                     Marshal.Copy(IntPtr.Add(data.Scan0, y * data.Stride), row, 0, row.Length);
+                    var current = new Dictionary<long, int>();
+                    int start = -1;
                     for (int x = 0; x < bitmap.Width; x++) {
-                        if (row[x * 4 + 3] <= 16) continue;
+                        if (row[x * 4 + 3] <= 24) {
+                            if (start >= 0) { AddRun(occupied, previous, current, start, x, y); start = -1; }
+                            continue;
+                        }
+                        if (start < 0) start = x;
                         left = Math.Min(left, x); right = Math.Max(right, x);
                         top = Math.Min(top, y); bottom = Math.Max(bottom, y);
                     }
+                    if (start >= 0) AddRun(occupied, previous, current, start, bitmap.Width, y);
+                    previous = current;
                 }
+                runs = occupied.ToArray();
                 return right < left ? Rectangle.Empty : Rectangle.FromLTRB(left, top, right + 1, bottom + 1);
             } finally { bitmap.UnlockBits(data); }
         }

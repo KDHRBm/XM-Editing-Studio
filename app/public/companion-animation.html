@@ -52,6 +52,14 @@ function syncSettings(state) {
   }, Math.max(15, Number(talkSettings.talkInterval) || 90) * 1000);
 }
 api?.onCompanionState?.(syncSettings);
+api?.onCompanionPreviewBubble?.(position => {
+  talkSettings = { ...talkSettings, bubbleX: position.bubbleX, bubbleY: position.bubbleY };
+  bubble.textContent = (Array.isArray(talkSettings.phrases) && talkSettings.phrases[0]) || '一起玩手机呀~';
+  positionBubble();
+  bubble.classList.add('show');
+  clearTimeout(hideTalkTimer);
+  hideTalkTimer = setTimeout(() => bubble.classList.remove('show'), 2000);
+});
 api?.companionAction?.('sync').then(syncSettings).catch(() => {});
 api?.onCompanionPlay?.(id => { clearTimeout(timer); play(id); });
 fetch('/companion-animations/manifest.json').then(response => response.json()).then(items => {

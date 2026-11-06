@@ -1,8 +1,9 @@
 import { PetNavIcon } from './NavigationIcons.jsx';
+import appPackage from '../package.json';
 
 
 
-const idle = { status: 'idle', currentVersion: '1.4.8', progress: 0 };
+const idle = { status: 'idle', currentVersion: appPackage.version, progress: 0 };
 
 
 

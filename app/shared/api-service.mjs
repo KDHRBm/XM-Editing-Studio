@@ -1,19 +1,20 @@
 import { normalizeMusicOptions, buildSunoBody } from '../shared/music-options.mjs';
 import { getSunoSongs } from '../server/suno-response.mjs';
-import { isGeminiModel, scoreMessages, parseScoreResponse, validateScoreRequest } from '../shared/script-score.mjs';
+import { isScriptAnalysisModel, scoreMessages, parseScoreResponse, validateScoreRequest } from '../shared/script-score.mjs';
 import { validateLibraryInput, keywordMessages, parseKeywords, shortlistTracks, matchMessages, parseMatches } from '../shared/library-match.mjs';
 import { analyzeWithWeb } from '../shared/web-script-analysis.mjs';
 import { analyzeBatchMusic } from '../shared/batch-music.mjs';
 import { segmentMessages, parseSegments, planSegments, segmentCandidates, segmentMatchMessages, parseSegmentMatches } from '../shared/script-segments.mjs';
 
 const DEFAULT_GEMINI_BASE_URL = 'https://generativelanguage.googleapis.com/v1beta';
+const DEEPSEEK_BASE_URL = 'https://api.deepseek.com';
 
 // Protocol and validation are shared by the legacy server and the native renderer.
 export function createApiService(fetch = globalThis.fetch) {
 function providerBaseUrl(provider) {
+  if (provider?.protocol === 'deepseek') return DEEPSEEK_BASE_URL;
   return provider?.protocol === 'gemini' && !provider.baseUrl?.trim()
-    ? DEFAULT_GEMINI_BASE_URL
-    : provider?.baseUrl;
+    ? DEFAULT_GEMINI_BASE_URL : provider?.baseUrl;
 }
 
 function normalizeBaseUrl(value) {
@@ -65,7 +66,7 @@ async function requestProviderModels(provider) {
     throw Object.assign(new Error('请先填写 API 密钥。'), { status: 400 });
   }
   const protocol = provider.protocol || 'openai';
-  if (!['gemini', 'openai', 'custom', 'anthropic'].includes(protocol)) {
+  if (!['gemini', 'deepseek', 'openai', 'custom', 'anthropic'].includes(protocol)) {
     throw Object.assign(new Error('此协议不提供模型列表，请手动添加模型 ID。'), { status: 400 });
   }
   const url = endpointUrl(providerBaseUrl(provider), '/models');
@@ -229,7 +230,7 @@ function buildProviderRequest(provider, model, messages, structured = false) {
     };
   } else {
     headers.Authorization = `Bearer ${provider.apiKey}`;
-    body = { model, messages };
+    body = { model, messages, ...(protocol === 'deepseek' ? { max_tokens: 8192 } : {}) };
   }
 
   return { url, headers, body };
@@ -514,7 +515,7 @@ const reply = (status, body) => ({ status, body });
 return async function dispatch(url, body, signal = new AbortController().signal) {
 signal.throwIfAborted();
   if (url === '/api/script/batch-library-match') {
-    if (!isGeminiModel(body.provider, body.model)) throw Object.assign(new Error('请选择可用的 Gemini 模型。'), { status: 400 });
+    if (!isScriptAnalysisModel(body.provider, body.model)) throw Object.assign(new Error('请选择可用的剧本分析模型。'), { status: 400 });
     const abort = { signal };
     try {
       const result = await analyzeBatchMusic(body, async messages => {
@@ -522,13 +523,13 @@ signal.throwIfAborted();
         const result = await requestProvider(body.provider, body.model, messages, 240_000, abort.signal);
         abort.signal.throwIfAborted();
         return result.text;
-      });
+      }, { deepseekApi: body.provider.protocol === 'deepseek' });
       return reply(200, result);
     } finally {}
   }
 
   if (url === "/api/script/library-match") {
-    if (!isGeminiModel(body.provider, body.model)) throw Object.assign(new Error("请选择 Gemini 模型。"), { status: 400 });
+    if (!isScriptAnalysisModel(body.provider, body.model)) throw Object.assign(new Error("请选择可用的剧本分析模型。"), { status: 400 });
     const abort = { signal };
     try {
       const result = await analyzeWithWeb('library-match', body, async messages => {
@@ -542,7 +543,7 @@ signal.throwIfAborted();
   }
 
   if (url === "/api/script/score") {
-    if (!isGeminiModel(body.provider, body.model)) throw Object.assign(new Error("请选择 Gemini 模型及 Gemini 或 OpenAI 兼容连接。"), { status: 400 });
+    if (!isScriptAnalysisModel(body.provider, body.model)) throw Object.assign(new Error("请选择可用的剧本分析模型连接。"), { status: 400 });
     const input = validateScoreRequest(body);
     if (input.segmented) {
       const abort = { signal };
@@ -551,7 +552,7 @@ signal.throwIfAborted();
         return reply(200, { segments });
       } finally {}
     }
-    const result = await requestProvider(body.provider, body.model, scoreMessages(input), 120_000);
+    const result = await requestProvider(body.provider, body.model, scoreMessages(input), 120_000, signal);
     return reply(200, { score: parseScoreResponse(result.text, input.durationSeconds) });
   }
 

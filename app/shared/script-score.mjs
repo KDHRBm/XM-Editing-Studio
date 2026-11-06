@@ -50,6 +50,7 @@ export function validateScoreRequest(input) {
   return { script, lines, subtitleLanguage, ...segmentOptions(input), title: String(input.title || '剧本配乐').trim().slice(0, 80), hint: String(input.hint || ''), durationSeconds: Math.round(duration), ...(segmentContext ? { segmentContext } : {}) };
 }
 export const isGeminiModel = (provider, model) => ['gemini', 'openai', 'custom'].includes(provider?.protocol) && /gemini/i.test(model || '');
+export const isScriptAnalysisModel = (provider, model) => isGeminiModel(provider, model) || provider?.protocol === 'deepseek' && /^deepseek-[\w.-]+$/i.test(model || '');
 export const isSunoModel = (provider, model) => provider?.protocol === 'suno' || /^suno[_-]/i.test(model || '');
 export function scoreMessages(input) {
   const data = validateScoreRequest(input);
@@ -57,13 +58,13 @@ export function scoreMessages(input) {
   { role: 'user', content: JSON.stringify({ title: data.title, targetSeconds: data.durationSeconds, musicRequirements: data.hint, ...(data.segmentContext ? { scope: '只为当前情节生成一首配乐，不再次拆分。originalScript 仅含本段原文。', segmentContext: data.segmentContext } : {}), originalScript: data.script, editedLines: data.lines.map(({ speaker, kind, text }) => ({ speaker, kind, text })) }) }];
 }
 export function parseScoreResponse(text, durationSeconds = 90) {
-  if (typeof text !== 'string' || text.length > 30000) fail('Gemini 返回的配乐方案过长或格式无效。');
+  if (typeof text !== 'string' || text.length > 30000) fail('分析模型返回的配乐方案过长或格式无效。');
   let value;
   try { value = JSON.parse(text.trim().replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, '')); }
-  catch { fail('Gemini 未返回有效的 JSON 配乐方案。请重试提示词步骤，不会提交 Suno。'); }
-  if (!value || typeof value !== 'object' || !Array.isArray(value.structure) || value.structure.length < 2 || value.structure.length > 8) fail('Gemini 配乐方案需要 2–8 个音乐段落。');
+  catch { fail('分析模型未返回有效的 JSON 配乐方案。请重试提示词步骤，不会提交 Suno。'); }
+  if (!value || typeof value !== 'object' || !Array.isArray(value.structure) || value.structure.length < 2 || value.structure.length > 8) fail('配乐方案需要 2–8 个音乐段落。');
   const options = normalizeMusicOptions({ customMode: true, instrumental: true, title: value.title, style: value.style, structure: value.structure, durationSeconds });
-  if (!options.style || options.style.length > MUSIC_LIMITS.style) fail('Gemini 风格提示词无效。');
+  if (!options.style || options.style.length > MUSIC_LIMITS.style) fail('配乐风格提示词无效。');
   if (value.mood != null && (typeof value.mood !== 'string' || value.mood.length > 24)) fail('配乐调性名称最多 24 字符。');
   if (value.instruments != null && (!Array.isArray(value.instruments) || value.instruments.length > 3 || value.instruments.some(item => typeof item !== 'string' || !item.trim() || item.length > 20))) fail('配乐主要乐器应为 1–3 项，每项最多 20 字符。');
   return { ...options, mood: value.mood?.trim() || '', instruments: value.instruments?.map(item => item.trim()) || [], structure: value.structure.map(section => ({ tag: section.tag.trim(), content: String(section.content || '').trim() })), summary: String(value.summary || '').slice(0, 1000) };

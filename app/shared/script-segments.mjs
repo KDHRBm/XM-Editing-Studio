@@ -37,7 +37,7 @@ function jsonObjects(text) {
   return objects;
 }
 function json(text) {
-  if (typeof text !== 'string' || text.length > 120000) fail('Gemini 分段方案过长或无效。');
+  if (typeof text !== 'string' || text.length > 120000) fail('分析模型返回的分段方案过长或无效。');
   const source = text.trim();
   const trimmed = source.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, '');
   const fenced = [...source.matchAll(/```(?:json)?\s*([\s\S]*?)```/gi)].flatMap(block => [block[1].trim(), ...jsonObjects(block[1])]);
@@ -47,7 +47,7 @@ function json(text) {
       if (result && typeof result === 'object' && Array.isArray(result.segments)) return result;
     } catch { /* Ignore prose and incomplete JSON; structural validation follows. */ }
   }
-  fail('Gemini 分段方案不是有效 JSON。');
+  fail('分段方案不是有效 JSON。');
 }
 export async function planSegments(input, mode, ask) {
   const messages = segmentMessages(input, mode);
@@ -66,7 +66,7 @@ export async function planSegments(input, mode, ask) {
   try { return parseSegments(second.text, input, mode); }
   catch (error) {
     if (error.status !== 400) throw error;
-    fail(`分段方案自动纠正后仍无效：${error.message}${/MAX_TOKENS|LENGTH/i.test(second.finishReason || '') ? ' 模型输出被截断，请减少分段数或缩短剧本后重试。' : ' 请减少分段数或更换 Gemini 模型后重试。'} 未提交 Suno 音乐任务。`);
+    fail(`分段方案自动纠正后仍无效：${error.message}${/MAX_TOKENS|LENGTH/i.test(second.finishReason || '') ? ' 模型输出被截断，请减少分段数或缩短剧本后重试。' : ' 请减少分段数或更换分析模型后重试。'} 未提交 Suno 音乐任务。`);
   }
 }
 export function segmentMessages(input, mode) {
@@ -76,20 +76,20 @@ export function segmentMessages(input, mode) {
 }
 export function parseSegments(text, input, mode) {
   const data = json(text), lines = input.script.split('\n'), totalLines = lines.length;
-  if (!Array.isArray(data?.segments) || data.segments.length < (mode === 'library' ? 1 : 2) || data.segments.length > input.segmentCount) fail(`Gemini 需返回 ${mode === 'library' ? 1 : 2}–${input.segmentCount} 个连续情节，请根据实际剧情重新分析。`);
+  if (!Array.isArray(data?.segments) || data.segments.length < (mode === 'library' ? 1 : 2) || data.segments.length > input.segmentCount) fail(`分析模型需返回 ${mode === 'library' ? 1 : 2}–${input.segmentCount} 个连续情节，请根据实际剧情重新分析。`);
   let next = 1;
   const segments = data.segments.map((item, at) => {
     const lineNumber = value => typeof value === 'string' && /^\d+$/.test(value.trim()) ? Number(value.trim()) : value;
     const startLine = lineNumber(item?.startLine), endLine = lineNumber(item?.endLine);
-    if (!Number.isSafeInteger(startLine) || !Number.isSafeInteger(endLine)) fail('Gemini 返回的情节行号必须是整数，请重新分析。');
+    if (!Number.isSafeInteger(startLine) || !Number.isSafeInteger(endLine)) fail('情节行号必须是整数，请重新分析。');
     // Only whitespace may be skipped; dialogue and scene descriptions must remain covered.
     while (next < startLine && next <= totalLines && !lines[next - 1].trim()) next++;
-    if (!item || typeof item.title !== 'string' || !item.title.trim() || item.title.length > 40 || startLine !== next || endLine < next || endLine > totalLines) fail('Gemini 返回的情节行号有遗漏、重叠或超出原文，请重新分析。');
+    if (!item || typeof item.title !== 'string' || !item.title.trim() || item.title.length > 40 || startLine !== next || endLine < next || endLine > totalLines) fail('情节行号有遗漏、重叠或超出原文，请重新分析。');
     const analysis = parseKeywords(JSON.stringify(item)); next = endLine + 1;
     return { id: `segment-${at + 1}`, title: item.title.trim(), startLine, endLine, ...analysis, ...(mode === 'suno' ? { score: parseScoreResponse(JSON.stringify(item.score), input.durationSeconds) } : {}) };
   });
   while (next <= totalLines && !lines[next - 1].trim()) next++;
-  if (next !== totalLines + 1) fail('Gemini 分段未覆盖完整剧本，请重新分析。');
+  if (next !== totalLines + 1) fail('分段未覆盖完整剧本，请重新分析。');
   return segments;
 }
 export function segmentCandidates(input, segments) {
@@ -104,7 +104,7 @@ export function parseSegmentMatches(text, segments) {
   if (!Array.isArray(data?.segments) || data.segments.length !== segments.length || new Set(data.segments.map(segmentId)).size !== segments.length) fail('分段推荐缺失或重复，每个情节 ID 必须恰好返回一次。');
   return segments.map(({ candidates, ...segment }, at) => {
     const value = data.segments.find(s => segmentId(s) === segment.id);
-    if (!value) fail('Gemini 返回未知情节标识。');
+    if (!value) fail('分析模型返回未知情节标识。');
     try { const matches = parseMatches(JSON.stringify(value), candidates); return { ...segment, matches, evaluated: candidates.length, noMatchReason: musicShortfall({matches, noMatchReason: typeof value.noMatchReason === 'string' ? value.noMatchReason.slice(0,300) : ''}, candidates.length) }; }
     catch (error) {
       if (error.status !== 400) throw error;

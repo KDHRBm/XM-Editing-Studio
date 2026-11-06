@@ -269,6 +269,28 @@ test('DOM integration preserves existing drafts and fills exact Unicode text bef
   editor.value = ''; assert.equal(run('fill').state, 'filled'); assert.equal(editor.value, 'My fiancée, José.\nNew line.'); assert.equal(clicks, 0);
   assert.equal(run('send').state, 'sent'); assert.equal(clicks, 1);
 });
+test('Doubao fills an empty contenteditable editor through its paste handler', () => {
+  const editor = {
+    tagName: 'DIV', innerText: '', getClientRects: () => [1], closest: () => null, focus: () => {},
+    dispatchEvent(event) { if (event.type === 'paste') this.innerText = event.clipboardData.getData('text/plain'); },
+  };
+  const context = {
+    location: { protocol: 'https:', hostname: 'www.doubao.com' },
+    InputEvent: class { constructor(type) { this.type = type; } },
+    ClipboardEvent: class { constructor(type, options) { this.type = type; this.clipboardData = options.clipboardData; } },
+    DataTransfer: class { setData(_type, text) { this.text = text; } getData() { return this.text; } },
+    getComputedStyle: () => ({ visibility: 'visible', opacity: '1' }),
+    getSelection: () => ({ removeAllRanges() {}, addRange() {} }),
+    document: {
+      querySelectorAll: selector => selector.startsWith('textarea') ? [editor] : [],
+      createRange: () => ({ selectNodeContents() {} }), execCommand: () => false,
+    },
+  };
+  const prompt = '第1集\n雨夜相遇。\n请分析剧情';
+  const result = vm.runInNewContext(webAIPageScript({ command: 'fill', prompt, token: 'task', host: 'www.doubao.com' }), context);
+  assert.equal(result.state, 'filled');
+  assert.equal(editor.innerText, prompt);
+});
 test('queue resolves official web analyzer without API keys; failed analysis cannot submit Suno', async () => {
   const suno = { providerId: 'suno', protocol: 'suno', baseUrl: 'https://fixture.test', model: 'suno-test' }; let planned = 0, submitted = 0;
   const options = { save: () => {}, getProvider: id => id === 'suno' ? { ...suno, apiKey: 'suno-test-only' } : null, request: async (url, body) => { if (url.endsWith('/score')) { planned++; assert.equal(body.provider.apiKey, undefined); assert.equal(body.provider.webId, 'deepseek'); return { score }; } submitted++; return { tracks: [{ id: 'paid-once', taskId: 'paid-once', status: 'pending' }] }; } };

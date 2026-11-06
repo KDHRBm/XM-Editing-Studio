@@ -1,5 +1,5 @@
 import { createBatchAnalysisQueue } from '../shared/batch-analysis.mjs';
-import { isGeminiModel } from '../shared/script-score.mjs';
+import { isScriptAnalysisModel } from '../shared/script-score.mjs';
 import { WEB_ANALYZERS, analysisName, analysisReady, webAnalyzer } from '../shared/script-analyzers.mjs';
 import { excludeUsedMusic } from '../shared/library-usage.mjs';
 import { musicUsage } from './MusicUsage.mjs';
@@ -7,9 +7,24 @@ import { requestScriptAnalysis } from './AnalysisRequest.mjs';
 
 let providers = [], database;
 export function batchAnalyzers(items = providers) {
-  return [WEB_ANALYZERS.find(item => item.provider.webId === 'deepseek'), ...items.flatMap(provider => (provider.models || []).filter(model => isGeminiModel(provider, model)).map(model => ({ key: `${provider.id}::${model}`, provider, providerId: provider.id, model })))];
+  return [...WEB_ANALYZERS, ...items.flatMap(provider => (provider.models || []).filter(model => isScriptAnalysisModel(provider, model)).map(model => ({ key: `${provider.id}::${model}`, provider, providerId: provider.id, model })))];
 }
 export function setBatchProviders(value) { providers = value || []; }
+export function batchAnalysisProgress(state, items = providers) {
+  const progress = state.progress;
+  if (!progress?.ids?.length) return null;
+  const analyzer = batchAnalyzers(items).find(item => item.key === progress.analyzerKey);
+  if (!analyzer) return null;
+  const tasks = progress.ids.map(id => state.tasks.find(task => task.id === id)).filter(Boolean);
+  const activeIds = state.activeIds.filter(id => progress.ids.includes(id));
+  const current = state.tasks.find(task => task.id === activeIds[0]);
+  return {
+    id: `${progress.startedAt}:${progress.analyzerKey}`, model: analysisName(analyzer), status: progress.status, startedAt: progress.startedAt,
+    finishedAt: progress.finishedAt, completed: progress.completed ?? tasks.filter(task => task.status === 'complete').length,
+    failed: progress.failed ?? tasks.filter(task => task.status === 'error').length,
+    total: progress.ids.length, active: activeIds.length, firstEpisode: current?.episodeNumber || 0,
+  };
+}
 function openDatabase() {
   return database ||= new Promise((resolve, reject) => {
     if (!globalThis.indexedDB) { reject(new Error('当前环境不支持本地任务存储，请使用桌面程序。')); return; }

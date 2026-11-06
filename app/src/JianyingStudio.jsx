@@ -38,7 +38,16 @@ function DirectoryField({ label, value, disabled, onSave, onBrowse, placeholder 
     if (!dirty.current) return;
     if (await onSave(draft)) dirty.current = false;
   };
-  return <label><span>{label}</span><div className="bos-jy-path"><input aria-label={label} value={draft} disabled={disabled} placeholder={placeholder} onChange={event => { dirty.current = true; setDraft(event.target.value); }} onKeyDown={event => { if (event.key === 'Enter') { event.preventDefault(); void save(); } }} /><button type="button" disabled={disabled || draft === value} onClick={() => void save()}>保存路径</button><button type="button" disabled={disabled} onClick={onBrowse}>选择</button></div></label>;
+  const paste = event => {
+    const text = event.clipboardData?.getData('text');
+    if (!text) return;
+    event.preventDefault();
+    const next = text.trim();
+    dirty.current = true;
+    setDraft(next);
+    return onSave(next).then(saved => { if (saved) dirty.current = false; });
+  };
+  return <label><span>{label}</span><div className="bos-jy-path"><input aria-label={label} value={draft} disabled={disabled} placeholder={placeholder} onChange={event => { dirty.current = true; setDraft(event.target.value); }} onPaste={paste} onBlur={() => void save()} onKeyDown={event => { if (event.key === 'Enter') { event.preventDefault(); void save(); } }} /><button type="button" disabled={disabled} onClick={onBrowse}>选择</button></div></label>;
 }
 
 export function JianyingStudio({ active, providers, onNavigate }) {
@@ -138,8 +147,8 @@ export function JianyingStudio({ active, providers, onNavigate }) {
         </section>
       </ToolPanel>
       <ToolPanel id="subtitles" number="02" title="字幕工程" detail="提取字幕、统一字体或恢复字幕轨道显示。" hiddenStage={stage !== 'subtitles'}>
-        <DirectoryField key={'draft:' + state.draftDir} label="剪映草稿根目录" value={state.draftDir || ''} disabled={locked} placeholder="粘贴目录路径后按 Enter 保存" onSave={value => savePath('draftDir', value)} onBrowse={() => choosePath('draftDir')} />
-        <DirectoryField key={'output:' + state.subtitleOutput} label="字幕导出文件夹" value={state.subtitleOutput || ''} disabled={locked} placeholder="粘贴目录路径后按 Enter 保存" onSave={value => savePath('subtitleOutput', value)} onBrowse={() => choosePath('subtitleOutput')} />
+        <DirectoryField key={'draft:' + state.draftDir} label="剪映草稿根目录" value={state.draftDir || ''} disabled={locked} placeholder="粘贴草稿目录路径" onSave={value => savePath('draftDir', value)} onBrowse={() => choosePath('draftDir')} />
+        <DirectoryField key={'output:' + state.subtitleOutput} label="字幕导出文件夹" value={state.subtitleOutput || ''} disabled={locked} placeholder="粘贴字幕导出路径" onSave={value => savePath('subtitleOutput', value)} onBrowse={() => choosePath('subtitleOutput')} />
         <div className="bos-jy-toolbar"><button type="button" disabled={locked || !state.draftDir} onClick={() => run('extract')}>提取字幕并隐藏轨道</button><button type="button" disabled={locked || !state.draftDir} onClick={() => run('fonts')}>统一 Noto Sans Bold 字体</button><button type="button" disabled={locked || !state.draftDir} onClick={() => run('unhide')}>恢复字幕显示</button></div>
         <section className="bos-jy-export-options"><h4>还原标准标点</h4><p>生成字幕后，将保护用的 ․ / ‚ 还原为标准 . / ,，省略号还原为 ...，避免替代字符引起句点单独换行。</p><div className="bos-jy-toolbar"><button type="button" disabled={locked || !state.ready || !state.draftDir} onClick={() => run('restore_punctuation')}>检查并还原标准标点</button></div><small>先保存并完全退出剪映，再检查上方目录。显示待处理草稿后确认执行，自动备份，保留字体、字号、时间轴及轨道显示状态。完成后重新打开草稿检查排版。此工具也支持在上方选择单个草稿目录；不自动监控正在编辑的草稿。</small></section>
         <small>修改草稿前请完全退出剪映。11.6.5、11.7.5 草稿可通过本地字幕兼容组件提取，草稿版本保持不变；支持普通 JSON 和多时间线，写入前备份并校验。仅装有剪映 11.7.5 的电脑，请先把字幕兼容组件包安装到 XM剪辑台目录，无需回退剪映。字体操作需本机已安装 Noto Sans Bold。</small>

@@ -55,6 +55,7 @@ namespace XM.Native {
                 case "window-control": return WindowControl(sender, J.Str(p, "action"));
                 case "notify": Notify(J.Str(p, "message")); return true;
                 case "progress-message": if (currentProgress != null) { J.Map(currentProgress)["message"] = J.Str(p, "message"); ShowProgress(currentProgress); } return true;
+                case "batch-progress": if (sender != MainView) throw new Exception("此操作仅允许在工作台执行。"); BatchProgress(J.Get(p, "progress")); return true;
                 case "titlebar-theme": {
                     var value = J.Str(p, "theme");
                     if (!System.Text.RegularExpressions.Regex.IsMatch(value, "^[a-z0-9-]{1,40}$")) throw new Exception("无效的主题。");

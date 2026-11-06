@@ -11,6 +11,7 @@ export function webAnalyzer(value) {
 export function analysisName(value) {
   const name = webAnalyzer(value)?.model || (typeof value === 'string' ? value : value?.model) || '';
   if (/gemini/i.test(name) || value?.protocol === 'gemini' || value?.provider?.protocol === 'gemini') return 'Gemini';
+  if (value?.protocol === 'deepseek' || value?.provider?.protocol === 'deepseek') return 'DeepSeek API';
   return name || 'AI';
 }
 export function analysisReady(value) { return !!webAnalyzer(value) || !!value?.provider?.apiKey?.trim(); }

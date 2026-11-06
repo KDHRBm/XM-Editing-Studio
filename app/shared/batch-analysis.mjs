@@ -80,7 +80,7 @@ export function nextBatchGroup(tasks, onlyIds = []) {
 // The queue is independent of the current page; one website conversation runs at a time.
 // Providers and credentials are resolved at execution and never persisted with the scripts.
 export function createBatchAnalysisQueue({ load, save, analyze, extract = task => batchSubtitleLines(task), makeId = () => crypto.randomUUID() }) {
-  let state = { loaded: false, running: false, activeIds: [], projects: [], activeProjectId: '', tasks: [], error: '' };
+  let state = { loaded: false, running: false, activeIds: [], progress: null, projects: [], activeProjectId: '', tasks: [], error: '' };
   let pendingSave = Promise.resolve(), run = null, controller = null, generation = 0, initializing;
   const listeners = new Set();
   const publish = patch => { state = { ...state, ...patch }; listeners.forEach(fn => fn()); };
@@ -162,13 +162,16 @@ export function createBatchAnalysisQueue({ load, save, analyze, extract = task =
     async remove(id) { assertIdle(); const previous = state.tasks; publish({ tasks: state.tasks.filter(task => task.id !== id), error: '' }); try { await persist(); } catch (error) { publish({ tasks: previous }); throw error; } },
     async clear(projectId) { assertIdle(); const previous = state.tasks; publish({ tasks: projectId ? state.tasks.filter(t => t.projectId !== projectId) : [], error: '' }); try { await persist(); } catch (error) { publish({ tasks: previous }); throw error; } },
     async retry(id, analyzerKey, options) { assertIdle(); const task = state.tasks.find(task => task.id === id); if (!task) return; const previous = state.tasks; update(id, { status: 'queued', error: '', settings: { ...task.settings, ...(analyzerKey ? { analyzerKey } : {}), ...(options ? segmentOptions(options) : {}) } }); try { await persist(); } catch(error) { publish({tasks:previous}); throw error; } },
-    pause() { generation++; controller?.abort(); publish({ running: false }); },
+    pause() { generation++; controller?.abort(); publish({ running: false, progress: state.progress ? { ...state.progress, status: 'paused' } : null }); },
+    dismissProgress() { if (!state.running) publish({ progress: null }); },
     start(onlyIds = []) {
       if (run) return run;
       if (mutating) return Promise.reject(new Error('正在保存剧目，请稍后再开始分析。'));
       if (!state.loaded) return Promise.reject(new Error('任务存档尚未加载。'));
       const token = ++generation;
-      publish({ running: true, error: '' });
+      const pending = state.tasks.filter(task => (!onlyIds.length || onlyIds.includes(task.id)) && ['queued', 'paused'].includes(task.status));
+      const progressFor = analyzerKey => ({ ids: pending.filter(task => task.settings.analyzerKey === analyzerKey).map(task => task.id), analyzerKey, startedAt: Date.now(), status: 'running' });
+      publish({ running: true, error: '', progress: pending.length ? progressFor(pending[0].settings.analyzerKey) : null });
       run = (async () => {
         try {
           await persist();
@@ -176,7 +179,8 @@ export function createBatchAnalysisQueue({ load, save, analyze, extract = task =
             const group = nextBatchGroup(state.tasks, onlyIds);
             if (!group.length) break;
             controller = new AbortController();
-            publish({ activeIds: group.map(task => task.id) });
+            const analyzerKey = group[0].settings.analyzerKey;
+            publish({ activeIds: group.map(task => task.id), progress: state.progress?.analyzerKey === analyzerKey ? state.progress : progressFor(analyzerKey) });
             for (const task of group) update(task.id, { status: 'analyzing', error: '' });
             try {
               for (const task of group) update(task.id, { subtitleCount: extract(task).length });
@@ -198,7 +202,13 @@ export function createBatchAnalysisQueue({ load, save, analyze, extract = task =
           }
           await persist();
         } catch (error) { publish({ error: state.error || error.message }); }
-        finally { controller = null; run = null; publish({ running: false, activeIds: [] }); }
+        finally {
+          controller = null; run = null;
+          const progress = state.progress;
+          const tasks = progress?.ids.map(id => state.tasks.find(task => task.id === id)).filter(Boolean) || [];
+          const failed = tasks.filter(task => task.status === 'error').length;
+          publish({ running: false, activeIds: [], progress: progress ? { ...progress, completed: tasks.filter(task => task.status === 'complete').length, failed, finishedAt: Date.now(), status: failed || state.error ? 'error' : token !== generation ? 'paused' : 'complete' } : null });
+        }
       })();
       return run;
     },

@@ -142,7 +142,7 @@ namespace XM.Native {
         }
 
         private Size AnimationSize() {
-            double scale = Math.Max(70, Math.Min(160, J.Num(animationSettings, "scale", 100))) / 100;
+            double scale = Math.Max(70, Math.Min(250, J.Num(animationSettings, "scale", 100))) / 100;
             return new Size((int)Math.Round(220 * scale), (int)Math.Round(270 * scale));
         }
 
@@ -198,11 +198,18 @@ namespace XM.Native {
                 string id = Convert.ToString(value);
                 if (!AnimationList().Any(item => J.Str(item, "id") == id)) throw new Exception("找不到该动画。");
                 await OpenAnimation(); Emit("bos:companion-play", id, animationView);
+            } else if (action == "preview-bubble") {
+                var preview = J.Map(value);
+                double x = J.Num(value, "bubbleX", -1), y = J.Num(value, "bubbleY", -1);
+                if (!preview.ContainsKey("bubbleX") || !preview.ContainsKey("bubbleY") || x < 0 || x > 100 || y < 0 || y > 100)
+                    throw new Exception("气泡位置须在 0% 到 100% 之间。");
+                if (animationView != null) Emit("bos:companion-preview-bubble", J.Obj("bubbleX", x, "bubbleY", y), animationView);
+                return null;
             } else if (action == "update-settings") {
                 var values = J.Map(value);
                 if (values.ContainsKey("scale")) {
                     double scale = J.Num(value, "scale", -1);
-                    if (scale < 70 || scale > 160) throw new Exception("动画大小须在 70% 到 160% 之间。");
+                    if (scale < 70 || scale > 250) throw new Exception("动画大小须在 70% 到 250% 之间。");
                     animationSettings["scale"] = (int)Math.Round(scale);
                 }
                 if (values.ContainsKey("motion")) animationSettings["motion"] = J.Bool(value, "motion");

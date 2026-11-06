@@ -27,8 +27,14 @@ test('real browser: new dramas, synchronized dropdowns, append, delete, persiste
   await paste('亡妻归来','第1集\n[EN] A: Welcome home.');
   const top=page.getByRole('button',{name:'剧本输入区切换剧目',exact:true}),bottom=page.getByRole('button',{name:'任务卡区切换剧目',exact:true});
   const choose=async(name,trigger=top)=>{await trigger.click();await page.getByRole('button',{name:'切换到 '+name,exact:true}).click();await page.getByRole('region',{name:'剧目 '+name,exact:true}).waitFor();};
-  const create=async name=>{await page.getByRole('button',{name:'新剧本',exact:true}).click();await page.getByLabel('剧名',{exact:true}).fill(name);await page.getByLabel('剧名',{exact:true}).press('Enter');await page.getByRole('region',{name:'剧目 '+name,exact:true}).waitFor();};
+  const create=async name=>{await page.getByLabel('剧名',{exact:true}).fill(name);await page.getByRole('button',{name:'新剧本',exact:true}).click();await page.getByRole('region',{name:'剧目 '+name,exact:true}).waitFor();assert.equal(await page.getByLabel('剧名',{exact:true}).inputValue(),name);};
   await page.getByRole('region',{name:'剧目 亡妻归来',exact:true}).waitFor();
+  await page.getByRole('button',{name:'新剧本',exact:true}).click();
+  assert.match(await page.getByRole('alert').first().innerText(),/已存在同名剧目/);
+  await page.getByLabel('剧名',{exact:true}).fill('');
+  await page.getByRole('button',{name:'新剧本',exact:true}).click();
+  assert.match(await page.getByRole('alert').first().innerText(),/请先输入新剧本名称/);
+  assert.equal(await page.evaluate(()=>queue.snapshot().projects.length),1);
   await create('莫雷蒂夫人');
   assert.equal(await page.locator('.bos-batch-card').count(),0);
   assert.equal(await page.evaluate(()=>queue.snapshot().projects.length),2,'renaming the new drama must not create another');

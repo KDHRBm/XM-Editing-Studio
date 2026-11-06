@@ -6,9 +6,9 @@ const fail = message => { throw Object.assign(new Error(message), { status: 400 
 export const LIBRARY_LIMIT = 5000;
 export const CANDIDATE_LIMIT = 80;
 const parseJson = text => {
-  if (typeof text !== 'string' || text.length > 30000) fail('Gemini 返回内容无效。');
+  if (typeof text !== 'string' || text.length > 30000) fail('分析模型返回内容无效。');
   try { return JSON.parse(text.trim().replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, '')); }
-  catch { fail('Gemini 未返回有效的 JSON，请重新分析。'); }
+  catch { fail('分析模型未返回有效的 JSON，请重新分析。'); }
 };
 export function validateLibraryInput(input) {
   const script = validateScript(input.script);
@@ -28,7 +28,7 @@ export function keywordMessages(input) {
 }
 export function parseKeywords(text) {
   const data = parseJson(text);
-  if (!data || typeof data.summary !== 'string' || !data.summary.trim() || data.summary.length > 1000 || !Array.isArray(data.keywords) || data.keywords.length < 1 || data.keywords.length > 30 || data.keywords.some(word => typeof word !== 'string' || !word.trim() || word.length > 60)) fail('Gemini 返回的剧情关键词格式无效。');
+  if (!data || typeof data.summary !== 'string' || !data.summary.trim() || data.summary.length > 1000 || !Array.isArray(data.keywords) || data.keywords.length < 1 || data.keywords.length > 30 || data.keywords.some(word => typeof word !== 'string' || !word.trim() || word.length > 60)) fail('分析模型返回的剧情关键词格式无效。');
   return { summary: data.summary.trim(), keywords: [...new Set(data.keywords.map(word => word.trim()))] };
 }
 const normalized = text => text.normalize('NFKC').toLowerCase().replace(/[_\-]+/g, ' ');
@@ -49,11 +49,11 @@ export function matchMessages(input, analysis, candidates) {
 }
 export function parseMatches(text, candidates) {
   const data = parseJson(text);
-  if (!data || !Array.isArray(data.matches) || data.matches.length > 32) fail('Gemini 返回的音乐匹配结果格式无效，需要 matches 数组，每段最多8首。');
+  if (!data || !Array.isArray(data.matches) || data.matches.length > 32) fail('分析模型返回的音乐匹配结果格式无效，需要 matches 数组，每段最多8首。');
   const allowed = new Set(candidates.map(track => track.id)), seen = new Set();
   const matches = [];
   for (const [at, match] of data.matches.entries()) {
-    const label = `Gemini 返回的第${at + 1}首音乐`;
+    const label = `分析模型返回的第${at + 1}首音乐`;
     const id = typeof match?.id === 'string' ? match.id.trim() : '';
     // Only harmless formatting differences are normalized. Never guess an ID from a title.
     if (!allowed.has(id)) fail(`${label} ID 无效，必须使用当前候选列表中的完整 ID。`);
@@ -67,6 +67,6 @@ export function parseMatches(text, candidates) {
     seen.add(id);
     matches.push({ id, reason: match.reason.trim(), keywords });
   }
-  if (matches.length > 8) fail('Gemini 返回的音乐匹配结果过多，每段最多8首不同音乐。');
+  if (matches.length > 8) fail('分析模型返回的音乐匹配结果过多，每段最多8首不同音乐。');
   return matches;
 }

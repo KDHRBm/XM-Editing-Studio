@@ -100,6 +100,27 @@ test('subtitle tools expose draft punctuation restoration with explicit backup a
     await button.props.onClick(); assert.equal(calls[0][0], 'restore_punctuation');
   } finally { delete globalThis.blackObsidian; }
 });
+
+test('pasting subtitle directories saves both paths immediately', async () => {
+  const calls = [];
+  globalThis.blackObsidian = { jianyingAction: async (...args) => { calls.push(args); return {}; } };
+  try {
+    const tree = ui.JianyingStudio({ active: true, providers: [], onNavigate: () => {} });
+    const panel = nodes(tree, node => node.props.id === 'jy-subtitles')[0];
+    for (const [label, key, path] of [
+      ['剪映草稿根目录', 'draftDir', 'D:\\字幕\\龙骸契约'],
+      ['字幕导出文件夹', 'subtitleOutput', 'D:\\字幕\\龙骸契约-SRT'],
+    ]) {
+      const input = nodes(panel, node => node.type === 'input' && node.props['aria-label'] === label)[0];
+      assert.equal(nodes(panel, node => node.type === 'button' && textOf(node) === '保存路径').length, 0);
+      let prevented = false;
+      await input.props.onPaste({ clipboardData: { getData: () => path }, currentTarget: { selectionStart: 0, selectionEnd: 0 }, preventDefault: () => { prevented = true; } });
+      assert.equal(prevented, true);
+      assert.deepEqual(calls.at(-1), ['paths', { [key]: path }]);
+    }
+    assert.equal(calls.length, 2);
+  } finally { delete globalThis.blackObsidian; }
+});
 test('workspace removes music requirements and SRT restoration while preserving direct-copy fallback', () => {
   globalThis.window = { location: { origin: 'http://127.0.0.1:37651' } };
   const tree = ui.ScriptAutomation({ providers: [], automation: { queue: {}, jobs: [], running: false }, onNavigate: () => {} });

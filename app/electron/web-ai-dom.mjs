@@ -11,9 +11,9 @@ const page = String.raw`(input => {
   if (input.command === 'login') { if (login) { login.click(); return { state: 'login', message: '请在官方页面完成账号登录。' }; } return access; }
   if (input.command === 'probe') return access;
   if (access.state !== 'ready') return access;
-  const editors = [...document.querySelectorAll('textarea,[contenteditable="true"][role="textbox"],[contenteditable="true"]')].filter(node => visible(node) && !node.disabled && !node.readOnly);
+  const editors = [...document.querySelectorAll('textarea,[contenteditable]:not([contenteditable="false"])')].filter(node => visible(node) && !node.disabled && !node.readOnly);
   const editor = editors[editors.length - 1];
-  const value = node => (node?.value ?? node?.innerText ?? '').replace(/\r\n?/g, '\n');
+  const value = node => (node?.value ?? node?.innerText ?? '').replace(/\r\n?/g, '\n').replace(/\n+$/, '');
   const fill = () => {
     if (!editor) return { state: 'login', message: '请先在官方网页登录，登录完成后将自动继续。' };
     if (value(editor).trim() && value(editor) !== input.prompt) return { state: 'draft', message: '网页输入框有未发送内容，请先处理或清空，再继续分析。' };
@@ -25,6 +25,12 @@ const page = String.raw`(input => {
       document.execCommand('insertText', false, input.prompt);
     }
     editor.dispatchEvent(new InputEvent('input', { bubbles: true, inputType: 'insertText', data: input.prompt }));
+    if (value(editor) !== input.prompt && input.host === 'www.doubao.com' && typeof ClipboardEvent === 'function' && typeof DataTransfer === 'function') {
+      const range = document.createRange(); range.selectNodeContents(editor);
+      const selection = getSelection(); selection.removeAllRanges(); selection.addRange(range);
+      const transfer = new DataTransfer(); transfer.setData('text/plain', input.prompt);
+      editor.dispatchEvent(new ClipboardEvent('paste', { bubbles: true, cancelable: true, clipboardData: transfer }));
+    }
     return value(editor) === input.prompt ? { state: 'filled' } : { state: 'manual', message: '网页未接受完整文本，请用复制任务按钮粘贴并发送。' };
   };
   if (['prepare-image', 'upload-image', 'image-ready'].includes(input.command)) {
