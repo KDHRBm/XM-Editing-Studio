@@ -37,7 +37,8 @@ async function nativeFetch(url, options = {}) {
   const abort = () => { cancel(); rejectAbort(signal.reason || new DOMException('请求已中断', 'AbortError')); };
   try {
     const interrupted = new Promise((_, reject) => { rejectAbort = reject; signal?.addEventListener('abort', abort, { once: true }); });
-    const value = await Promise.race([invoke('http-fetch', { requestId, url: String(url), method: options.method || 'GET', headers: Object.fromEntries(new Headers(options.headers)), body: options.body || '', timeout: 600000 }, 610000), interrupted]);
+    const localModel = new URL(String(url)).origin === 'http://127.0.0.1:11435';
+    const value = await Promise.race([invoke('http-fetch', { requestId, url: String(url), method: options.method || 'GET', headers: Object.fromEntries(new Headers(options.headers)), body: options.body || '', timeout: localModel ? 900000 : 600000 }, localModel ? 910000 : 610000), interrupted]);
     return new Response([204, 205, 304].includes(value.status) ? null : value.body, { status: value.status, headers: value.headers });
   } finally { signal?.removeEventListener('abort', abort); }
 }
@@ -52,7 +53,9 @@ window.fetch = async (input, options = {}) => {
       const max = /library-match$/.test(url.pathname) ? 5 * 1024 * 1024 : 2 * 1024 * 1024;
       if (new TextEncoder().encode(raw).length > max) return Response.json({ error: '请求内容过大。' }, { status: 413 });
       let body; try { body = JSON.parse(raw || '{}'); } catch { return Response.json({ error: '请求内容不是有效 JSON。' }, { status: 400 }); }
-      const api = createApiService((address, init = {}) => nativeFetch(address, { ...init, signal: init.signal ? AbortSignal.any([signal, init.signal]) : signal }));
+      const api = createApiService((address, init = {}) => nativeFetch(address, { ...init, signal: init.signal ? AbortSignal.any([signal, init.signal]) : signal }), (id, phase) => {
+        if (typeof id === 'string') window.dispatchEvent(new CustomEvent('xm-batch-analysis-stage', { detail: { id, phase } }));
+      });
       const result = await api(url.pathname, body, signal); signal.throwIfAborted();
       return Response.json(result.body, { status: result.status });
     } catch (error) { signal.throwIfAborted(); return Response.json({ error: error.message }, { status: error.status || 500 }); }
@@ -142,6 +145,7 @@ window.blackObsidian = Object.freeze({
   runtime: 'csharp-webview2',
   reportBatchProgress: progress => invoke('batch-progress', { progress }),
   getUpdaterStatus: () => invoke('updater-status'), updaterAction: action => invoke('updater-action', { action }, 25 * 60000), onUpdaterState: fn => on('bos:updater-state', fn),
+  localModelAction: (action, model = '') => invoke('local-model-action', { action, model }, 60 * 60000), onLocalModelProgress: fn => on('bos:local-model-progress', fn),
   setTitlebarTheme: (theme, light = false) => invoke('titlebar-theme', { theme, light }), onTrayNavigate: fn => on('bos:tray-navigate', fn),
   companionAction: (action, value) => invoke('companion-action', { action, value }, 25 * 60000), onCompanionState: fn => on('bos:companion-state', fn), onCompanionTheme: fn => on('bos:companion-theme', fn), onCompanionPlay: fn => on('bos:companion-play', fn), onCompanionPreviewBubble: fn => on('bos:companion-preview-bubble', fn), windowControl: action => invoke('window-control', { action }),
   layoutWebAI: async input => {

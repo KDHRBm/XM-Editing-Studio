@@ -172,7 +172,8 @@ namespace XM.Native {
             }
             if (PanelWindow.WindowState == FormWindowState.Minimized) PanelWindow.WindowState = FormWindowState.Normal;
             if (PetVisible) PanelWindow.Location = PetPanelLocation();
-            PanelWindow.Show(); PanelWindow.BringToFront();
+            if (NativeOperationActive) restorePanelAfterOperation = true;
+            else { PanelWindow.Show(); PanelWindow.BringToFront(); }
             await BroadcastPet();
         }
 

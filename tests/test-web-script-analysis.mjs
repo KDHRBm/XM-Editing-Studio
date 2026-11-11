@@ -114,6 +114,79 @@ test('web host gives the correction its own task token and submits each complete
   assert.equal(host.snapshot(), null);
 });
 
+test('manual DeepSeek batch fills prompts without sending and imports the final music answer by task ID', async () => {
+  let resolveFirst, resolveMatch, sent = false, time = 0;
+  const firstFilled = new Promise(resolve => { resolveFirst = resolve; });
+  const matchFilled = new Promise(resolve => { resolveMatch = resolve; });
+  const stages = [], commands = [];
+  const batch = { episodes: [{ id: 'episode-1', episodeNumber: 1, title: '第1集', script: '第1集\n林夏和陈默在雨夜重逢。' }], tracks: Array.from({ length: 5 }, (_, index) => ({ id: `warm-${index + 1}`, title: `温暖钢琴${index + 1}` })) };
+  const host = createWebAnalysis({ uuid: () => `manual-${stages.length + 1}`, now: () => time, delay: async ms => { time += ms; await new Promise(resolve => setImmediate(resolve)); }, notify: task => { if (task?.stage && stages.at(-1) !== task.stage) stages.push(task.stage); }, copy: async () => {}, driver: {
+    visible: () => true,
+    async run(_provider, command) {
+      commands.push(command.command);
+      if (command.command === 'fill') {
+        if (command.token === 'manual-1') resolveFirst();
+        else resolveMatch();
+        return { state: 'filled' };
+      }
+      if (command.command === 'send') throw new Error('manual workflow must never send');
+      return { texts: sent ? [JSON.stringify({ xmTaskId: 'manual-1', result: { episodes: [{ id: 'episode-1', ...analysis }] } })] : [], busy: false };
+    },
+  } });
+  const pending = host.run({ id: 'manual-request-123', provider: 'deepseek', purpose: 'batch-library-match', input: batch, manualWeb: true });
+  await firstFilled;
+  assert.equal(host.snapshot().manualWeb, true);
+  assert.equal(host.snapshot().requiresPaste, false);
+  sent = true;
+  await matchFilled;
+  assert.equal(host.snapshot().requiresPaste, true);
+  assert.match(host.snapshot().stage, /批量匹配/);
+  await assert.rejects(host.action('manual-request-123', 'import', JSON.stringify({ xmTaskId: 'other', result: { episodes: [] } })), /没有找到/);
+  await host.action('manual-request-123', 'import', JSON.stringify({ xmTaskId: host.snapshot().token, result: { episodes: [{ id: 'episode-1', matches: Array.from({ length: 5 }, (_, index) => ({ ref: `M${index + 1}`, reason: '雨夜重逢与温暖曲名相呼应。' })), noMatchReason: '' }] } }));
+  const result = await pending;
+  assert.equal(result.episodes[0].value.matches.length, 5);
+  assert.equal(result.episodes[0].value.matches[0].id, 'warm-1');
+  assert.equal(result.episodes[0].value.matches[0].reason, '雨夜重逢与温暖曲名相呼应。');
+  assert.deepEqual(commands.filter(command => command === 'send'), []);
+  assert.deepEqual(commands.filter(command => command === 'fill'), ['fill', 'fill']);
+  assert.equal(host.snapshot(), null);
+});
+
+test('manual DeepSeek reads a music answer and fills the follow-up prompt without sending it', async () => {
+  let token = 0, time = 0;
+  const stages = [], commands = [];
+  const batch = {
+    episodes: [{ id: 'episode-1', episodeNumber: 1, title: '第1集', script: '第1集\n林夏和陈默在雨夜重逢。' }],
+    tracks: Array.from({ length: 6 }, (_, index) => ({ id: `warm-${index + 1}`, title: `温暖钢琴${index + 1}` })),
+  };
+  const host = createWebAnalysis({
+    uuid: () => `manual-auto-${++token}`,
+    now: () => time,
+    delay: async ms => { time += ms; await new Promise(resolve => setImmediate(resolve)); },
+    notify: task => { if (task?.stage && stages.at(-1) !== task.stage) stages.push(task.stage); },
+    copy: async () => {},
+    driver: {
+      visible: () => true,
+      async run(_provider, command) {
+        commands.push(command.command);
+        if (command.command === 'send') throw new Error('manual workflow must never send');
+        if (command.command === 'fill') return { state: 'filled' };
+        const result = command.token === 'manual-auto-1'
+          ? { episodes: [{ id: 'episode-1', summary: '雨夜重逢后两人消除误会，情绪由紧张转为温暖。', keywords: ['温暖', '钢琴'] }] }
+          : { episodes: [{ id: 'episode-1', matches: (command.token === 'manual-auto-2' ? [1] : [2, 3, 4, 5, 6]).map(index => ({ ref: `M${index}`, reason: '林夏和陈默在雨夜重逢，温暖钢琴承接释然情绪。' })), noMatchReason: '' }] };
+        return { texts: [JSON.stringify({ xmTaskId: command.token, result })], busy: false };
+      },
+    },
+  });
+  const result = await host.run({ id: 'manual-auto-request-123', provider: 'deepseek', purpose: 'batch-library-match', input: batch, manualWeb: true });
+  assert.equal(result.episodes[0].value.matches.length, 6);
+  assert.equal(result.episodes[0].value.matches[0].id, 'warm-1');
+  assert.deepEqual(commands.filter(command => command === 'fill'), ['fill', 'fill', 'fill']);
+  assert.equal(commands.includes('send'), false);
+  assert(stages.some(stage => stage.startsWith('联合补充与纠正')));
+  assert.equal(host.snapshot(), null);
+});
+
 test('renderer displays the provider failure without the Electron IPC prefix', async () => {
   const previous = globalThis.blackObsidian;
   globalThis.blackObsidian = { analyzeWebScript: async () => { throw new Error("Error invoking remote method 'bos:web-analysis-start': Error: DeepSeek 返回的第1首音乐 ID 无效。"); } };
@@ -200,6 +273,41 @@ test('web driver waits for login, sends each step once, accepts only stable curr
   const result = await host.run({ id: 'request-123', provider: 'deepseek', purpose: 'library-match', input: { ...input, tracks: [] } });
   assert.equal(result.analysis.summary, analysis.summary); assert.equal(sends, 1); assert.equal(fills, 2); assert.equal(host.snapshot(), null); assert.equal(events.at(-1), null);
   assert(events.some(e => e?.message === 'login required'));
+});
+test('official web input and send actions keep a three-second gap', async () => {
+  let time = 0;
+  const actions = [];
+  const host = createWebAnalysis({ now: () => time, delay: async ms => { time += ms; }, notify: () => {}, copy: async () => {}, driver: {
+    visible: () => true,
+    async run(_provider, command) {
+      if (command.command === 'fill' || command.command === 'send') {
+        actions.push({ command: command.command, time });
+        return { state: command.command === 'fill' ? 'filled' : 'sent' };
+      }
+      return { texts: [JSON.stringify({ xmTaskId: command.token, result: score })], busy: false };
+    },
+  } });
+  await host.run({ id: 'paced-web-1', provider: 'deepseek', purpose: 'score', input });
+  await host.run({ id: 'paced-web-2', provider: 'deepseek', purpose: 'score', input });
+  assert.deepEqual(actions.map(action => action.command), ['fill', 'send', 'fill', 'send']);
+  for (let index = 1; index < actions.length; index++) assert(actions[index].time - actions[index - 1].time >= 3000);
+});
+test('cancelling during the input interval never sends the prompt', async () => {
+  let waiting;
+  const paused = new Promise(resolve => { waiting = resolve; });
+  const actions = [];
+  const host = createWebAnalysis({ now: () => 0, notify: () => {}, copy: async () => {}, delay: ms => ms < 3000 ? Promise.resolve() : new Promise(() => { waiting(); }), driver: {
+    visible: () => true,
+    async run(_provider, command) {
+      actions.push(command.command);
+      return command.command === 'fill' ? { state: 'filled' } : { texts: [], busy: false };
+    },
+  } });
+  const running = host.run({ id: 'paced-cancel-1', provider: 'doubao', purpose: 'score', input });
+  await paused;
+  await host.action('paced-cancel-1', 'cancel');
+  await assert.rejects(running, /中断/);
+  assert.deepEqual(actions, ['fill', 'read']);
 });
 test('cancellation stops waiting, rejects concurrent tasks and does not send a hidden page', async () => {
   let host, calls = 0;

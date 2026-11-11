@@ -13,7 +13,7 @@ function render(value) {
   const exporting = value.operation === 'export', recording = value.operation === 'recording', batch = value.operation === 'batch', activeManual = (exporting || recording) && !terminal();
   const exportTitles = { preparing: '准备导出', running: `正在导出 ${value.current}/${value.total}`, stopping: '正在结束运行', complete: value.mode === 'return_home' ? '导出任务已提交' : '导出完成', error: '导出已停止', cancelled: '导出运行已结束' };
   const recordingTitles = { preparing: `录制坐标 ${value.current}/${value.total}`, recording: `录制坐标 ${value.current}/${value.total}`, retry: '请重试当前录制步骤', complete: '坐标录制完成', error: '录制失败', cancelled: '录制已结束' };
-  const batchTitles = { preparing: '准备分析剧本', running: `正在分析第 ${Math.min(value.total, value.completed + 1)} 集 ${Math.min(value.total, value.completed + 1)}/${value.total}`, complete: '剧本分析完成', error: '剧本分析未完成', cancelled: '剧本分析已中断' };
+  const batchTitles = { preparing: '准备分析剧本', running: value.phase === 'subtitles' ? '整理本批字幕' : value.phase === 'library' ? '读取本地音乐库' : value.phase === 'keywords' ? '分析剧情与关键词' : value.phase === 'matching' ? '匹配本地音乐' : value.phase === 'review' ? '复核音乐推荐' : value.phase === 'saving' ? '保存本批结果' : value.phase === 'web' ? '等待网页分析' : '联合分析剧本', complete: '剧本分析完成', error: '剧本分析未完成', cancelled: '剧本分析已中断' };
   const title = batch ? batchTitles[value.stage] : recording ? recordingTitles[value.stage] : exporting ? exportTitles[value.stage] : titles[value.stage];
   document.body.dataset.stage = value.stage;
   document.body.dataset.terminal = String(terminal());

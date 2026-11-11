@@ -14,7 +14,7 @@ using Microsoft.Web.WebView2.WinForms;
 
 namespace XM.Native {
     internal sealed partial class StudioHost : ApplicationContext {
-        internal const string Origin = "https://xm.local", Version = "1.5.0";
+        internal const string Origin = "https://xm.local", Version = "1.6.0";
         internal readonly string BaseDir, DataDir, ClientDir;
         internal StudioWindow MainWindow, PanelWindow;
         internal WebView2 MainView, PanelView;
@@ -69,6 +69,10 @@ namespace XM.Native {
             Log("view-ready " + partition);
             var core = view.CoreWebView2;
             core.Settings.AreDevToolsEnabled = Environment.GetEnvironmentVariable("XM_NATIVE_QA") == "1";
+            if (Environment.GetEnvironmentVariable("XM_NATIVE_QA") == "1") {
+                core.GetDevToolsProtocolEventReceiver("Runtime.exceptionThrown").DevToolsProtocolEventReceived += (s, e) => Log("js-exception " + e.ParameterObjectAsJson);
+                await core.CallDevToolsProtocolMethodAsync("Runtime.enable", "{}");
+            }
             core.Settings.IsStatusBarEnabled = false; core.Settings.AreHostObjectsAllowed = false;
             if (local) {
                 // C# resolves the private origin, including media ranges; no HTTP page server.
@@ -109,7 +113,7 @@ namespace XM.Native {
                         if (view == MainView) { await UpdateMainPalette(); if (core.Source == Origin + "/index.html") await CheckStartupUpdate(); }
                         if (view == PanelView) {
                             await UpdatePanelPalette();
-                            if (!Exiting) PanelWindow.Show();
+                            if (!Exiting && !restorePanelAfterOperation && !NativeOperationActive) PanelWindow.Show();
                         }
                     }
                 };

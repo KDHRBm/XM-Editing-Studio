@@ -63,15 +63,17 @@ export function batchSubtitleLines(task, preserve = true) {
   // without those dialogue rows falls back to Chinese in batch auto mode.
   return language === 'auto' && !latin.length ? extractChineseSubtitles(subtitleScript, { preservePunctuation: preserve }) : latin;
 }
-export function nextBatchGroup(tasks, onlyIds = []) {
+export function nextBatchGroup(tasks, onlyIds = [], limits = {}) {
   const pending = tasks.filter(task => (!onlyIds.length || onlyIds.includes(task.id)) && ['queued', 'paused'].includes(task.status));
   const first = pending[0];
   if (!first) return [];
-  const episodeLimit = first.settings.segmented ? Math.min(BATCH_GROUP_EPISODES, Math.floor(24 / (first.settings.segmentCount || 3))) : BATCH_GROUP_EPISODES;
+  const episodeLimit = Math.min(first.settings.segmented ? Math.min(BATCH_GROUP_EPISODES, Math.floor(24 / (first.settings.segmentCount || 3))) : BATCH_GROUP_EPISODES, limits.episodes || BATCH_GROUP_EPISODES);
+  const characterLimit = Math.min(BATCH_GROUP_CHARACTERS, limits.characters || BATCH_GROUP_CHARACTERS);
   let length = 0; const group = [];
   for (const task of pending) {
     if (task.projectId !== first.projectId || task.settings.analyzerKey !== first.settings.analyzerKey || !!task.settings.segmented !== !!first.settings.segmented || (task.settings.segmented && task.settings.segmentCount !== first.settings.segmentCount)) continue;
-    if (group.length && (group.length >= episodeLimit || length + task.script.length > BATCH_GROUP_CHARACTERS)) break;
+    if (!!task.settings.manualWeb !== !!first.settings.manualWeb) continue;
+    if (group.length && (group.length >= episodeLimit || length + task.script.length > characterLimit)) break;
     group.push(task); length += task.script.length;
   }
   return group;
@@ -79,7 +81,7 @@ export function nextBatchGroup(tasks, onlyIds = []) {
 
 // The queue is independent of the current page; one website conversation runs at a time.
 // Providers and credentials are resolved at execution and never persisted with the scripts.
-export function createBatchAnalysisQueue({ load, save, analyze, extract = task => batchSubtitleLines(task), makeId = () => crypto.randomUUID() }) {
+export function createBatchAnalysisQueue({ load, save, analyze, extract = task => batchSubtitleLines(task), makeId = () => crypto.randomUUID(), groupLimits = () => ({}) }) {
   let state = { loaded: false, running: false, activeIds: [], progress: null, projects: [], activeProjectId: '', tasks: [], error: '' };
   let pendingSave = Promise.resolve(), run = null, controller = null, generation = 0, initializing;
   const listeners = new Set();
@@ -151,8 +153,8 @@ export function createBatchAnalysisQueue({ load, save, analyze, extract = task =
       if (!projectId && !state.projects.length) projectId = await this.createProject('未命名剧本');
       if (!state.projects.some(p => p.id === projectId)) fail('请先选择或创建剧目。');
       const batchId = makeId(), now = new Date().toISOString();
-      const safeSettings = { analyzerKey: settings.analyzerKey, subtitleLanguage: settings.subtitleLanguage, ...segmentOptions(settings) };
-      const added = episodes.filter(episode => !state.tasks.some(task => task.projectId === projectId && task.script === episode.script && task.settings.analyzerKey === safeSettings.analyzerKey && task.settings.subtitleLanguage === safeSettings.subtitleLanguage && !!task.settings.segmented === safeSettings.segmented && (!safeSettings.segmented || task.settings.segmentCount === safeSettings.segmentCount))).map(episode => ({ ...episode, id: makeId(), batchId, projectId, settings: safeSettings, status: 'queued', createdAt: now, subtitleCount: null, result: null, error: '' }));
+      const safeSettings = { analyzerKey: settings.analyzerKey, subtitleLanguage: settings.subtitleLanguage, manualWeb: !!settings.manualWeb, ...segmentOptions(settings) };
+      const added = episodes.filter(episode => !state.tasks.some(task => task.projectId === projectId && task.script === episode.script && task.settings.analyzerKey === safeSettings.analyzerKey && task.settings.subtitleLanguage === safeSettings.subtitleLanguage && !!task.settings.manualWeb === safeSettings.manualWeb && !!task.settings.segmented === safeSettings.segmented && (!safeSettings.segmented || task.settings.segmentCount === safeSettings.segmentCount))).map(episode => ({ ...episode, id: makeId(), batchId, projectId, settings: safeSettings, status: 'queued', createdAt: now, subtitleCount: null, result: null, error: '' }));
       if (state.tasks.length + added.length > BATCH_TASK_LIMIT) fail('最多保留 200 个任务。请先导出结果并清理不再需要的任务。');
       const previous = state.tasks;
       publish({ tasks: [...state.tasks, ...added], error: '' });
@@ -176,11 +178,18 @@ export function createBatchAnalysisQueue({ load, save, analyze, extract = task =
         try {
           await persist();
           while (state.running && token === generation) {
-            const group = nextBatchGroup(state.tasks, onlyIds);
+            const next = state.tasks.find(task => (!onlyIds.length || onlyIds.includes(task.id)) && ['queued', 'paused'].includes(task.status));
+            const group = nextBatchGroup(state.tasks, onlyIds, next ? groupLimits(next) : {});
             if (!group.length) break;
             controller = new AbortController();
             const analyzerKey = group[0].settings.analyzerKey;
-            publish({ activeIds: group.map(task => task.id), progress: state.progress?.analyzerKey === analyzerKey ? state.progress : progressFor(analyzerKey) });
+            const numbers = group.map(task => task.episodeNumber);
+            const batch = { batchFirst: Math.min(...numbers), batchLast: Math.max(...numbers), batchSize: group.length, phase: 'subtitles' };
+            publish({ activeIds: group.map(task => task.id), progress: { ...(state.progress?.analyzerKey === analyzerKey ? state.progress : progressFor(analyzerKey)), ...batch } });
+            const batchSignal = controller.signal;
+            const reportStage = phase => {
+              if (token === generation && !batchSignal.aborted && state.progress?.analyzerKey === analyzerKey && state.progress.phase !== phase) publish({ progress: { ...state.progress, phase } });
+            };
             for (const task of group) update(task.id, { status: 'analyzing', error: '' });
             try {
               for (const task of group) update(task.id, { subtitleCount: extract(task).length });
@@ -189,9 +198,10 @@ export function createBatchAnalysisQueue({ load, save, analyze, extract = task =
               const groupIds = new Set(group.map(task => task.id));
               const neighbors = state.tasks.filter(task => task.projectId === group[0].projectId && !groupIds.has(task.id) && task.status === 'complete' && task.result && group.some(item => Math.abs(item.episodeNumber - task.episodeNumber) <= 2))
                 .map(task => ({ episodeNumber: task.episodeNumber, trackIds: [...new Set((task.result.segments?.flatMap(segment => segment.matches || []) || task.result.matches || []).map(match => match.id))] }));
-              const results = await analyze(group, controller.signal, neighbors);
+              const results = await analyze(group, controller.signal, neighbors, reportStage);
               if (token !== generation || controller.signal.aborted) { for (const task of group) update(task.id, { status: 'paused' }); break; }
               if (!Array.isArray(results) || results.length !== group.length || new Set(results.map(item => item.id)).size !== group.length || group.some(task => !results.some(result => result.id === task.id && result.value?.analysis && Array.isArray(result.value.matches)))) fail('模型未完整返回本批次全部集数的配乐结果，请重试本批次。');
+              reportStage('saving');
               for (const result of results) update(result.id, { status: 'complete', result: result.value, revision: result.revision, analyzer: result.analyzer, completedAt: new Date().toISOString() });
               await persist();
             } catch (error) {

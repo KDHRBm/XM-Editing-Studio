@@ -1,6 +1,7 @@
 using System;
 using System.Collections;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.Drawing;
 using System.Drawing.Imaging;
 using System.Globalization;
@@ -273,13 +274,19 @@ internal sealed partial class JianYingEngine
         try
         {
             Send(new Dictionary<string, object> { { "event", "minimize" } });
-            ScanProgress(id, "preparing", "请切回剪映首页，3 秒后截图");
-            InterruptibleWait(3, generation);
+            ScanProgress(id, "preparing", "正在隐藏窗口并准备截取剪映首页");
             var ack = new CaptureAck { Id = id };
             _scanCapture = ack;
             Send(new Dictionary<string, object> { { "event", "scan-capture" }, { "id", id } });
             WaitForCapture(ack, generation, 10);
             CheckInterrupted(generation);
+            var foregroundWait = Stopwatch.StartNew();
+            while (!string.Equals(NativeWin32.GetForegroundProcessName(), "jianyingpro.exe", StringComparison.OrdinalIgnoreCase)
+                && foregroundWait.Elapsed.TotalSeconds < 2)
+            {
+                CheckInterrupted(generation);
+                InterruptibleWait(.1, generation);
+            }
             RequireJianyingForeground();
             int[] resolution = GetScreenResolution();
             IntPtr window = NativeWin32.GetAncestor(NativeWin32.GetForegroundWindow(), 2);

@@ -50,7 +50,7 @@ export function validateScoreRequest(input) {
   return { script, lines, subtitleLanguage, ...segmentOptions(input), title: String(input.title || '剧本配乐').trim().slice(0, 80), hint: String(input.hint || ''), durationSeconds: Math.round(duration), ...(segmentContext ? { segmentContext } : {}) };
 }
 export const isGeminiModel = (provider, model) => ['gemini', 'openai', 'custom'].includes(provider?.protocol) && /gemini/i.test(model || '');
-export const isScriptAnalysisModel = (provider, model) => isGeminiModel(provider, model) || provider?.protocol === 'deepseek' && /^deepseek-[\w.-]+$/i.test(model || '');
+export const isScriptAnalysisModel = (provider, model) => isGeminiModel(provider, model) || provider?.protocol === 'deepseek' && /^deepseek-[\w.-]+$/i.test(model || '') || provider?.protocol === 'ollama' && /^deepseek-r1:(?:1\.5b|7b|14b|32b|70b)$/.test(model || '');
 export const isSunoModel = (provider, model) => provider?.protocol === 'suno' || /^suno[_-]/i.test(model || '');
 export function scoreMessages(input) {
   const data = validateScoreRequest(input);

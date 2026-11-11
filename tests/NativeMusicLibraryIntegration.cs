@@ -40,6 +40,13 @@ internal static class NativeMusicLibraryIntegration {
     [STAThread] static int Main() {
         string root=Path.Combine(Path.GetTempPath(),"xm-library-"+Guid.NewGuid().ToString("N"));
         try {
+            string version=Path.Combine(root,"JianyingPro","11.8.0");
+            string[] installs={Path.Combine(root,"JianyingPro")};
+            Check(StudioHost.ShouldStopJianyingProcess("JianyingPro",Path.Combine(version,"JianyingPro.exe"),installs),"Jianying editor is included");
+            Check(StudioHost.ShouldStopJianyingProcess("JianyingProTray",Path.Combine(version,"JianyingProTray.exe"),installs),"Jianying tray is included");
+            Check(StudioHost.ShouldStopJianyingProcess("VEDetector",Path.Combine(version,"VEDetector.exe"),installs),"Jianying detector is included");
+            Check(!StudioHost.ShouldStopJianyingProcess("VEDetector",Path.Combine(root,"Other","VEDetector.exe"),installs),"Unrelated detector remains untouched");
+            Check(!StudioHost.ShouldStopJianyingProcess("JianYingEngine",Path.Combine(version,"JianYingEngine.exe"),installs),"XM export engine remains untouched");
             string music=Path.Combine(root,"中文 音乐库"), nested=Path.Combine(music,"剧情"), profile=Path.Combine(root,"profile");
             Directory.CreateDirectory(nested); Directory.CreateDirectory(profile);
             File.WriteAllText(Path.Combine(music,"紧张.mp3"),"fixture"); File.WriteAllText(Path.Combine(nested,"温暖.wav"),"fixture");

@@ -34,3 +34,27 @@ export function PetNavIcon({ size = 25, ...props }) {
 export function UpdateNavIcon(props) {
   return <NavGlyph {...props}><path d="M20 8a8 8 0 1 0 1 6" /><path d="M20 3v5h-5" /></NavGlyph>;
 }
+
+export function CloseNavIcon(props) {
+  return <NavGlyph {...props}><path d="M5 5l14 14M19 5 5 19" /></NavGlyph>;
+}
+
+export function PauseNavIcon(props) {
+  return <NavGlyph {...props}><path d="M8 5v14M16 5v14" strokeWidth="3" /></NavGlyph>;
+}
+
+export function LocalNavIcon(props) {
+  return <NavGlyph {...props}><rect x="3" y="4" width="18" height="13" rx="2" /><path d="M8 21h8m-4-4v4M7 9h4m-4 4h7" /></NavGlyph>;
+}
+
+export function DownloadNavIcon(props) {
+  return <NavGlyph {...props}><path d="M12 3v12m-4-4 4 4 4-4M4 18v3h16v-3" /></NavGlyph>;
+}
+
+export function PlayNavIcon(props) {
+  return <NavGlyph {...props}><path d="m8 5 11 7-11 7V5Z" /></NavGlyph>;
+}
+
+export function CheckNavIcon(props) {
+  return <NavGlyph {...props}><circle cx="12" cy="12" r="9" /><path d="m7.5 12 3 3 6-6" /></NavGlyph>;
+}

@@ -30,6 +30,14 @@
 @media(prefers-reduced-motion:reduce){.bos-batch-episode-nav .bos-batch-episode-surface,.bos-batch-episode-nav:is(:hover,:active):not(:disabled) .bos-batch-episode-surface{transition:none;transform:none}}
 
 .bos-batch-drama-name{display:flex;align-items:end;flex-wrap:wrap;gap:10px;margin:14px 0}
+.bos-batch-input-tabs{display:flex;gap:16px;align-items:end;border-bottom:1px solid var(--ui-border);margin:18px 0 20px}
+.bos-script .bos-batch-input-tabs button{min-height:40px;padding:8px 4px;border:0;border-bottom:2px solid transparent;border-radius:0;background:transparent;color:var(--ui-muted);font-size:13px;font-weight:600}
+.bos-script .bos-batch-input-tabs button[aria-selected=true]{border-bottom-color:var(--ui-accent);color:var(--ui-text);background:transparent}
+.bos-batch-manual .bos-batch-segment-settings{align-items:end}
+.bos-batch-manual-result{margin-top:22px;padding-top:18px;border-top:1px solid var(--ui-border)}
+.bos-batch-manual-result .bos-script-section-title{align-items:center;gap:12px}
+.bos-batch-manual-result p{margin:8px 0 14px;color:var(--ui-muted);font-size:12px}
+.bos-batch-manual-result textarea{min-height:145px}
 .bos-batch-input{margin-bottom:22px}
 .bos-batch-drama-name>label{flex:1;min-width:220px;margin:0}
 .bos-batch-drama-name>small{padding-bottom:10px;color:var(--ui-muted)}

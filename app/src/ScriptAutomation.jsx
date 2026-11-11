@@ -28,7 +28,7 @@ function getRuntime() {
     save: jobs => { if (loadError) throw new Error(loadError); localStorage.setItem(QUEUE_KEY, JSON.stringify(jobs)); },
     getProvider: id => providersNow.find(p => p.id === id),
     request: async (url, body) => {
-      if (url === '/api/script/score') return requestScriptAnalysis('score', body, webAnalyzer(body.provider) ? undefined : AbortSignal.timeout(135000));
+      if (url === '/api/script/score') return requestScriptAnalysis('score', body, webAnalyzer(body.provider) ? undefined : AbortSignal.timeout(body.provider?.protocol === 'ollama' ? 720000 : 135000));
       const response = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body), signal: AbortSignal.timeout(url.endsWith('generate') ? 195000 : 135000) });
       const result = await response.json();
       if (!response.ok) throw new Error(result.error || `请求失败（HTTP ${response.status}）`);

@@ -116,6 +116,7 @@ internal static class NativeWin32
         return best;
     }
 
+    public const uint MOUSEEVENTF_MOVE = 0x0001;
     public const uint MOUSEEVENTF_LEFTDOWN = 0x0002;
     public const uint MOUSEEVENTF_LEFTUP = 0x0004;
     public const uint KEYEVENTF_KEYUP = 0x0002;
@@ -186,11 +187,13 @@ internal static class NativeWin32
     {
         check();
         if (!SetCursorPos(x, y)) throw new InvalidOperationException("无法移动鼠标到剪映目标位置。");
-        Thread.Sleep(25);
+        mouse_event(MOUSEEVENTF_MOVE, 0, 0, 0, UIntPtr.Zero);
+        Thread.Sleep(50);
         check();
         mouse_event(MOUSEEVENTF_LEFTDOWN, 0, 0, 0, UIntPtr.Zero);
-        try { Thread.Sleep(25); }
+        try { Thread.Sleep(75); }
         finally { mouse_event(MOUSEEVENTF_LEFTUP, 0, 0, 0, UIntPtr.Zero); }
+        Thread.Sleep(35);
     }
 
     public static void PressEnter()

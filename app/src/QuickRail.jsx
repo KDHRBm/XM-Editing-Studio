@@ -1,3 +1,5 @@
+import { UpdateNavIcon } from './NavigationIcons.jsx';
+
 const readLayout = () => { try { return JSON.parse(localStorage.getItem('xm.layout.v1')) || {}; } catch { return {}; } };
 function saveLayout(values) { try { localStorage.setItem('xm.layout.v1', JSON.stringify({ ...readLayout(), ...values })); } catch { /* current layout remains usable */ } }
 
@@ -22,6 +24,7 @@ export function QuickRail() {
   const [error, setError] = i.useState('');
   const [dragging, setDragging] = i.useState(false);
   const [notice, setNotice] = i.useState('');
+  const [launchNotice, setLaunchNotice] = i.useState('');
   const dragInside = i.useRef(false);
   const api = globalThis.blackObsidian;
   const overlay = autoHide || compact;
@@ -35,6 +38,7 @@ export function QuickRail() {
       const next = await (action === 'dropFolders' ? api.addQuickFolders(value) : api.quickLaunch(action, value));
       if (next) {
         setState(next);
+        if (action === 'restart') setLaunchNotice(next.restarted ? '剪映已重新启动。' : '已取消重启。');
         if (action === 'dropFolders') { const added = next.folders.length - state.folders.length; setNotice(added > 0 ? `已添加 ${added} 个文件夹，双击即可打开。` : '这些文件夹已经添加，无需重复添加。'); }
       }
     } catch (err) { setError(err.message); }
@@ -64,7 +68,7 @@ export function QuickRail() {
     <aside ref={rail} className="bos-quickrail" aria-label="剪映与自定义文件夹" aria-busy={pending} data-expanded={expanded} onMouseLeave={conceal} onBlur={event => { if (!event.currentTarget.contains(event.relatedTarget)) conceal(); }} onKeyDown={event => { if (event.key === 'Escape' && overlay) { event.preventDefault(); setRevealed(false); } }}>
     <div className="bos-rail-inner" id="bos-quickrail-content" inert={!expanded} aria-hidden={!expanded}>
       <header><span>QUICK ACCESS</span><label title="隐藏整栏并释放工作区宽度；右上角按钮或窗口右边缘可重新展开"><input type="checkbox" checked={autoHide} onChange={event => { setAutoHide(event.target.checked); setRevealed(false); event.currentTarget.blur(); }} />自动隐藏</label>{overlay && revealed && <button type="button" className="bos-rail-close" aria-label="收起快捷栏" title="收起快捷栏" onClick={() => setRevealed(false)}>›</button>}</header>
-      <section className="bos-launch-card"><span className="bos-launch-icon">剪</span><h2>剪映快捷启动</h2><p>{scanning ? '正在检测本机剪映…' : state.installs.length ? '已找到 ' + state.installs.length + ' 个启动项' : '未检测到剪映启动项'}</p>{!!state.installs.length && <select aria-label="剪映启动项" disabled={pending} value={state.selected} onChange={event => act('select', event.target.value)}>{state.installs.map(item => <option key={item.path} value={item.path}>{item.version} · {item.path}</option>)}</select>}<button type="button" className="bos-launch-primary" disabled={!state.selected || scanning || pending} onClick={() => act('launch')}>启动剪映 ↗</button><div className="bos-rail-tools"><button type="button" disabled={scanning || pending} onClick={scan}>重新检测</button><button type="button" disabled={pending} onClick={() => act('browse')}>手动定位</button></div></section>
+      <section className="bos-launch-card"><span className="bos-launch-icon">剪</span><h2>剪映快捷启动</h2><p>{scanning ? '正在检测本机剪映…' : state.installs.length ? '已找到 ' + state.installs.length + ' 个启动项' : '未检测到剪映启动项'}</p>{!!state.installs.length && <select aria-label="剪映启动项" disabled={pending} value={state.selected} onChange={event => act('select', event.target.value)}>{state.installs.map(item => <option key={item.path} value={item.path}>{item.version} · {item.path}</option>)}</select>}<button type="button" className="bos-launch-primary" disabled={!state.selected || scanning || pending} onClick={() => act('launch')}>启动剪映 ↗</button><button type="button" className="bos-launch-restart" disabled={!state.selected || scanning || pending} onClick={() => act('restart')} title="关闭剪映主程序和后台进程，然后启动当前选中的版本"><UpdateNavIcon size={15} />{pending ? '正在处理…' : '重启剪映'}</button>{launchNotice && <p className="bos-launch-notice" role="status">{launchNotice}</p>}<div className="bos-rail-tools"><button type="button" disabled={scanning || pending} onClick={scan}>重新检测</button><button type="button" disabled={pending} onClick={() => act('browse')}>手动定位</button></div></section>
       <section className={`bos-folder-card${dragging ? ' is-dragging' : ''}`} aria-label="自定义文件夹拖放区域" onDragEnter={event => { if (fileDrag(event)) { event.preventDefault(); dragInside.current = true; setDragging(true); } }} onDragOver={event => { if (fileDrag(event)) { event.preventDefault(); event.dataTransfer.dropEffect = pending ? 'none' : 'copy'; dragInside.current = true; setDragging(true); } }} onDragLeave={event => { if (!event.currentTarget.contains(event.relatedTarget)) { dragInside.current = false; setDragging(false); } }} onDrop={dropFolders}><div className="bos-folder-heading"><h3>自定义文件夹</h3><span>{state.folders.length} / 8</span></div><p>{dragging ? '松开鼠标添加文件夹' : '拖入文件夹即可添加，双击打开。'}</p><div className="bos-folder-list">{state.folders.map(folder => <div className="bos-folder-item" key={folder.id}><button type="button" className="bos-folder-open" title={folder.path + '\n双击打开，或按 Enter'} onDoubleClick={() => act('openFolder', folder.id)} onKeyDown={event => { if (event.key === 'Enter') { event.preventDefault(); void act('openFolder', folder.id); } }}><span aria-hidden="true">▱</span><span><strong>{folder.name}</strong><small>{folder.path}</small></span></button><button type="button" className="bos-folder-remove" disabled={pending} aria-label={'移除快捷入口 ' + folder.name} title="仅移除入口，不删除文件夹" onClick={() => act('removeFolder', folder.id)}>×</button></div>)}</div><button type="button" className="bos-folder-add" disabled={state.folders.length >= 8 || pending} onClick={() => act('addFolder')}>{pending ? '正在处理…' : '＋ 添加自定义文件夹'}</button>{notice && <p className="bos-folder-notice" role="status">{notice}</p>}</section>
       {error && <p className="bos-rail-error" role="alert">{error}</p>}
       <footer>XM剪辑台 · 让创作更顺手</footer>

@@ -20,7 +20,7 @@ const results = group => group.map(task => ({ id: task.id, value: { analysis: { 
 test('API progress reflects the real batch and remains visible after completion until dismissed', async () => {
   let finish, entered;
   const started = new Promise(resolve => { entered = resolve; });
-  const queue = harness(async group => { entered(); return new Promise(resolve => { finish = () => resolve(results(group)); }); });
+  const queue = harness(async (group, signal, recent, onStage) => { onStage('keywords'); entered(); return new Promise(resolve => { finish = () => { onStage('matching'); resolve(results(group)); }; }); });
   await queue.initialize();
   await queue.import(episodes, settings);
   const running = queue.start();
@@ -31,14 +31,34 @@ test('API progress reflects the real batch and remains visible after completion 
   assert.equal(progress.total, 2);
   assert.equal(progress.active, 2);
   assert.equal(progress.completed, 0);
+  assert.equal(progress.phase, 'keywords');
+  assert.deepEqual([progress.batchFirst, progress.batchLast, progress.batchSize], [1, 2, 2]);
   finish(); await running;
   progress = batchAnalysisProgress(queue.snapshot(), [provider]);
   assert.equal(progress.status, 'complete');
   assert.equal(progress.completed, 2);
   assert.equal(progress.failed, 0);
+  assert.equal(progress.phase, 'saving');
   assert.ok(progress.finishedAt >= progress.startedAt);
   queue.dismissProgress();
   assert.equal(batchAnalysisProgress(queue.snapshot(), [provider]), null);
+});
+
+test('a joint batch reports its range and phase before any episode is saved', async () => {
+  let release, entered;
+  const started = new Promise(resolve => { entered = resolve; });
+  const queue = harness(async (group, signal, recent, onStage) => {
+    onStage('keywords'); entered();
+    await new Promise(resolve => { release = resolve; });
+    return results(group);
+  });
+  await queue.initialize();
+  await queue.import([{ episodeNumber: 19, title: '第19集', script: '雨夜相遇。' }, { episodeNumber: 20, title: '第20集', script: '发现真相。' }], settings);
+  const running = queue.start(); await started;
+  const progress = batchAnalysisProgress(queue.snapshot(), [provider]);
+  assert.deepEqual([progress.batchFirst, progress.batchLast, progress.batchSize, progress.completed, progress.phase], [19, 20, 2, 0, 'keywords']);
+  release(); await running;
+  assert.equal(batchAnalysisProgress(queue.snapshot(), [provider]).completed, 2);
 });
 
 test('Gemini API and official web analysis both show progress', async () => {
@@ -101,7 +121,8 @@ test('progress card renders actual completed count and an interrupt action', asy
   assert.equal(card.props['aria-label'], 'AI 分析进度');
   assert.match(text(card), /DeepSeek API/);
   assert.match(text(card), /已完成 1 \/ 2 集/);
-  assert.match(text(card), /正在分析第 2 集 2\/2/);
+  assert.match(text(card), /正在准备分析 · 本批 第 2 集，共 1 集/);
+  assert.match(text(card), /本批结果返回并保存后/);
   assert.equal(nodes(card).find(node => node.props.role === 'progressbar').props['aria-valuenow'], 1);
   assert.ok(nodes(card).some(node => node.type === 'button' && /中断/.test(text(node))));
   const web = ui.BatchProgressCard({ state: { ...state, progress: { ...state.progress, analyzerKey: 'webai:deepseek::DeepSeek' } }, providers: [], onNavigate: () => {} });

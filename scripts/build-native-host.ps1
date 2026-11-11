@@ -44,7 +44,7 @@ Copy-Item -LiteralPath (Join-Path $webviewRoot 'runtimes/win-x64/native/WebView2
 
 foreach ($name in @('LICENSE.txt','NOTICE.txt')) { Copy-Item -LiteralPath (Join-Path $webviewRoot $name) -Destination (Join-Path $nativeStage ('WebView2-' + $name)) -Force }
 
-$references = @('System.dll','System.Core.dll','System.Drawing.dll','System.Windows.Forms.dll','System.Web.Extensions.dll','System.Net.Http.dll','System.IO.Compression.dll','System.IO.Compression.FileSystem.dll',(Join-Path $nativeStage 'Microsoft.Web.WebView2.Core.dll'),(Join-Path $nativeStage 'Microsoft.Web.WebView2.WinForms.dll'))
+$references = @('System.dll','System.Core.dll','System.Drawing.dll','System.Windows.Forms.dll','System.Web.Extensions.dll','System.Net.Http.dll','System.Management.dll','System.IO.Compression.dll','System.IO.Compression.FileSystem.dll',(Join-Path $nativeStage 'Microsoft.Web.WebView2.Core.dll'),(Join-Path $nativeStage 'Microsoft.Web.WebView2.WinForms.dll'))
 
 $compilerArgs = @('/nologo','/target:winexe','/platform:x64','/optimize+','/utf8output','/codepage:65001',('/out:' + (Join-Path $nativeStage '小马剪辑台.exe')),('/win32icon:' + (Join-Path $projectRoot 'app/assets/app-icon.ico')))
 

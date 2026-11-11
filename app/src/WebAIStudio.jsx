@@ -7,7 +7,7 @@ export function WebAIStudio({ active, onNavigate }) {
   const [task, setTask] = i.useState(null), [opened, setOpened] = i.useState(''), [manualReply, setManualReply] = i.useState('');
   const taskRef = i.useRef(null);
   const provider = task?.provider || opened || manualProvider;
-  const visible = active || !!task || !!opened;
+  const visible = active || (!!task && !task.manualWeb) || !!opened;
   const [status, setStatus] = i.useState(null);
   const [error, setError] = i.useState('');
   const [notice, setNotice] = i.useState('');
@@ -66,8 +66,8 @@ export function WebAIStudio({ active, onNavigate }) {
     catch (err) { setError(err.message || '复制失败，请重试。'); }
   };
   return <section className={`bos-script bos-web-ai${task || opened ? ' bos-web-ai-overlay' : ''}`} hidden={!visible} aria-label="国内 AI 官方网页版">
-    {(task || opened) && <div className="bos-web-ai-task-heading"><strong>{task ? `${current.name} · ${task.stage}` : `${current.name} · 官方网页登录`}</strong><button type="button" onClick={() => task ? taskAction('cancel') : setOpened('')}>{task?.kind === 'draft-scan' ? '中断扫描 · F10' : task ? '中断分析' : '返回工作空间'}</button></div>}
-    {task && <div className="bos-web-ai-task"><p role="status">{task.message}</p><div className="bos-script-actions"><button type="button" onClick={() => taskAction('copy')}>复制当前任务</button><small>网页回答会自动读取并接回原任务，无需 API 配置。</small></div><details><summary>网页无法自动读取时，粘贴回答继续</summary><textarea aria-label="网页分析结果" value={manualReply} onChange={event => setManualReply(event.target.value)} rows={3} placeholder="粘贴网页返回的完整 JSON 回答" /><button type="button" disabled={!manualReply.trim()} onClick={() => taskAction('import')}>导入结果并继续</button></details></div>}
+    {(task || opened) && <div className="bos-web-ai-task-heading"><strong>{task ? `${current.name} · ${task.stage}` : `${current.name} · 官方网页登录`}</strong><div className="bos-script-actions">{task?.manualWeb && <button type="button" onClick={() => onNavigate('batch')}>前往 DeepSeek 分析结果</button>}<button type="button" onClick={() => task ? taskAction('cancel') : setOpened('')}>{task?.kind === 'draft-scan' ? '中断扫描 · F10' : task ? '中断分析' : '返回工作空间'}</button></div></div>}
+     {task && <div className="bos-web-ai-task"><p role="status">{task.message}</p><div className="bos-script-actions"><button type="button" onClick={() => taskAction('copy')}>复制当前任务</button><small>{task.manualWeb ? '请手动发送；完整回答会自动读取，需要补充时填入下一条提示词。无法读取时可到结果选项卡粘贴。' : '网页回答会自动读取并接回原任务，无需 API 配置。'}</small></div>{!task.manualWeb && <details><summary>网页无法自动读取时，粘贴回答继续</summary><textarea aria-label="网页分析结果" value={manualReply} onChange={event => setManualReply(event.target.value)} rows={3} placeholder="粘贴网页返回的完整 JSON 回答" /><button type="button" disabled={!manualReply.trim()} onClick={() => taskAction('import')}>导入结果并继续</button></details>}</div>}
     <div className="bos-web-ai-bar">
       <div className="bos-web-ai-toolbar">
         <div className="bos-source-choice" role="group" aria-label="选择国内 AI">{WEB_AI_PROVIDERS.map(item => <button type="button" key={item.id} disabled={!!task} aria-pressed={provider === item.id} onClick={() => changeProvider(item.id)}>{item.name}</button>)}</div>

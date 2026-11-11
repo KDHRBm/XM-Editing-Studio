@@ -2,7 +2,7 @@ import { MusicUsageHistory } from './MusicUsageHistory.jsx';
 import { BATCH_TEXT_LIMIT, BATCH_PROJECT_LIMIT, splitEpisodes, batchSubtitleLines } from '../shared/batch-analysis.mjs';
 import { analysisName, openWebAnalyzer, webAnalyzer } from '../shared/script-analyzers.mjs';
 import { batchQueue, batchAnalyzers, batchAnalysisProgress, setBatchProviders, useBatchAnalysis } from './BatchAnalysisStore.mjs';
-import { Pause, X } from '@phosphor-icons/react';
+import { CloseNavIcon, PauseNavIcon } from './NavigationIcons.jsx';
 import { protectPunctuation } from '../electron/period-clipboard.mjs';
 import { Pagination } from './Pagination.jsx';
 import { MusicDragButton } from './MusicDragButton.jsx';
@@ -10,6 +10,11 @@ import { musicUsage } from './MusicUsage.mjs';
 import { subtitleClipboardError } from '../shared/period-text.mjs';
 
 const statuses = { queued: '待分析', analyzing: '联合分析中', paused: '已中断', complete: '已完成', error: '需处理' };
+const hasInvalidMusic = result => result?.matchStatus === 'invalid' || result?.segments?.some(segment => segment.matchStatus === 'invalid');
+const batchPhases = {
+  subtitles: '正在整理字幕', library: '正在读取本地音乐库', keywords: '正在分析剧情与关键词',
+  matching: '正在匹配本地音乐', review: '正在复核推荐结果', saving: '正在保存本批结果', web: '等待官方网页返回分析结果',
+};
 const PREFERENCES = 'xm.batch-preferences.v1';
 const EPISODES_PER_PAGE = 12;
 function preferences() { try { return JSON.parse(localStorage.getItem(PREFERENCES)) || {}; } catch { return {}; } }
@@ -99,7 +104,7 @@ function TaskDialog({ task, preserve, catalog, busy, analyzerName, previousTask,
   return <dialog role="dialog" ref={dialog} className="bos-batch-dialog bos-script" aria-labelledby="bos-batch-dialog-title" onCancel={event => { event.preventDefault(); onClose(); }} onClick={event => { if (event.target === event.currentTarget) { const r = event.currentTarget.getBoundingClientRect(); if (event.clientX < r.left || event.clientX > r.right || event.clientY < r.top || event.clientY > r.bottom) onClose(); } }}>
     <button type="button" className="bos-batch-episode-nav bos-batch-episode-prev" aria-label="上一集" title={previousTask ? `上一集：${previousTask.title}` : '已是第一集'} disabled={!previousTask || copying} onClick={() => onNavigate(previousTask.id)}><span className="bos-batch-episode-surface" aria-hidden="true"><svg focusable="false" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="m15 6-6 6 6 6" /></svg></span></button>
     <div className="bos-batch-dialog-panel">
-    <header className="bos-batch-dialog-heading"><div><span className="bos-script-eyebrow">EPISODE {task.episodeNumber}</span><h2 id="bos-batch-dialog-title">{task.title}</h2><p>{statuses[task.status]} · {task.analyzer || analysisName(task.settings.analyzerKey.split('::').at(-1))}</p></div><button type="button" className="bos-batch-dialog-close" aria-label="关闭任务详情" onClick={onClose}>×</button></header>
+    <header className="bos-batch-dialog-heading"><div><span className="bos-script-eyebrow">EPISODE {task.episodeNumber}</span><h2 id="bos-batch-dialog-title">{task.title}</h2><p>{task.status === 'complete' && hasInvalidMusic(task.result) ? '配乐待重试' : statuses[task.status]} · {task.analyzer || analysisName(task.settings.analyzerKey.split('::').at(-1))}</p></div><button type="button" className="bos-batch-dialog-close" aria-label="关闭任务详情" onClick={onClose}>×</button></header>
     <div className="bos-batch-dialog-tabs" role="group" aria-label="查看任务内容"><button type="button" aria-pressed={tab === 'subtitles'} onClick={() => setTab('subtitles')}>整理字幕 · {extraction.lines.length} 行</button><button type="button" aria-pressed={tab === 'music'} onClick={() => setTab('music')}>本地音乐推荐 · {task.result?.matches?.length || 0} 首</button><button type="button" aria-pressed={tab === 'script'} onClick={() => setTab('script')}>原剧本</button></div>
     <div className="bos-batch-dialog-body" ref={body}>
       {(task.error || error || extraction.error) && <p role="alert" className="bos-script-warning">{error || extraction.error || task.error}</p>}{notice && <p role="status" className="bos-script-message">{notice}</p>}
@@ -110,7 +115,7 @@ function TaskDialog({ task, preserve, catalog, busy, analyzerName, previousTask,
           {task.result.segments && <><h3>第 {index+1} 段 · {section.title}</h3><small>原剧本第 {section.startLine}–{section.endLine} 行 · 已评估 {section.evaluated ?? 0} 首候选</small><p>{section.summary}</p><div className="bos-library-keywords">{section.keywords.map(word => <span key={word}>{word}</span>)}</div></>}
           {section.warning && <p className="bos-script-warning">{section.warning}</p>}
           {!!section.matches.length && section.noMatchReason && <p className="bos-script-footnote">{section.noMatchReason}</p>}
-          {!section.matches.length && <div className="bos-script-empty"><strong>已分析，暂未找到适合的本地音乐</strong><p>{section.noMatchReason || '已保存关键词，请刷新音乐库后重新匹配。'}</p><small>音乐库 {task.result.total ?? catalog.tracks.length} 首 · 本段评估 {section.evaluated ?? 0} 首候选</small></div>}
+          {!section.matches.length && <div className="bos-script-empty"><strong>{section.matchStatus === 'invalid' ? '音乐推荐未完成' : '已分析，暂未找到适合的本地音乐'}</strong><p>{section.noMatchReason || '已保存关键词，请刷新音乐库后重新匹配。'}</p><small>音乐库 {task.result.total ?? catalog.tracks.length} 首 · 本段评估 {section.evaluated ?? 0} 首候选</small></div>}
           {section.matches.map(match => { const track = catalog.tracks.find(item => item.id === match.id); return <article className="bos-library-match" key={match.id}><h4>{track?.title || match.title || '历史音乐'}</h4><p>{match.reason}</p>{track ? <><audio controls preload="none" src={`/local-music/${track.id}`} aria-label={`试听 ${track.title}`} /><div className="bos-script-actions"><MusicDragButton libraryId={track.id} /><button type="button" aria-pressed={usage.history.some(item => item.id === track.id)} title="再次点击可取消使用标记" onClick={() => { const used = musicUsage.toggle(track); setNotice(used ? `已记录「${track.title}」，后续推荐避开最近使用音乐。` : `已取消「${track.title}」的使用标记，可再次参与推荐。`); }}>{usage.history.some(item => item.id === track.id) ? '已标记使用' : '标记已使用'}</button></div></> : <small>原音乐库当前未连接，请在跑量剪辑流页面重新连接。</small>}</article>; })}
         </section>)}
       </> : <div className="bos-script-empty"><strong>{task.status === 'analyzing' ? '多集剧本正在联合分析' : '尚未完成本地音乐分析'}</strong><p>字幕已在本机整理，音乐结果会按集接回对应卡片。</p></div>}</>}
@@ -131,10 +136,13 @@ export function BatchAnalysis({ active, providers, onNavigate }) {
   const state = useBatchAnalysis(), models = batchAnalyzers(providers);
   const [draftTexts, setDraftTexts] = i.useState({}), [dramaName, setDramaName] = i.useState(''), [projectViews, setProjectViews] = i.useState({}), [projectPending, setProjectPending] = i.useState(false), [error, setError] = i.useState(''), [notice, setNotice] = i.useState(''), [selected, setSelected] = i.useState(''), [confirmClear, setConfirmClear] = i.useState(false);
   const [settings, setSettings] = i.useState(() => ({ analyzerKey: models[0].key, subtitleLanguage: 'auto', segmented: false, segmentCount: 3 }));
+  const [inputTab, setInputTab] = i.useState('input'), [webTask, setWebTask] = i.useState(null), [manualReply, setManualReply] = i.useState('');
   const [preserve, setPreserve] = i.useState(() => preferences().preserve !== false);
   const [catalog, setCatalog] = i.useState({ tracks: [], directories: [] }), [scanning, setScanning] = i.useState(false);
   const importLock = i.useRef(false), attemptedText = i.useRef('');
+  const webTaskToken = i.useRef('');
   const model = models.find(item => item.key === settings.analyzerKey) || models[0];
+  const deepseek = models.find(item => webAnalyzer(item)?.provider.webId === 'deepseek');
   const busy = state.running || !!state.activeIds.length;
   const currentProject = state.projects.find(p => p.id === state.activeProjectId);
   const inputKey = currentProject?.id || 'new';
@@ -144,6 +152,19 @@ export function BatchAnalysis({ active, providers, onNavigate }) {
   const importBusy = busy || projectPending;
   const setView = (id, patch) => setProjectViews(previous => ({ ...previous, [id]: { ...previous[id], ...patch } }));
   i.useEffect(() => { setDramaName(currentProject?.name || ''); attemptedText.current = ''; }, [state.activeProjectId]);
+  i.useEffect(() => {
+    const api = globalThis.blackObsidian;
+    if (!api?.onWebAnalysisTask) return;
+    let live = true, received = false;
+    const receive = task => {
+      if (!live) return;
+      if (webTaskToken.current !== task?.token) { setManualReply(''); webTaskToken.current = task?.token || ''; }
+      setWebTask(task?.manualWeb ? task : null);
+    };
+    const unsubscribe = api.onWebAnalysisTask(task => { received = true; receive(task); });
+    void api.getWebAnalysisTask?.().then(task => { if (!received) receive(task); }).catch(() => {});
+    return () => { live = false; unsubscribe(); };
+  }, []);
   i.useEffect(() => {
     const report = globalThis.blackObsidian?.reportBatchProgress;
     if (report) void report(batchAnalysisProgress(state, providers)).catch(() => {});
@@ -222,7 +243,7 @@ export function BatchAnalysis({ active, providers, onNavigate }) {
     catch (err) { setError(err.message); return ''; }
     finally { importLock.current = false; setProjectPending(false); }
   };
-  const importAndAnalyze = async value => {
+  const importAndAnalyze = async (value, manualWeb = false) => {
     if (importLock.current || importBusy || !state.loaded || !value.trim()) return;
     importLock.current = true; setProjectPending(true); attemptedText.current = requestedName + '\n' + value; setError('');
     try {
@@ -230,18 +251,32 @@ export function BatchAnalysis({ active, providers, onNavigate }) {
       if (!requestedName) throw new Error('请先输入剧名，再粘贴或导入分集。');
       if (currentProject && requestedName !== currentProject.name) throw new Error('请先点击“新剧本”创建剧目，或重命名当前剧目。');
       const projectId = currentProject?.id || await batchQueue.createProject(requestedName);
-      const count = await batchQueue.import(episodes, { ...settings, analyzerKey: model.key }, projectId);
+      if (manualWeb && !deepseek) throw new Error('找不到 DeepSeek 官方网页，请检查分析模型列表。');
+      const previousIds = new Set(batchQueue.snapshot().tasks.map(task => task.id));
+      const count = await batchQueue.import(episodes, { ...settings, analyzerKey: manualWeb ? deepseek.key : model.key, manualWeb }, projectId);
       setText(''); setView(projectId, { page: Math.ceil(batchQueue.snapshot().tasks.filter(t => t.projectId === projectId).length / EPISODES_PER_PAGE), collapsed: false });
-      setNotice(count ? `已识别并导入 ${count} 集，正在联合分析配乐。字幕已在本机整理。` : '这些剧本与设置已经导入，已有结果保持不变。');
-      if (count) void batchQueue.start(batchQueue.snapshot().tasks.filter(t => t.projectId === projectId).map(t => t.id));
+      setNotice(count ? manualWeb ? `已导入 ${count} 集。请在 DeepSeek 网页逐步手动发送，最终将音乐回答粘贴回结果选项卡。` : `已识别并导入 ${count} 集，正在联合分析配乐。字幕已在本机整理。` : '这些剧本与设置已经导入，已有结果保持不变。');
+      if (count) {
+        if (manualWeb) onNavigate('webai');
+        void batchQueue.start(batchQueue.snapshot().tasks.filter(t => t.projectId === projectId && (!manualWeb || !previousIds.has(t.id))).map(t => t.id));
+      }
     } catch (err) { setError(err.message); }
     finally { importLock.current = false; setProjectPending(false); }
   };
   i.useEffect(() => {
-    if (!active || importBusy || !state.loaded || !requestedName || !text.trim() || requestedName + '\n' + text === attemptedText.current) return;
+    if (!active || inputTab !== 'input' || importBusy || !state.loaded || !requestedName || !text.trim() || requestedName + '\n' + text === attemptedText.current) return;
     const timer = setTimeout(() => { void importAndAnalyze(text); }, 1400);
     return () => clearTimeout(timer);
-  }, [text, requestedName, active, importBusy, state.loaded, settings.analyzerKey, settings.subtitleLanguage, settings.segmented, settings.segmentCount, model.key]);
+  }, [text, requestedName, active, inputTab, importBusy, state.loaded, settings.analyzerKey, settings.subtitleLanguage, settings.segmented, settings.segmentCount, model.key]);
+  const importDeepSeekResult = async () => {
+    if (!webTask?.requiresPaste || !manualReply.trim()) return;
+    setError('');
+    try {
+      await globalThis.blackObsidian.webAnalysisAction(webTask.id, 'import', manualReply);
+      setManualReply('');
+      setNotice('音乐推荐已接收，正在校验曲目和推荐理由并写入对应集数卡片。');
+    } catch (err) { setError(err.message || '导入 DeepSeek 结果失败。'); }
+  };
   const libraryAction = async method => {
     setScanning(true); setError('');
     try { if (!globalThis.blackObsidian?.[method]) throw new Error('连接音乐库需要使用更新后的桌面程序。'); setCatalog(await globalThis.blackObsidian[method]()); }
@@ -263,11 +298,20 @@ export function BatchAnalysis({ active, providers, onNavigate }) {
     <section className="bos-script-panel bos-batch-input"><div className="bos-script-section-title bos-batch-project-heading"><h3>粘贴多集剧本</h3>{projectSelect('剧本输入区切换剧目')}</div>
       <div className="bos-batch-drama-name"><label><span>剧名</span><input aria-label="剧名" maxLength={40} disabled={importBusy} value={dramaName} onChange={event => setDramaName(event.target.value)} onKeyDown={event => { if (event.key === 'Enter') { event.preventDefault(); void (currentProject ? saveDrama() : newDrama()); } }} placeholder="例如：亡妻归来、莫雷蒂夫人" /></label><button type="button" disabled={importBusy || !state.loaded || state.projects.length >= BATCH_PROJECT_LIMIT} title={state.projects.length >= BATCH_PROJECT_LIMIT ? '最多保留 5 个剧本，请先删除不再需要的剧目' : '按输入的剧名创建剧本'} onClick={newDrama}>新剧本</button>{currentProject && <button type="button" disabled={importBusy || !requestedName || requestedName === currentProject.name} onClick={saveDrama}>重命名当前剧目</button>}<small>{state.projects.length} / {BATCH_PROJECT_LIMIT} 个剧本</small></div>
       <p className="bos-script-footnote">本次粘贴归入：<strong>{requestedName || '请先输入剧名'}</strong>。输入新剧名后点击“新剧本”直接创建；重命名当前剧目后，从下拉列表切换已有剧目。</p>
+      <div className="bos-batch-input-tabs" role="tablist" aria-label="剧本分析流程"><button type="button" role="tab" id="bos-batch-tab-input" aria-selected={inputTab === 'input'} aria-controls="bos-batch-panel-input" onClick={() => setInputTab('input')}>剧本分析</button><button type="button" role="tab" id="bos-batch-tab-deepseek" aria-selected={inputTab === 'deepseek'} aria-controls="bos-batch-panel-deepseek" onClick={() => setInputTab('deepseek')}>DeepSeek 分析结果</button></div>
+      {inputTab === 'input' ? <div id="bos-batch-panel-input" role="tabpanel" aria-labelledby="bos-batch-tab-input">
       <div className="bos-batch-settings"><label><span>分析模型</span><select aria-label="跑量剪辑流模型" disabled={busy} value={model.key} onChange={event => setSettings(value => ({ ...value, analyzerKey: event.target.value }))}>{models.map(item => <option value={item.key} key={item.key}>{item.label || `${item.model} · ${item.provider.name}`}</option>)}</select></label><label><span>字幕语言</span><select aria-label="跑量字幕语言" disabled={busy} value={settings.subtitleLanguage} onChange={event => setSettings(value => ({ ...value, subtitleLanguage: event.target.value }))}><option value="auto">自动识别</option><option value="zh">中文</option><option value="en">英文</option><option value="es">西语</option></select></label><div className="bos-batch-model-tools">{webAnalyzer(model) ? <button type="button" onClick={() => openWebAnalyzer(model)}>登录 {analysisName(model)} ↗</button> : <button type="button" onClick={() => onNavigate('providers')}>管理分析连接 ↗</button>}</div></div>
       <div className="bos-batch-segment-settings"><label><span>配乐分析方式</span><select aria-label="跑量配乐分析方式" disabled={busy} value={settings.segmented ? 'segments' : 'whole'} onChange={event => setSettings(value => ({ ...value, segmented: event.target.value === 'segments' }))}><option value="whole">每集整篇推荐</option><option value="segments">每集分析多段音乐</option></select></label>{settings.segmented && <label><span>每集最多情节数</span><select aria-label="每集配乐段数" disabled={busy} value={settings.segmentCount} onChange={event => setSettings(value => ({ ...value, segmentCount: Number(event.target.value) }))}>{[2,3,4,5,6].map(n => <option key={n} value={n}>{n} 段</option>)}</select></label>}<small>根据真实剧情与情绪转折分段，场次编号仅供参考；每段优先推荐 5–8 首本地音乐。</small></div>
       <label><span className="bos-visually-hidden">多集完整剧本</span><textarea aria-label="多集完整剧本" rows={7} maxLength={BATCH_TEXT_LIMIT} disabled={importBusy} value={text} onChange={event => setText(event.target.value)} placeholder={'第1集 重逢\n[EN] JACK: We meet again.\n\n第2集 真相\n[EN] MIA: Tell me the truth.\n\n粘贴后自动识别全部集数，并联合分析本地配乐。'} /></label>
       <div className="bos-script-actions"><small>{text.length.toLocaleString()} / 1,000,000 字符 · 单集不超过 3 万字符</small><button type="button" disabled={!text.trim() || !requestedName || importBusy || !state.loaded} onClick={() => importAndAnalyze(text)}>立即识别并分析</button></div>
       <p className="bos-script-footnote">标题独占一行，支持“第1集”“第一集”“EP01”“Episode 1”。同一批多集一起分析；超长内容按最多 12 集 / 6 万字符分组；多段模式每批最多规划 24 个情节，避免输出截断。网页模型需先登录，API 模型使用已配置连接。每次 API 分析按服务商规则使用额度。</p>
+      </div> : <div id="bos-batch-panel-deepseek" role="tabpanel" aria-labelledby="bos-batch-tab-deepseek" className="bos-batch-manual">
+        <div className="bos-batch-segment-settings"><label><span>配乐分析方式</span><select aria-label="DeepSeek 手动配乐方式" disabled={busy} value={settings.segmented ? 'segments' : 'whole'} onChange={event => setSettings(value => ({ ...value, segmented: event.target.value === 'segments' }))}><option value="whole">每集整篇推荐</option><option value="segments">每集分析多段音乐</option></select></label>{settings.segmented && <label><span>每集最多情节数</span><select aria-label="DeepSeek 手动分段数" disabled={busy} value={settings.segmentCount} onChange={event => setSettings(value => ({ ...value, segmentCount: Number(event.target.value) }))}>{[2,3,4,5,6].map(n => <option key={n} value={n}>{n} 段</option>)}</select></label>}<label><span>字幕语言</span><select aria-label="DeepSeek 手动字幕语言" disabled={busy} value={settings.subtitleLanguage} onChange={event => setSettings(value => ({ ...value, subtitleLanguage: event.target.value }))}><option value="auto">自动识别</option><option value="zh">中文</option><option value="en">英文</option><option value="es">西语</option></select></label></div>
+        <label><span>多集完整剧本</span><textarea aria-label="DeepSeek 手动分析剧本" rows={7} maxLength={BATCH_TEXT_LIMIT} disabled={importBusy} value={text} onChange={event => setText(event.target.value)} placeholder={'第1集 重逢\n[EN] JACK: We meet again.\n\n第2集 真相\n[EN] MIA: Tell me the truth.'} /></label>
+        <div className="bos-script-actions"><small>{text.length.toLocaleString()} / 1,000,000 字符</small><button type="button" disabled={!text.trim() || !requestedName || importBusy || !state.loaded || !deepseek} onClick={() => importAndAnalyze(text, true)}>生成提示词并打开 DeepSeek</button></div>
+         <p className="bos-script-footnote">提示词会依次填入 DeepSeek 对话框，发送由你确认。完整回答会自动读取；需要补充时会填入下一条提示词，校验通过后写入集数卡片。</p>
+         <div className="bos-batch-manual-result"><div className="bos-script-section-title"><h3>音乐推荐结果</h3>{webTask && <button type="button" onClick={() => onNavigate('webai')}>返回 DeepSeek ↗</button>}</div><p role="status">{webTask?.requiresPaste ? `当前：${webTask.stage}。手动发送后等待自动读取；若未识别，可在此粘贴完整回答继续。` : webTask ? `当前：${webTask.stage}。请在 DeepSeek 网页手动发送提示词。` : '开始分析后会自动读取回答；未识别时可在这里粘贴完整结果。'}</p><label><span className="bos-visually-hidden">DeepSeek 音乐推荐结果</span><textarea aria-label="DeepSeek 音乐推荐结果" rows={6} maxLength={200000} value={manualReply} onChange={event => setManualReply(event.target.value)} placeholder="自动读取失败时，粘贴 DeepSeek 返回的完整 JSON 音乐推荐结果" /></label><div className="bos-script-actions"><small>校验集数、候选曲目及推荐理由；如需补充，会自动生成下一条提示词。</small><button type="button" disabled={!webTask?.requiresPaste || !manualReply.trim()} onClick={importDeepSeekResult}>导入音乐推荐</button></div></div>
+      </div>}
     </section>
     {!state.projects.length && <div className="bos-script-empty"><strong>输入剧名，开始整理第一部剧</strong><p>每部剧会生成一张独立大卡片，分集字幕与推荐统一保存在其中。</p></div>}
     {state.projects.filter(project => project.id === state.activeProjectId).map(project => {
@@ -283,7 +327,7 @@ export function BatchAnalysis({ active, providers, onNavigate }) {
       <div className="bos-script-actions bos-batch-task-actions">{busy ? <button type="button" disabled={!state.running} onClick={() => batchQueue.pause()}>中断分析</button> : <><button type="button" disabled={!tasks.some(task => ['queued', 'paused'].includes(task.status))} onClick={() => perform(() => batchQueue.start(tasks.map(task => task.id)))}>继续批量分析</button><button type="button" disabled={!tasks.length} onClick={() => retryMany(tasks)}>按当前方式重新分析全部</button>{tasks.some(task => task.status === 'complete' && ((task.result?.segments ? task.result.segments.some(segment => segment.matches.length < 5) : (task.result?.matches?.length || 0) < 5))) && <button type="button" onClick={() => retryMany(tasks.filter(task => task.status === 'complete' && ((task.result?.segments ? task.result.segments.some(segment => segment.matches.length < 5) : (task.result?.matches?.length || 0) < 5))))}>补充不足五首的推荐</button>}{tasks.some(task => task.status === 'error') && <button type="button" onClick={() => perform(async () => { for (const task of tasks.filter(task => task.status === 'error')) await batchQueue.retry(task.id, model.key, settings); void batchQueue.start(tasks.map(task => task.id)); })}>批量重试失败</button>}</>}<button type="button" disabled={!tasks.length} onClick={() => download(JSON.stringify(batchQueue.backup(project.id), null, 2), project.name + '-任务备份.json', 'application/json')}>导出备份</button><button type="button" disabled={busy || !tasks.length} onClick={() => setConfirmClear(project.id)}>清空所有卡片</button></div>
       {confirmClear === project.id && <div className="bos-script-warning"><p>清空后会删除本剧目的所有卡片、字幕记录和推荐结果。工作空间及音乐文件不受影响。</p><button type="button" disabled={busy} onClick={() => perform(async () => { await batchQueue.clear(project.id); setConfirmClear(false); setSelected(''); })}>确认清空所有卡片</button> <button type="button" onClick={() => setConfirmClear(false)}>取消</button></div>}
       <div className="bos-batch-filter" role="group" aria-label="任务状态筛选">{[['all', '全部'], ['pending', '待分析'], ['complete', '已完成'], ['error', '需处理']].map(([value, label]) => <button type="button" key={value} aria-pressed={filter === value} onClick={() => setFilter(value)}>{label}</button>)}</div>
-      {!filtered.length ? <div className="bos-script-empty"><strong>{state.loaded ? '剧本准备好，粘贴即可开始' : '正在加载任务存档…'}</strong><p>每一集都会整理成一张独立卡片，关闭软件后仍可查看。</p></div> : <div className="bos-batch-cards">{pages.visible.map(task => <article className="bos-batch-card" key={task.id} data-status={task.status}><button type="button" className="bos-batch-card-open" onClick={() => setSelected(task.id)} aria-label={`查看第${task.episodeNumber}集字幕与音乐`}><span className="bos-batch-card-top"><strong>第 {task.episodeNumber} 集</strong><span className="bos-script-state">{task.status === 'complete' && !task.result?.matches?.length ? '已分析 · 暂无匹配' : statuses[task.status]}</span></span><span className="bos-batch-card-title">{task.title}</span><small>{task.subtitleCount == null ? '字幕已可预览' : `${task.subtitleCount} 行字幕`} · {task.result?.segments ? `${task.result.segments.length} 段 · ` : ''}{task.result?.matches?.length || 0} 首音乐推荐</small>{task.error && <span className="bos-batch-card-error">{task.error}</span>}<span className="bos-batch-card-link">查看字幕与配乐 ↗</span></button><button type="button" className="bos-batch-card-close" disabled={busy} aria-label={`关闭第${task.episodeNumber}集卡片`} title="移除此卡片及其推荐" onClick={() => perform(() => batchQueue.remove(task.id))}>×</button></article>)}</div>}
+      {!filtered.length ? <div className="bos-script-empty"><strong>{state.loaded ? '剧本准备好，粘贴即可开始' : '正在加载任务存档…'}</strong><p>每一集都会整理成一张独立卡片，关闭软件后仍可查看。</p></div> : <div className="bos-batch-cards">{pages.visible.map(task => <article className="bos-batch-card" key={task.id} data-status={task.status}><button type="button" className="bos-batch-card-open" onClick={() => setSelected(task.id)} aria-label={`查看第${task.episodeNumber}集字幕与音乐`}><span className="bos-batch-card-top"><strong>第 {task.episodeNumber} 集</strong><span className="bos-script-state">{task.status === 'complete' && hasInvalidMusic(task.result) ? '配乐待重试' : task.status === 'complete' && !task.result?.matches?.length ? '已分析 · 暂无匹配' : statuses[task.status]}</span></span><span className="bos-batch-card-title">{task.title}</span><small>{task.subtitleCount == null ? '字幕已可预览' : `${task.subtitleCount} 行字幕`} · {task.result?.segments ? `${task.result.segments.length} 段 · ` : ''}{task.result?.matches?.length || 0} 首音乐推荐</small>{task.error && <span className="bos-batch-card-error">{task.error}</span>}<span className="bos-batch-card-link">查看字幕与配乐 ↗</span></button><button type="button" className="bos-batch-card-close" disabled={busy} aria-label={`关闭第${task.episodeNumber}集卡片`} title="移除此卡片及其推荐" onClick={() => perform(() => batchQueue.remove(task.id))}>×</button></article>)}</div>}
       {filtered.length > EPISODES_PER_PAGE && <Pagination {...pages} unit="集" label="跑量任务分页" />}
       <p className="bos-script-footnote">5 个剧目共保存最多 200 张卡片。批量请求完成后按集保存结果；中断保留已完成卡片，重启后手动继续待处理批次。最近使用的音乐会自动从下次推荐候选中排除。</p>
       </div>
@@ -309,15 +353,16 @@ export function BatchProgressCard({ state, providers, onNavigate }) {
   const running = progress.status === 'running';
   const elapsed = Math.max(0, Math.floor(((progress.finishedAt || now) - progress.startedAt) / 1000));
   const duration = `${String(Math.floor(elapsed / 60)).padStart(2, '0')}:${String(elapsed % 60).padStart(2, '0')}`;
-  const message = running ? progress.active ? `正在分析第 ${progress.firstEpisode} 集 ${Math.min(progress.total, progress.completed + 1)}/${progress.total}` : '正在准备下一批'
+  const range = progress.batchFirst === progress.batchLast ? `第 ${progress.batchFirst} 集` : `第 ${progress.batchFirst}–${progress.batchLast} 集`;
+  const message = running ? progress.active ? `${batchPhases[progress.phase] || '正在准备分析'} · 本批 ${range}，共 ${progress.batchSize} 集` : '正在准备下一批'
     : progress.status === 'paused' ? '分析已中断，可继续处理剩余集数'
       : progress.status === 'error' ? progress.failed ? `${progress.failed} 集需要处理，请查看任务卡` : '分析未完成，请查看错误提示' : '本次分析已完成';
   return <aside className="bos-batch-api-progress" data-status={progress.status} aria-label="AI 分析进度">
-    <header><span className="bos-script-eyebrow">SCRIPT ANALYSIS</span>{!running && <button type="button" className="bos-batch-api-close" aria-label="关闭进度卡" title="关闭进度卡" onClick={() => batchQueue.dismissProgress()}><X size={16} /></button>}</header>
+    <header><span className="bos-script-eyebrow">SCRIPT ANALYSIS</span>{!running && <button type="button" className="bos-batch-api-close" aria-label="关闭进度卡" title="关闭进度卡" onClick={() => batchQueue.dismissProgress()}><CloseNavIcon size={16} /></button>}</header>
     <strong>剧本配乐分析</strong><small>{progress.model} · 已用时 {duration}</small>
     <div className="bos-batch-api-status" role="status"><span className={running ? 'bos-batch-api-live' : ''} aria-hidden="true" />{message}</div>
     <div className="bos-batch-api-count"><span>已完成 {progress.completed} / {progress.total} 集</span><span>{Math.round(progress.completed / progress.total * 100)}%</span></div>
     <div className="bos-batch-api-track" role="progressbar" aria-label="本次剧本分析进度" aria-valuemin={0} aria-valuemax={progress.total} aria-valuenow={progress.completed}><span style={{ width: `${progress.completed / progress.total * 100}%` }} /></div>
-    <footer>{running ? <><small>等待模型返回后更新已完成集数</small><button type="button" onClick={() => batchQueue.pause()}><Pause size={14} />中断</button></> : <><small>{progress.status === 'complete' ? '结果已保存到对应剧目' : '已完成的集数保持不变'}</small><button type="button" onClick={() => { onNavigate('batch'); batchQueue.dismissProgress(); }}>查看任务</button></>}</footer>
+    <footer>{running ? <><small>{progress.active ? '本批结果返回并保存后，已完成集数会一次更新。' : '正在等待下一批开始。'}</small><button type="button" onClick={() => batchQueue.pause()}><PauseNavIcon size={14} />中断</button></> : <><small>{progress.status === 'complete' ? '结果已保存到对应剧目' : '已完成的集数保持不变'}</small><button type="button" onClick={() => { onNavigate('batch'); batchQueue.dismissProgress(); }}>查看任务</button></>}</footer>
   </aside>;
 }

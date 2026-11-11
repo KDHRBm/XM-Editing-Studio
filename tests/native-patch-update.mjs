@@ -14,10 +14,15 @@ const fixture=path.join(out,'installation'), executable=path.join(bundle,'Update
 await fs.mkdir(fixture,{recursive:true});await fs.copyFile(testExeArg,executable);
 const hash=bytes=>createHash('sha256').update(bytes).digest('hex');
 const files=[...new Set([...manifest.changed.map(file=>file.name),...Object.keys(manifest.retained)])];
+const overlay=overlayArg?path.resolve(overlayArg):null;
+const overlayManifest=overlay?JSON.parse(await fs.readFile(path.join(overlay,'native-files.json'),'utf8')):null;
+const baselineManifest=JSON.parse(await fs.readFile(path.join(baseline,'native-files.json'),'utf8'));
+const sourceManifest=overlayManifest||baselineManifest;
 const snapshot={};
 for(const name of files) {
   let source=path.join(baseline,name);
-  if(overlayArg){const overlay=path.join(path.resolve(overlayArg),name);try{await fs.access(overlay);source=overlay;}catch{}}
+  if(overlay){const override=path.join(overlay,name);try{await fs.access(override);source=override;}catch{}}
+  if(name!=='native-files.json'&&!Object.hasOwn(sourceManifest.files,name)){snapshot[name]='';continue;}
   const bytes=await fs.readFile(source);snapshot[name]=hash(bytes);
   const target=path.join(fixture,name);await fs.mkdir(path.dirname(target),{recursive:true});await fs.writeFile(target,bytes);
 }
@@ -26,7 +31,10 @@ await fs.mkdir(path.join(fixture,'data'),{recursive:true});await fs.writeFile(pa
 await fs.mkdir(path.join(fixture,'data/draft-compat/11.6.5.14523'),{recursive:true});
 await fs.writeFile(path.join(fixture,'data/draft-compat/11.6.5.14523/runtime.json'),'existing optional runtime fixture');
 const run=(target=fixture,env={},extra=[])=>spawnSync(executable,['--target',target,...extra],{encoding:'utf8',windowsHide:true,timeout:60000,env:{...process.env,...env}});
-const verifyBaseline=async()=>{for(const [name,digest] of Object.entries(snapshot))assert.equal(hash(await fs.readFile(path.join(fixture,name))),digest,name);};
+const verifyBaseline=async()=>{for(const [name,digest] of Object.entries(snapshot)){
+  if(!digest){await assert.rejects(fs.access(path.join(fixture,name)),{code:'ENOENT'});continue;}
+  assert.equal(hash(await fs.readFile(path.join(fixture,name))),digest,name);
+}};
 try {
   for(const failAfter of [1,4,manifest.changed.length]) {
     const result=run(fixture,{XM_PATCH_FAIL_AFTER:String(failAfter)});assert.equal(result.status,1,result.stdout+result.stderr);

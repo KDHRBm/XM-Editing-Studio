@@ -3,3 +3,4 @@
 html[data-native-host=true],html[data-native-host=true] body{height:100%;overflow:hidden}
 html[data-native-host=true] body{padding:0}
 html[data-native-host=true] .card{height:100%;border:0;box-shadow:none;overflow:auto}
+body[data-operation=batch] #message{height:auto;min-height:54px;max-height:72px;margin-bottom:10px}

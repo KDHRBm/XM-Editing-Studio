@@ -41,6 +41,7 @@ namespace XM.Native {
         }
         private async Task StopServices() {
             aiInput.Invalidate();
+            StopLocalModels();
             foreach (var item in requests) item.Value.Cancel();
             browserWatermark.Dispose();
             updateClosing.Cancel();
@@ -100,6 +101,7 @@ namespace XM.Native {
                 case "companion-action": return await CompanionAction(J.Str(p, "action"), J.Get(p, "value"));
                 case "updater-status": return updater;
                 case "updater-action": return await UpdateAction(J.Str(p, "action"));
+                case "local-model-action": return await LocalModelAction(J.Str(p, "action"), J.Str(p, "model"));
                 default: throw new Exception("未知本机操作：" + command);
             }
         }
@@ -109,7 +111,9 @@ namespace XM.Native {
         private async Task<object> Fetch(Dictionary<string, object> p) {
             string url = J.Str(p, "url"), id = J.Str(p, "requestId", Guid.NewGuid().ToString("N"));
             if (!Http(url)) throw new Exception("只支持 HTTP 或 HTTPS 请求。");
-            using (var cts = new CancellationTokenSource(Math.Min(600000, Math.Max(1000, (int)J.Num(p, "timeout", 240000))))) {
+            Uri parsed = new Uri(url);
+            if (parsed.Host == "127.0.0.1" && parsed.Port == 11435) await StartLocalModelServer();
+            using (var cts = new CancellationTokenSource(Math.Min(900000, Math.Max(1000, (int)J.Num(p, "timeout", 240000))))) {
                 if (!requests.TryAdd(id, cts)) throw new Exception("重复的请求编号。");
                 try {
                     using (var req = new HttpRequestMessage(new HttpMethod(J.Str(p, "method", "GET")), url)) {

@@ -28,7 +28,7 @@ async function matchWithRepair(messages, parse, ask, stage) {
 
 // Reuse the same validators as the API workflow; a webpage answer is always untrusted data.
 export async function analyzeWithWeb(purpose, body, ask) {
-  if (purpose === 'batch-library-match') return analyzeBatchMusic(body, ask);
+  if (purpose === 'batch-library-match') return analyzeBatchMusic(body, ask, { webModel: true });
   if (purpose === 'score') {
     const input = validateScoreRequest(body);
     if (input.segmented) return { segments: await planSegments(input, 'suno', ask) };

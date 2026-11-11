@@ -39,6 +39,7 @@ test('official DeepSeek can be selected for script, local music and batch analys
   assert.equal(calls[0].options.headers.Authorization, 'Bearer fixture-secret');
   assert.equal(calls[0].body.model, 'deepseek-flash');
   assert.equal(calls[0].body.max_tokens, 8192);
+  assert.deepEqual(calls[0].body.response_format, { type: 'json_object' });
   assert.doesNotMatch(JSON.stringify(calls[0].body), /fixture-secret/);
 });
 
@@ -122,4 +123,54 @@ test('segmented DeepSeek API references are unique while web and Gemini prompts 
   assert.deepEqual(original, batchMatchMessages(input, units, { deepseekApi: false }));
   assert.equal(JSON.parse(original[1].content).episodes[0].segments[0].candidates[0].id, 'a');
   assert.doesNotMatch(original[0].content, /候选的 ref/);
+});
+
+test('DeepSeek API limits batch candidates and skips a redundant review when shortage is explained', async () => {
+  const episodes = Array.from({ length: 10 }, (_, index) => ({ id: `episode-${index + 1}`, episodeNumber: index + 1, title: `第${index + 1}集`, script: '雨夜发现线索。' }));
+  const tracks = Array.from({ length: 60 }, (_, index) => ({ id: `music-${index}`, title: `悬疑弦乐 ${index}` }));
+  let calls = 0;
+  const result = await analyzeBatchMusic({ episodes, tracks }, async messages => {
+    calls++;
+    const rows = JSON.parse(messages[1].content).episodes;
+    if (calls === 1) return JSON.stringify({ episodes: rows.map(row => ({ id: row.id, summary: '雨夜发现线索，悬疑情绪逐步加深。', keywords: ['悬疑', '弦乐'] })) });
+    assert.ok(rows.every(row => row.candidates.length <= 20));
+    return JSON.stringify({ episodes: rows.map(row => ({ id: row.id, matches: [], noMatchReason: '曲名与具体冲突不符' })) });
+  }, { deepseekApi: true });
+  assert.equal(calls, 2);
+  assert.ok(result.episodes.every(row => row.value.matchStatus === 'no-match'));
+});
+
+test('DeepSeek API reports malformed matches as incomplete, not no matching music', async () => {
+  let calls = 0;
+  const result = await analyzeBatchMusic({ episodes: batchEpisodes.slice(0, 1), tracks: batchTracks }, async messages => {
+    if (++calls === 1) return keywordReply(messages);
+    return JSON.stringify({ episodes: [{ id: 'episode-1', noMatchReason: '模型遗漏了匹配字段' }] });
+  }, { deepseekApi: true });
+  assert.equal(calls, 3);
+  assert.equal(result.episodes[0].value.matchStatus, 'invalid');
+  assert.match(result.episodes[0].value.noMatchReason, /未按要求返回/);
+  await assert.rejects(analyzeBatchMusic({ episodes: batchEpisodes.slice(0, 1), tracks: batchTracks }, async messages => messages[0].content.includes('关键词用于检索') ? keywordReply(messages) : '{}', { deepseekApi: true }), /音乐匹配 JSON/);
+});
+
+test('DeepSeek API rejects blank and truncated batch responses before saving a zero-track result', async () => {
+  for (const response of [
+    { choices: [{ message: { content: '' }, finish_reason: 'stop' }] },
+    { choices: [{ message: { content: '{"episodes":[' }, finish_reason: 'length' }] },
+  ]) {
+    const api = createApiService(async () => Response.json(response));
+    await assert.rejects(api('/api/script/batch-library-match', { provider, model: 'deepseek-flash', episodes: batchEpisodes.slice(0, 1), tracks: batchTracks }), /空白内容|长度上限/);
+  }
+});
+
+test('DeepSeek API reports the actual joint-analysis stages in request order', async () => {
+  const stages = [];
+  const api = createApiService(async (_url, options) => {
+    const input = JSON.parse(JSON.parse(options.body).messages[1].content);
+    const episodes = input.episodes.map(episode => episode.script
+      ? { id: episode.id, summary: '雨夜发现线索，情绪转为紧张。', keywords: ['悬疑'] }
+      : { id: episode.id, matches: [], noMatchReason: '候选曲名不符合情节' });
+    return Response.json({ choices: [{ message: { content: JSON.stringify({ episodes }) }, finish_reason: 'stop' }] });
+  }, (id, phase) => stages.push([id, phase]));
+  await api('/api/script/batch-library-match', { provider, model: 'deepseek-flash', progressId: 'batch-19', episodes: batchEpisodes.slice(0, 1), tracks: batchTracks });
+  assert.deepEqual(stages, [['batch-19', 'keywords'], ['batch-19', 'matching']]);
 });

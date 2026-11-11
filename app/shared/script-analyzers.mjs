@@ -12,9 +12,10 @@ export function analysisName(value) {
   const name = webAnalyzer(value)?.model || (typeof value === 'string' ? value : value?.model) || '';
   if (/gemini/i.test(name) || value?.protocol === 'gemini' || value?.provider?.protocol === 'gemini') return 'Gemini';
   if (value?.protocol === 'deepseek' || value?.provider?.protocol === 'deepseek') return 'DeepSeek API';
+  if (value?.protocol === 'ollama' || value?.provider?.protocol === 'ollama') return 'DeepSeek 本地';
   return name || 'AI';
 }
-export function analysisReady(value) { return !!webAnalyzer(value) || !!value?.provider?.apiKey?.trim(); }
+export function analysisReady(value) { return !!webAnalyzer(value) || value?.provider?.protocol === 'ollama' || !!value?.provider?.apiKey?.trim(); }
 export function openWebAnalyzer(value) {
   const item = webAnalyzer(value);
   if (item) window.dispatchEvent(new CustomEvent('xm-open-web-ai', { detail: item.provider.webId }));

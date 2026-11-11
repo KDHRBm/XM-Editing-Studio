@@ -4,6 +4,6 @@ using System.Runtime.InteropServices;
 [assembly: AssemblyDescription("XM剪辑台 C# + WebView2 桌面程序")]
 [assembly: AssemblyCompany("KDHRBm")]
 [assembly: AssemblyProduct("XM剪辑台")]
-[assembly: AssemblyVersion("1.5.0.0")]
-[assembly: AssemblyFileVersion("1.5.0.0")]
+[assembly: AssemblyVersion("1.6.0.0")]
+[assembly: AssemblyFileVersion("1.6.0.0")]
 [assembly: ComVisible(false)]

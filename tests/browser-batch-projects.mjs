@@ -71,5 +71,18 @@ test('real browser: new dramas, synchronized dropdowns, append, delete, persiste
   await folderPath.press('Enter');
   await page.waitForFunction(()=>requests.some(request=>request.action==='preview'));
   assert.equal((await page.evaluate(()=>requests.filter(request=>request.action==='preview').at(-1))).args.folder,'D:\\测试视频');
+  await page.getByRole('button',{name:'测试跑量',exact:true}).click();
+  await page.getByRole('tab',{name:'DeepSeek 分析结果'}).click();
+  const beforeManual=await page.evaluate(()=>queue.snapshot().tasks.length);
+  await page.getByLabel('DeepSeek 手动分析剧本').fill('第3集\n[EN] A: A new scene.');
+  await page.waitForTimeout(1700);
+  assert.equal(await page.evaluate(()=>queue.snapshot().tasks.length),beforeManual,'manual tab must not auto-submit a paste');
+  await page.getByRole('button',{name:'生成提示词并打开 DeepSeek'}).click();
+  await page.waitForFunction(count=>queue.snapshot().tasks.length===count+1,beforeManual);
+  await page.waitForFunction(()=>requests.some(request=>request.input?.episodes?.[0]?.episodeNumber===3));
+  const manual=await page.evaluate(()=>requests.findLast(request=>request.input?.episodes?.[0]?.episodeNumber===3));
+  assert.equal(manual.manualWeb,true);
+  assert.equal(await page.getByLabel('DeepSeek 音乐推荐结果').isVisible(),true);
+  if(process.env.XM_TEST_MANUAL_SCREENSHOT)await page.screenshot({path:process.env.XM_TEST_MANUAL_SCREENSHOT,fullPage:true});
   assert.deepEqual(errors,[]);
 });

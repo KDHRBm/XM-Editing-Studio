@@ -52,6 +52,18 @@ test('quick folder failed drop preserves list, clears busy state and accepts ret
   assert(!nodes(render()).some(node=>node.props.role==='alert'));
 });
 
+test('quick rail restarts the selected Jianying version once and reports the result',async()=>{
+  slots=[];layout={};const actions=[];
+  const state={folders:[],installs:[{path:'C:/JianyingPro/11.8.0/JianyingPro.exe',version:'11.8.0'}],selected:'C:/JianyingPro/11.8.0/JianyingPro.exe'};
+  globalThis.blackObsidian={quickLaunch:async action=>{actions.push(action);return {...state,restarted:action==='restart'};}};
+  button(render(),'重新检测').props.onClick();await tick();
+  const restart=button(render(),'重启剪映');
+  assert.equal(restart.props.disabled,false);
+  restart.props.onClick();await tick();
+  assert.deepEqual(actions,['scan','restart']);
+  assert.match(textOf(render()),/剪映已重新启动/);
+});
+
 test('hidden quick rail reveals for folders and stays open while dropping; text drag is ignored',()=>{
   slots=[];layout={autoHideRail:true};
   globalThis.blackObsidian={quickLaunch:async()=>({folders:[],installs:[],selected:''})};

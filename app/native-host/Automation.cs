@@ -3,6 +3,7 @@ using System.IO;
 using System.Linq;
 using System.Drawing;
 using System.Diagnostics;
+using System.ComponentModel;
 using System.Collections.Generic;
 using System.Threading.Tasks;
 using System.Text.RegularExpressions;
@@ -36,7 +37,55 @@ namespace XM.Native {
             else if (action == "select") { if (!installs.Any(x => J.Str(x, "path") == Convert.ToString(value))) throw new Exception("请重新检测剪映。"); quickSettings["selected"] = value; J.Save(file, quickSettings); }
             string selected = J.Str(quickSettings, "selected"); if (!installs.Any(x => J.Str(x, "path") == selected)) selected = J.Str(installs.FirstOrDefault(), "path");
             if (action == "launch") { if (!File.Exists(selected)) { installs = await Task.Run(() => DiscoverJianying(J.Str(quickSettings, "selected"))); selected = J.Str(installs.FirstOrDefault(), "path"); } if (!File.Exists(selected)) throw new Exception("未找到剪映，请手动选择启动程序。"); OpenPath(selected); }
-            return J.Obj("folders", J.Get(quickSettings, "folders"), "installs", installs, "selected", selected);
+            bool restarted = false;
+            if (action == "restart") {
+                if (!File.Exists(selected) || !Path.GetFileName(selected).Equals("JianyingPro.exe", StringComparison.OrdinalIgnoreCase)) throw new Exception("未找到剪映，请重新检测或手动选择启动程序。");
+                if (MessageBox.Show(MainWindow, "重启会强制关闭所有剪映窗口及相关后台进程。请先保存剪映中尚未保存的草稿。\n\n确认重启剪映？", "重启剪映", MessageBoxButtons.YesNo, MessageBoxIcon.Warning, MessageBoxDefaultButton.Button2) == DialogResult.Yes) {
+                    await Task.Run(() => RestartJianying(selected));
+                    restarted = true;
+                }
+            }
+            return J.Obj("folders", J.Get(quickSettings, "folders"), "installs", installs, "selected", selected, "restarted", restarted);
+        }
+        internal static bool ShouldStopJianyingProcess(string name, string path, IEnumerable<string> roots) {
+            if (string.IsNullOrEmpty(path)) return false;
+            string file = Path.GetFileName(path);
+            if (name == "JianyingPro" && file.Equals("JianyingPro.exe", StringComparison.OrdinalIgnoreCase)) return true;
+            if (name == "JianyingProTray" && file.Equals("JianyingProTray.exe", StringComparison.OrdinalIgnoreCase)) return true;
+            return name == "VEDetector" && file.Equals("VEDetector.exe", StringComparison.OrdinalIgnoreCase)
+                && roots.Any(root => path.StartsWith(root.TrimEnd(Path.DirectorySeparatorChar) + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase));
+        }
+        private static void RestartJianying(string executable) {
+            var roots = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            Action<string> addRoot = path => {
+                string directory = Path.GetDirectoryName(Path.GetFullPath(path));
+                roots.Add(directory);
+                if (Regex.IsMatch(Path.GetFileName(directory), @"^\d+(\.\d+){1,5}$")) roots.Add(Path.GetDirectoryName(directory));
+            };
+            addRoot(executable);
+            foreach (var process in Process.GetProcessesByName("JianyingPro")) using (process) {
+                try { if (!process.HasExited) addRoot(process.MainModule.FileName); }
+                catch (InvalidOperationException) {}
+                catch (Win32Exception) { throw new Exception("无法确认剪映进程路径，请手动退出剪映后重试。"); }
+            }
+            foreach (string name in new[] { "JianyingProTray", "JianyingPro", "VEDetector" }) {
+                foreach (var process in Process.GetProcessesByName(name)) using (process) {
+                    try {
+                        if (process.HasExited || !ShouldStopJianyingProcess(name, process.MainModule.FileName, roots)) continue;
+                        process.Kill();
+                        if (!process.WaitForExit(5000)) throw new Exception("剪映进程未能退出，请手动关闭后重试。");
+                    } catch (InvalidOperationException) {}
+                    catch (Win32Exception) { throw new Exception("无法结束剪映进程，请以相同权限运行剪辑台或手动退出剪映。"); }
+                }
+            }
+            foreach (string name in new[] { "JianyingProTray", "JianyingPro", "VEDetector" }) {
+                foreach (var process in Process.GetProcessesByName(name)) using (process) {
+                    try { if (!process.HasExited && ShouldStopJianyingProcess(name, process.MainModule.FileName, roots)) throw new Exception("剪映仍有后台进程运行，请手动关闭后重试。"); }
+                    catch (InvalidOperationException) {}
+                    catch (Win32Exception) { throw new Exception("无法确认剪映后台进程已退出，请手动检查后重试。"); }
+                }
+            }
+            Process.Start(new ProcessStartInfo(executable) { UseShellExecute = true, WorkingDirectory = Path.GetDirectoryName(executable) });
         }
         private static List<object> DiscoverJianying(string selected) {
             var roots = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "JianyingPro"), Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), "JianyingPro") };

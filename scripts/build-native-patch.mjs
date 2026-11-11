@@ -63,6 +63,11 @@ if(stageArg) {
 }
 const programFiles=Object.fromEntries(Object.entries(baseline.files).filter(([name])=>!name.startsWith('data/')));
 const installedFiles={};
+for(const [name,digest] of Object.entries(programFiles)) if(!candidates.has(name)&&priorManifests.some(prior=>prior.files[name]!==digest)) {
+  const bytes=await fs.readFile(path.join(base,name));
+  if(hash(bytes)!==digest)throw Error('Baseline modified: '+name);
+  candidates.set(name,bytes);
+}
 if(priorInstall) {
   const installed=priorManifests.at(-1);
   if(installed.version!==baseVersionArg||installed.architecture!==baseline.architecture)throw Error('Prior installation has the wrong version or architecture');

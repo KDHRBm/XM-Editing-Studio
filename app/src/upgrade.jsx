@@ -1,5 +1,6 @@
 export { MusicStudio } from './MusicStudio.jsx';
 export { GlobalThemePicker, useGlobalTheme } from './GlobalThemes.jsx';
+export { LocalModels, useLocalProvider } from './LocalModels.jsx';
 export { ScriptAutomation, useScriptAutomation } from './ScriptAutomation.jsx';
 export { WatermarkStudio } from './WatermarkStudio.jsx';
 export { UsageGuide } from './UsageGuide.jsx';
@@ -11,4 +12,4 @@ export { WebAIStudio } from './WebAIStudio.jsx';
 export { BatchAnalysis } from './BatchAnalysis.jsx';
 export { CompanionSettings } from './CompanionSettings.jsx';
 export { useInterfaceMotion } from './InterfaceMotion.jsx';
-export { BatchNavIcon, JianyingNavIcon, WatermarkNavIcon, WebAiNavIcon, PetNavIcon } from './NavigationIcons.jsx';
+export { BatchNavIcon, JianyingNavIcon, WatermarkNavIcon, WebAiNavIcon, PetNavIcon, LocalNavIcon } from './NavigationIcons.jsx';

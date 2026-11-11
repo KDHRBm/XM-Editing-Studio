@@ -58,6 +58,17 @@ test('large batches group multiple episodes with explicit size limits and preser
   const group = nextBatchGroup(many.map((task, index) => ({ ...task, id: String(index), status: 'queued', settings, script: 'x'.repeat(29000) })));
   assert.equal(group.length, 2);
 });
+test('manual DeepSeek jobs remain separate from automatic jobs for the same script', async () => {
+  const f = fixture(); await f.queue.initialize();
+  const one = [episodes()[0]];
+  assert.equal(await f.queue.import(one, settings), 1);
+  assert.equal(await f.queue.import(one, { ...settings, manualWeb: true }), 1);
+  const tasks = f.queue.snapshot().tasks;
+  assert.deepEqual(tasks.map(task => task.settings.manualWeb), [false, true]);
+  assert.equal(nextBatchGroup(tasks).length, 1);
+  await f.queue.start();
+  assert.deepEqual(f.calls.map(group => group.length), [1, 1]);
+});
 test('pause discards late batch replies, preserves cards, and resume analyzes the group together', async () => {
   let finish, entered;
   const started = new Promise(resolve => { entered = resolve; });
@@ -108,6 +119,39 @@ test('batch matching rejects omitted/duplicate episodes and invented tracks', as
   const raw = JSON.stringify({ episodes: request.episodes.map(episode => ({ id: episode.id, matches: [] })) });
   assert.equal(webTaskResult(raw, 'token', true), raw);
   assert.equal(webTaskResult(JSON.stringify({ xmTaskId: 'wrong', result: JSON.parse(raw) }), 'token'), null);
+});
+
+test('web batch matching uses short references and restores the exact local music IDs', async () => {
+  const tracks = Array.from({ length: 48 }, (_, index) => ({ id: `local-track-${index}`, title: `悬疑配乐 ${index}` }));
+  const input = { episodes: [{ id: 'episode-30', episodeNumber: 30, title: '第三十集', script: '女主发现秘密后遭到追赶。' }], tracks };
+  const requests = [];
+  const result = await analyzeWithWeb('batch-library-match', input, async messages => {
+    const context = JSON.parse(messages[1].content);
+    requests.push(context);
+    if (requests.length === 1) return JSON.stringify({ episodes: [{ id: 'episode-30', summary: '女主发现秘密后遭到追赶。', keywords: ['悬疑'] }] });
+    return JSON.stringify({ episodes: context.episodes.map(episode => ({ id: episode.id, matches: episode.candidates.slice(0, 5).map((track, index) => ({ [index % 2 ? 'id' : 'ref']: track.ref, reason: '发现秘密后遭到追赶，悬疑曲名契合紧张局面。' })), noMatchReason: '' })) });
+  });
+  assert.equal(requests.length, 2);
+  assert.ok(requests[1].episodes[0].candidates.length <= 20);
+  assert.ok(requests[1].episodes[0].candidates.every(track => /^M\d+$/.test(track.ref) && !('id' in track)));
+  assert.equal(result.episodes[0].value.matches.length, 5);
+  assert.ok(result.episodes[0].value.matches.every(match => tracks.some(track => track.id === match.id)));
+});
+
+test('web batch matching reports an invalid reference without accepting an invented track', async () => {
+  const input = { episodes: [{ id: 'episode-30', episodeNumber: 30, script: '女主发现秘密。' }], tracks: [{ id: 'real-track', title: '悬疑配乐' }] };
+  let calls = 0;
+  const result = await analyzeWithWeb('batch-library-match', input, async messages => {
+    calls++;
+    if (calls === 1) return JSON.stringify({ episodes: [{ id: 'episode-30', summary: '女主发现秘密。', keywords: ['悬疑'] }] });
+    const context = JSON.parse(messages[1].content);
+    return JSON.stringify({ episodes: context.episodes.map(episode => ({ id: episode.id, matches: [{ ref: 'M999', reason: '悬疑曲名契合剧情。' }], noMatchReason: '' })) });
+  });
+  assert.equal(calls, 3);
+  const value = result.episodes[0].value;
+  assert.equal(value.matches.length, 0);
+  assert.equal(value.matchStatus, 'invalid');
+  assert.match(value.warning, /候选编号无效/);
 });
 test('one-shot batch punctuation protection does not change workspace settings or lose words', async () => {
   let text = ''; let tick;
