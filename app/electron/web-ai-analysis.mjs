@@ -52,7 +52,7 @@ export function createWebAnalysis({ driver, notify, copy, now = Date.now, delay 
             const value = await runPage(task, { command: 'fill', prompt, token });
             check(task);
             if (value.state === 'limited') throw Object.assign(new Error(value.message), { limited: true });
-            if (value.state === 'filled') { lastAutoInputAt = now(); filled = true; update({ message: task.manualWeb ? (requiresPaste ? '音乐匹配提示词已填入；请手动发送。完整回答会自动读取；需要补充时会填入下一条提示词，无法读取时可手动粘贴。' : '剧本提示词已填入；请检查后手动发送，回答完成后会生成下一步提示词。') : '任务已完整填入，正在提交网页分析。' }); }
+            if (value.state === 'filled') { lastAutoInputAt = now(); filled = true; update({ message: task.manualWeb ? (requiresPaste ? '音乐匹配提示词已填入。请手动发送，再将 DeepSeek 的完整回答复制到「音乐推荐结果」并点击导入。' : '剧本提示词已填入；请检查后手动发送，回答完成后会生成下一步提示词。') : '任务已完整填入，正在提交网页分析。' }); }
             else { if (value.state === 'manual') attempted = true; update({ message: value.message || '请在官网完成登录后继续。' }); }
           } else if (!attempted && !task.manualWeb) {
             // Never automatically re-send after an uncertain click or navigation.
@@ -63,6 +63,10 @@ export function createWebAnalysis({ driver, notify, copy, now = Date.now, delay 
             if (value.state === 'limited') throw Object.assign(new Error(value.message), { limited: true });
             if (value.state === 'sent') lastAutoInputAt = now();
             update({ message: value.state === 'sent' ? '等待网页回答，完成后自动接回配乐流程。' : value.message || '请在网页点击发送，回答完成后会自动读取。' });
+          }
+          if (requiresPaste) {
+            await delay(1500);
+            continue;
           }
           const result = await runPage(task, { command: 'read', prompt, token });
           check(task);
@@ -102,10 +106,12 @@ export function createWebAnalysis({ driver, notify, copy, now = Date.now, delay 
       if (action === 'cancel') { current.cancelled = true; current.cancelWait?.(); update({ message: '正在中断；网页已发送的对话可在官网保留。' }); return null; }
       if (action === 'copy') { current.manualMode = true; return copy(current.prompt); }
       if (action === 'import') {
-        if (current.manualWeb && !current.requiresPaste) throw new Error('当前阶段会自动读取网页回答，请等待音乐匹配提示词。');
+        if (current.manualWeb && !current.requiresPaste) throw new Error('请等待音乐匹配提示词出现，再粘贴音乐推荐回答。');
         const result = webTaskResult(value, current.token, true);
         if (!result) throw new Error('没有找到本次任务的完整 JSON 结果，请粘贴完整回答。');
-        current.manualResult = result; return { accepted: true };
+        if (current.manualWeb) update({ manualResult: result, requiresPaste: false, message: '已接收音乐推荐，正在校验曲目与推荐理由。' });
+        else current.manualResult = result;
+        return { accepted: true };
       }
       throw new Error('未知网页分析操作。');
     },

@@ -141,6 +141,9 @@ test('manual DeepSeek batch fills prompts without sending and imports the final 
   await matchFilled;
   assert.equal(host.snapshot().requiresPaste, true);
   assert.match(host.snapshot().stage, /批量匹配/);
+  assert(commands.every(command => command !== 'send'));
+  const readsAtMatch = commands.filter(command => command === 'read').length;
+  assert(readsAtMatch > 0, 'story analysis still reads the webpage');
   await assert.rejects(host.action('manual-request-123', 'import', JSON.stringify({ xmTaskId: 'other', result: { episodes: [] } })), /没有找到/);
   await host.action('manual-request-123', 'import', JSON.stringify({ xmTaskId: host.snapshot().token, result: { episodes: [{ id: 'episode-1', matches: Array.from({ length: 5 }, (_, index) => ({ ref: `M${index + 1}`, reason: '雨夜重逢与温暖曲名相呼应。' })), noMatchReason: '' }] } }));
   const result = await pending;
@@ -149,12 +152,13 @@ test('manual DeepSeek batch fills prompts without sending and imports the final 
   assert.equal(result.episodes[0].value.matches[0].reason, '雨夜重逢与温暖曲名相呼应。');
   assert.deepEqual(commands.filter(command => command === 'send'), []);
   assert.deepEqual(commands.filter(command => command === 'fill'), ['fill', 'fill']);
+  assert.equal(commands.filter(command => command === 'read').length, readsAtMatch, 'match stage is handled by manual import');
   assert.equal(host.snapshot(), null);
 });
 
-test('manual DeepSeek reads a music answer and fills the follow-up prompt without sending it', async () => {
+test('manual DeepSeek imports each music answer and fills the follow-up prompt without reading or sending it', async () => {
   let token = 0, time = 0;
-  const stages = [], commands = [];
+  const stages = [], commands = [], failures = [];
   const batch = {
     episodes: [{ id: 'episode-1', episodeNumber: 1, title: '第1集', script: '第1集\n林夏和陈默在雨夜重逢。' }],
     tracks: Array.from({ length: 6 }, (_, index) => ({ id: `warm-${index + 1}`, title: `温暖钢琴${index + 1}` })),
@@ -170,10 +174,15 @@ test('manual DeepSeek reads a music answer and fills the follow-up prompt withou
       async run(_provider, command) {
         commands.push(command.command);
         if (command.command === 'send') throw new Error('manual workflow must never send');
-        if (command.command === 'fill') return { state: 'filled' };
-        const result = command.token === 'manual-auto-1'
-          ? { episodes: [{ id: 'episode-1', summary: '雨夜重逢后两人消除误会，情绪由紧张转为温暖。', keywords: ['温暖', '钢琴'] }] }
-          : { episodes: [{ id: 'episode-1', matches: (command.token === 'manual-auto-2' ? [1] : [2, 3, 4, 5, 6]).map(index => ({ ref: `M${index}`, reason: '林夏和陈默在雨夜重逢，温暖钢琴承接释然情绪。' })), noMatchReason: '' }] };
+        if (command.command === 'fill') {
+          if (command.token !== 'manual-auto-1') {
+            const result = { episodes: [{ id: 'episode-1', matches: (command.token === 'manual-auto-2' ? [1] : [2, 3, 4, 5, 6]).map(index => ({ ref: `M${index}`, reason: '林夏和陈默在雨夜重逢，温暖钢琴承接释然情绪。' })), noMatchReason: '' }] };
+            setImmediate(() => { void host.action('manual-auto-request-123', 'import', JSON.stringify({ xmTaskId: command.token, result })).catch(error => failures.push(error)); });
+          }
+          return { state: 'filled' };
+        }
+        if (command.token !== 'manual-auto-1') throw new Error('music answer must not be read from the webpage');
+        const result = { episodes: [{ id: 'episode-1', summary: '雨夜重逢后两人消除误会，情绪由紧张转为温暖。', keywords: ['温暖', '钢琴'] }] };
         return { texts: [JSON.stringify({ xmTaskId: command.token, result })], busy: false };
       },
     },
@@ -183,6 +192,7 @@ test('manual DeepSeek reads a music answer and fills the follow-up prompt withou
   assert.equal(result.episodes[0].value.matches[0].id, 'warm-1');
   assert.deepEqual(commands.filter(command => command === 'fill'), ['fill', 'fill', 'fill']);
   assert.equal(commands.includes('send'), false);
+  assert.deepEqual(failures, []);
   assert(stages.some(stage => stage.startsWith('联合补充与纠正')));
   assert.equal(host.snapshot(), null);
 });

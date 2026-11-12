@@ -12,7 +12,7 @@ test('native JianYing engine preserves scope, capture, progress and rename safet
     const compile = spawnSync(path.join(process.env.WINDIR, 'Microsoft.NET/Framework64/v4.0.30319/csc.exe'), [
       '/nologo', '/utf8output', '/codepage:65001', '/target:exe', '/platform:x64', '/main:JianYingNativeTests',
       '/r:System.Web.Extensions.dll', '/r:System.Drawing.dll', '/r:System.Windows.Forms.dll', '/out:' + exe,
-      ...['app/native/JianYingEngine.cs', 'app/native/JianYingScan.cs', 'app/native/JianYingProgress.cs', 'app/native/JianYingAutomation.cs', 'app/native/JianYingDraftIO.cs', 'app/native/JianYingPunctuation.cs', 'tests/JianYingNativeTests.cs'].map(file => path.resolve(file)),
+      ...['app/native/JianYingEngine.cs', 'app/native/JianYingScan.cs', 'app/native/JianYingProgress.cs', 'app/native/JianYingAutomation.cs', 'app/native/JianYingDraftIO.cs', 'app/native/JianYingPunctuation.cs', 'app/native/JianYingSubtitleSplit.cs', 'tests/JianYingNativeTests.cs'].map(file => path.resolve(file)),
     ], { encoding: 'utf8', windowsHide: true, timeout: 15000 });
     assert.equal(compile.status, 0, compile.stdout + compile.stderr);
     const result = spawnSync(exe, [], { encoding: 'utf8', windowsHide: true, timeout: 12000 });

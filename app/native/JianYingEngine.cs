@@ -1818,6 +1818,15 @@ internal sealed partial class JianYingEngine
                 BeginOperation(RunPunctuationPreview);
                 break;
 
+            case "split_long_subtitles":
+                RequirePunctuationIdle();
+                int englishChars = args.Contains("englishChars") ? Convert.ToInt32(args["englishChars"]) : 22;
+                int chineseChars = args.Contains("chineseChars") ? Convert.ToInt32(args["chineseChars"]) : 12;
+                if (englishChars < 18 || englishChars > 40 || chineseChars < 8 || chineseChars > 25)
+                    throw new InvalidOperationException("每行字符数超出可用范围。");
+                BeginOperation(gen => RunSubtitleSplitPreview(gen, englishChars, chineseChars));
+                break;
+
             case "paths":
                 if (args.Contains("draftDir"))
                 {

@@ -100,6 +100,20 @@ test('subtitle tools expose draft punctuation restoration with explicit backup a
     await button.props.onClick(); assert.equal(calls[0][0], 'restore_punctuation');
   } finally { delete globalThis.blackObsidian; }
 });
+test('subtitle engineering exposes adjustable four-line split with draft preview and backup', async () => {
+  const calls = [];
+  globalThis.blackObsidian = { jianyingAction: async (...args) => { calls.push(args); return {}; } };
+  try {
+    const tree = ui.JianyingStudio({ active: true, providers: [], onNavigate: () => {} });
+    const panel = nodes(tree, node => node.props.id === 'jy-subtitles')[0];
+    const button = nodes(panel, node => node.type === 'button' && textOf(node) === '检查并拆分四行字幕')[0];
+    assert(button); assert.equal(button.props.disabled, true);
+    assert.match(textOf(panel), /中点附近的逗号后拆分/); assert.match(textOf(panel), /自动备份/);
+    assert.equal(nodes(panel, node => node.props['aria-label'] === '英文每行字符')[0].props.value, 22);
+    assert.equal(nodes(panel, node => node.props['aria-label'] === '中文每行字符')[0].props.value, 12);
+    await button.props.onClick(); assert.deepEqual(calls.at(-1).slice(0, 2), ['split_long_subtitles', { englishChars: 22, chineseChars: 12 }]);
+  } finally { delete globalThis.blackObsidian; }
+});
 
 test('pasting subtitle directories saves both paths immediately', async () => {
   const calls = [];

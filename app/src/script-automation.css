@@ -62,3 +62,6 @@
 .bos-jy-log summary::before{content:'▸';display:inline-block;transition:transform .16s}
 .bos-jy-log[open] summary::before{transform:rotate(90deg)}
 @media(prefers-reduced-motion:reduce){.bos-jy-log summary::before{transition:none}}
+.bos-jy-export-options:has(input[aria-label="英文每行字符"]) .bos-jy-toolbar{align-items:flex-end;gap:12px}
+.bos-jy-export-options:has(input[aria-label="英文每行字符"]) .bos-jy-toolbar label{flex:0 1 180px;margin:0}
+.bos-jy-export-options:has(input[aria-label="英文每行字符"]) .bos-jy-toolbar button{min-height:42px}

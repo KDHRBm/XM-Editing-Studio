@@ -83,7 +83,7 @@ namespace XM.Native {
                 case "clipboard-text": await WriteClipboard(J.Str(p, "text"), J.Str(p, "text")); return true;
                 case "jianying-action": {
                     string action = J.Str(p, "action");
-                    if (!new[] { "status", "stop", "modal", "scan", "wizard", "export", "extract", "fonts", "unhide", "restore_punctuation", "paths", "files", "preview", "rename", "settings", "select_template", "rename_template", "delete_template", "ai_result", "recording_capture_ready", "scan_capture_ready" }.Contains(action)) throw new Exception("无效的剪映操作。");
+                    if (!new[] { "status", "stop", "modal", "scan", "wizard", "export", "extract", "fonts", "unhide", "restore_punctuation", "split_long_subtitles", "paths", "files", "preview", "rename", "settings", "select_template", "rename_template", "delete_template", "ai_result", "recording_capture_ready", "scan_capture_ready" }.Contains(action)) throw new Exception("无效的剪映操作。");
                     if (action == "scan") webScanActive = J.Bool(J.Get(p, "args"), "webScan");
                     if (action == "scan" || action == "preview" && J.Bool(J.Get(p, "args"), "ai")) jyAiView = sender;
                     try { jyState = await jyEngine.Call(action, J.Get(p, "args")); return jyState; }

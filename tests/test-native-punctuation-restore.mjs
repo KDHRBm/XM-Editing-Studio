@@ -9,7 +9,7 @@ test('draft punctuation restoration preserves styles/timing and rejects stale or
   const dir=await fs.mkdtemp(path.join(os.tmpdir(),'xm-punctuation-check-'));
   try {
     const exe=path.join(dir,'verify.exe');
-    const files=['JianYingEngine','JianYingScan','JianYingProgress','JianYingAutomation','JianYingDraftIO','JianYingPunctuation'].map(n=>'app/native/'+n+'.cs');
+    const files=['JianYingEngine','JianYingScan','JianYingProgress','JianYingAutomation','JianYingDraftIO','JianYingPunctuation','JianYingSubtitleSplit'].map(n=>'app/native/'+n+'.cs');
     const compiled=spawnSync(path.join(process.env.WINDIR,'Microsoft.NET/Framework64/v4.0.30319/csc.exe'),['/nologo','/utf8output','/codepage:65001','/platform:x64','/main:JianYingPunctuationTests','/r:System.Web.Extensions.dll','/r:System.Drawing.dll','/r:System.Windows.Forms.dll','/out:'+exe,...[...files,'tests/JianYingPunctuationTests.cs'].map(p=>path.resolve(p))],{encoding:'utf8',windowsHide:true});
     assert.equal(compiled.status,0,compiled.stdout+compiled.stderr);
     const result=spawnSync(exe,[],{encoding:'utf8',windowsHide:true,timeout:20000});

@@ -81,6 +81,107 @@ internal static class JianYingPunctuationTests
         Check(((IEnumerable<string>)Call("PunctuationDraftDirectories", own)).Single() == own, "Single draft selected directly");
         Check(((IEnumerable<string>)Call("PunctuationDraftDirectories", root)).Single() == own, "Root finds immediate drafts only");
     }
+    static void LongSubtitleSplit(string root) {
+        const string text = "Starting tonight, The Vault doesn't make its rules by chopping off fingers.";
+        Check((int)Call("SubtitleLineCount", text, 24, 12) == 4, "Screenshot caption wraps to four estimated lines");
+        Check((int)Call("SubtitleLineCount", "While you're at it, hand over the ledger in the drawer to the police too.", 24, 12) == 4,
+            "Spaces consume line width when estimating an unmodified draft");
+        Check((int)Call("SubtitleLineCount", "When the police come, this is breaking and entering and kidnapping!", 22, 12) == 4,
+            "Narrow subtitle frames can use the calibrated default");
+        Check((int)Call("SubtitleLineCount", "You don't think that's a lot more interesting than an engagement?", 24, 12) == 3, "Three-line example remains unchanged");
+        var data = Fixture(); var original = Clone(data);
+        var mats = (IList)((IDictionary)data["materials"])["texts"];
+        var caption = (IDictionary)mats[0];
+        caption["content"] = json.Serialize(Obj("text", text, "styles", new[] { Obj("range", new[] { 0, text.Length }, "font", "Noto Sans Bold") }));
+        caption["base_content"] = Obj("text", text, "styles", new[] { Obj("range", new[] { 0, text.Length }, "font", "Noto Sans Bold") });
+        caption["recognize_text"] = text;
+        caption["translate_original_text"] = text;
+        caption["words"] = Obj(); caption["current_words"] = Obj();
+        var parameters = new object[] { data, 24, 12, 0 };
+        Check((int)Call("SplitLongSubtitles", parameters) == 1 && (int)parameters[3] == 0, "Four-line subtitle becomes two cues");
+        var tracks = (IList)data["tracks"];
+        var segments = (IList)((IDictionary)tracks[0])["segments"];
+        var result = (IList)((IDictionary)data["materials"])["texts"];
+        var first = (IDictionary)result[0]; var second = (IDictionary)result[result.Count - 1];
+        var firstText = (IDictionary)json.DeserializeObject((string)first["content"]);
+        var secondText = (IDictionary)json.DeserializeObject((string)second["content"]);
+        Check((string)firstText["text"] == "Starting tonight,", "Comma stays with the first cue when present");
+        Check((string)secondText["text"] == "The Vault doesn't make its rules by chopping off fingers.", "Second cue starts after the comma and space");
+        Check((string)first["id"] != (string)second["id"] && (string)((IDictionary)segments[1])["material_id"] == (string)second["id"], "New material and segment are linked independently");
+        var firstTime = (IDictionary)((IDictionary)segments[0])["target_timerange"];
+        var secondTime = (IDictionary)((IDictionary)segments[1])["target_timerange"];
+        Check(Convert.ToInt64(firstTime["start"]) + Convert.ToInt64(firstTime["duration"]) == Convert.ToInt64(secondTime["start"]), "Split segments are contiguous");
+        Check(Convert.ToInt64(firstTime["duration"]) + Convert.ToInt64(secondTime["duration"]) == 7654321, "Original caption duration is preserved");
+        Check(Same(((IDictionary)segments[0])["clip"], ((IDictionary)((IList)((IDictionary)((IList)original["tracks"])[0])["segments"])[0])["clip"]), "Transform and scale remain unchanged");
+        var styles = (IList)firstText["styles"]; var secondStyles = (IList)secondText["styles"];
+        Check(Convert.ToInt32(((IList)((IDictionary)styles[0])["range"])[1]) == ((string)firstText["text"]).Length &&
+            Convert.ToInt32(((IList)((IDictionary)secondStyles[0])["range"])[1]) == ((string)secondText["text"]).Length, "Style ranges match both new captions");
+        Check(Same(result[1], ((IList)((IDictionary)original["materials"])["texts"])[1]), "Ordinary title remains unchanged");
+        var repeat = new object[] { data, 24, 12, 0 };
+        Check((int)Call("SplitLongSubtitles", repeat) == 0, "Splitting the same draft again is idempotent");
+        var plainDraft = Path.Combine(root, "split-preview.json");
+        File.WriteAllText(plainDraft, json.Serialize(Fixture()), new UTF8Encoding(false));
+        var saved = new List<Tuple<string, IDictionary>> { Tuple.Create(plainDraft, data) };
+        Call("SaveSubtitleJsonsChecked", saved, 0, new Dictionary<string, string> { { plainDraft, Hash(plainDraft) } }, null, "split_subtitles");
+        Check(Same(data, json.DeserializeObject(File.ReadAllText(plainDraft, Encoding.UTF8))), "Split materials and segments verify after a real file write");
+        Check(Directory.GetFiles(root, "*.before_split_subtitles_*.bak").Length == 1, "Split write keeps its own verified backup");
+
+        var noComma = (IList)Call("SubtitleSlices", text.Replace(",", ""), 18, 12);
+        Check((string)noComma[0].GetType().GetField("Text").GetValue(noComma[0]) == "Starting tonight The Vault doesn't make", "Without a comma, the center space follows make");
+
+        const string commaExample = "Mr. Chase, when something good comes up, don't forget about us.";
+        var commaSlices = (IList)Call("SubtitleSlices", commaExample, 18, 12);
+        Check((string)commaSlices[0].GetType().GetField("Text").GetValue(commaSlices[0]) == "Mr. Chase, when something good comes up,", "Nearest central comma wins over earlier comma");
+        Check((string)commaSlices[1].GetType().GetField("Text").GetValue(commaSlices[1]) == "don't forget about us.", "Comma split preserves remaining English words");
+
+        var withoutSpace = Fixture(); var noSpaceMat = (IDictionary)((IList)((IDictionary)withoutSpace["materials"])["texts"])[0];
+        string unbroken = new string('a', 100);
+        noSpaceMat["content"] = json.Serialize(Obj("text", unbroken, "styles", new[] { Obj("range", new[] { 0, 100 }) }));
+        var skipped = new object[] { withoutSpace, 24, 12, 0 };
+        Check((int)Call("SplitLongSubtitles", skipped) == 0 && (int)skipped[3] == 1, "Unbroken English word is skipped instead of cut");
+    }
+    static void SplitVariants() {
+        const string text = "Starting tonight, The Vault doesn't make its rules by chopping off fingers.";
+        var data = Fixture();
+        var material = (IDictionary)((IList)((IDictionary)data["materials"])["texts"])[0];
+        material["content"] = json.Serialize(Obj("text", text, "styles", new[] {
+            Obj("range", new[] { 0, 18 }, "font", "first"), Obj("range", new[] { 18, text.Length - 18 }, "font", "second") }));
+        material["base_content"] = Obj("text", text.Replace(" ", ""), "styles", new[] { Obj("range", new[] { 0, text.Replace(" ", "").Length }) });
+        material["recognize_text"] = text.Replace(" ", "");
+        material["translate_original_text"] = text;
+        var tokens = text.Split(' ');
+        material["words"] = Obj("text", tokens, "start_time", Enumerable.Range(0, tokens.Length).Select(n => n * 500).ToArray(),
+            "end_time", Enumerable.Range(0, tokens.Length).Select(n => n * 500 + 450).ToArray());
+        material["current_words"] = Obj();
+        var args = new object[] { data, 24, 12, 0 };
+        Check((int)Call("SplitLongSubtitles", args) == 1, "Aligned word cache and unspaced recognized text can be split");
+        var result = (IList)((IDictionary)data["materials"])["texts"];
+        var first = (IDictionary)result[0]; var second = (IDictionary)result[result.Count - 1];
+        var firstWords = (IDictionary)first["words"]; var secondWords = (IDictionary)second["words"];
+        Check(((IList)firstWords["text"]).Count + ((IList)secondWords["text"]).Count == tokens.Length, "Every recognized word remains in one new cue");
+        Check(Convert.ToInt64(((IList)secondWords["start_time"])[0]) <= 50, "Second cue rebases word timestamps");
+        var firstContent = (IDictionary)json.DeserializeObject((string)first["content"]);
+        var secondContent = (IDictionary)json.DeserializeObject((string)second["content"]);
+        Check(((IList)firstContent["styles"]).Count == 1 && ((IList)secondContent["styles"]).Count == 1 &&
+            (string)((IDictionary)((IList)firstContent["styles"])[0])["font"] == "first" &&
+            (string)((IDictionary)((IList)secondContent["styles"])[0])["font"] == "second", "Inline style spans are clipped without flattening the style");
+        Check((string)((IDictionary)first["base_content"])["text"] + (string)((IDictionary)second["base_content"])["text"] == text.Replace(" ", ""), "Base content stays aligned even if it originally has no spaces");
+
+        var chinese = Fixture(); var caption = (IDictionary)((IList)((IDictionary)chinese["materials"])["texts"])[0];
+        string sentence = string.Concat(Enumerable.Repeat("今夜我们一起寻找真相", 5));
+        caption["content"] = json.Serialize(Obj("text", sentence, "styles", new[] { Obj("range", new[] { 0, sentence.Length }) }));
+        caption["base_content"] = Obj("text", sentence); caption["recognize_text"] = sentence;
+        caption["words"] = Obj(); caption["current_words"] = Obj();
+        var chineseArgs = new object[] { chinese, 24, 12, 0 };
+        Check((int)Call("SplitLongSubtitles", chineseArgs) >= 1, "Four-line Chinese text splits without spaces");
+        var chineseTexts = (IList)((IDictionary)chinese["materials"])["texts"];
+        var chineseSegments = (IList)((IDictionary)((IList)chinese["tracks"])[0])["segments"];
+        string recovered = string.Concat(chineseSegments.Cast<object>().Select(item => (IDictionary)item)
+            .Where(item => (string)item["material_id"] != "title")
+            .Select(item => chineseTexts.Cast<object>().Select(value => (IDictionary)value).First(value => (string)value["id"] == (string)item["material_id"]))
+            .Select(item => (string)((IDictionary)json.DeserializeObject((string)item["content"]))["text"]));
+        Check(recovered == sentence, "Chinese split retains every character");
+    }
     static void RealDraft(string copy, string report) {
         Check(File.Exists(Path.Combine(copy, "XM-TEST-COPY")), "Only marked disposable samples may be changed");
         var items = (List<Tuple<string, IDictionary>>)Call("FindSubtitleJsons", copy);
@@ -99,6 +200,16 @@ internal static class JianYingPunctuationTests
         }
         File.WriteAllText(report, json.Serialize(Obj("changedSubtitleRecords", count, "files", items.Count, "schema", items[0].Item2["new_version"], "readbackVerified", true, "timelinePreserved", true, "idempotent", true)), new UTF8Encoding(false));
     }
+    static void RealSplitPreview(string directory) {
+        var items = (List<Tuple<string, IDictionary>>)Call("FindSubtitleJsons", directory);
+        Check(items.Count == 2, "Unmodified draft and timeline both contain subtitle data");
+        foreach (var item in items) {
+            var original = Clone(item.Item2);
+            var parameters = new object[] { item.Item2, 22, 12, 0 };
+            Check((int)Call("SplitLongSubtitles", parameters) >= 2 && (int)parameters[3] == 0, "Real draft detects both four-line captions");
+            Check(!Same(original, item.Item2), "Real draft preview changes only the in-memory copy");
+        }
+    }
     [STAThread] static int Main(string[] args) {
         Console.InputEncoding = new UTF8Encoding(false); Console.OutputEncoding = new UTF8Encoding(false);
         if (args.Length == 3 && args[0] == "--draft-io") return JianYingDraftIO.Worker(args[1], args[2]);
@@ -107,7 +218,8 @@ internal static class JianYingPunctuationTests
         var output = Console.Out; Console.SetOut(new StringWriter());
         try {
             engine = new JianYingEngine(Path.Combine(root, "profile"));
-            Core(root); if (args.Length == 2) RealDraft(Path.GetFullPath(args[0]), Path.GetFullPath(args[1]));
+            Core(root); LongSubtitleSplit(root); SplitVariants(); if (args.Length == 2) RealDraft(Path.GetFullPath(args[0]), Path.GetFullPath(args[1]));
+            if (args.Length == 1) RealSplitPreview(Path.GetFullPath(args[0]));
             output.WriteLine("Punctuation checks passed: " + checks); return 0;
         } catch (Exception error) { output.WriteLine(error); return 1; }
         finally { if (engine != null) engine.Close(); Console.SetOut(output); Directory.Delete(root, true); }

@@ -273,8 +273,7 @@ export function BatchAnalysis({ active, providers, onNavigate }) {
     setError('');
     try {
       await globalThis.blackObsidian.webAnalysisAction(webTask.id, 'import', manualReply);
-      setManualReply('');
-      setNotice('音乐推荐已接收，正在校验曲目和推荐理由并写入对应集数卡片。');
+      setNotice('音乐推荐已接收，正在校验曲目和推荐理由；通过后写入对应集数卡片。');
     } catch (err) { setError(err.message || '导入 DeepSeek 结果失败。'); }
   };
   const libraryAction = async method => {
@@ -309,8 +308,13 @@ export function BatchAnalysis({ active, providers, onNavigate }) {
         <div className="bos-batch-segment-settings"><label><span>配乐分析方式</span><select aria-label="DeepSeek 手动配乐方式" disabled={busy} value={settings.segmented ? 'segments' : 'whole'} onChange={event => setSettings(value => ({ ...value, segmented: event.target.value === 'segments' }))}><option value="whole">每集整篇推荐</option><option value="segments">每集分析多段音乐</option></select></label>{settings.segmented && <label><span>每集最多情节数</span><select aria-label="DeepSeek 手动分段数" disabled={busy} value={settings.segmentCount} onChange={event => setSettings(value => ({ ...value, segmentCount: Number(event.target.value) }))}>{[2,3,4,5,6].map(n => <option key={n} value={n}>{n} 段</option>)}</select></label>}<label><span>字幕语言</span><select aria-label="DeepSeek 手动字幕语言" disabled={busy} value={settings.subtitleLanguage} onChange={event => setSettings(value => ({ ...value, subtitleLanguage: event.target.value }))}><option value="auto">自动识别</option><option value="zh">中文</option><option value="en">英文</option><option value="es">西语</option></select></label></div>
         <label><span>多集完整剧本</span><textarea aria-label="DeepSeek 手动分析剧本" rows={7} maxLength={BATCH_TEXT_LIMIT} disabled={importBusy} value={text} onChange={event => setText(event.target.value)} placeholder={'第1集 重逢\n[EN] JACK: We meet again.\n\n第2集 真相\n[EN] MIA: Tell me the truth.'} /></label>
         <div className="bos-script-actions"><small>{text.length.toLocaleString()} / 1,000,000 字符</small><button type="button" disabled={!text.trim() || !requestedName || importBusy || !state.loaded || !deepseek} onClick={() => importAndAnalyze(text, true)}>生成提示词并打开 DeepSeek</button></div>
-         <p className="bos-script-footnote">提示词会依次填入 DeepSeek 对话框，发送由你确认。完整回答会自动读取；需要补充时会填入下一条提示词，校验通过后写入集数卡片。</p>
-         <div className="bos-batch-manual-result"><div className="bos-script-section-title"><h3>音乐推荐结果</h3>{webTask && <button type="button" onClick={() => onNavigate('webai')}>返回 DeepSeek ↗</button>}</div><p role="status">{webTask?.requiresPaste ? `当前：${webTask.stage}。手动发送后等待自动读取；若未识别，可在此粘贴完整回答继续。` : webTask ? `当前：${webTask.stage}。请在 DeepSeek 网页手动发送提示词。` : '开始分析后会自动读取回答；未识别时可在这里粘贴完整结果。'}</p><label><span className="bos-visually-hidden">DeepSeek 音乐推荐结果</span><textarea aria-label="DeepSeek 音乐推荐结果" rows={6} maxLength={200000} value={manualReply} onChange={event => setManualReply(event.target.value)} placeholder="自动读取失败时，粘贴 DeepSeek 返回的完整 JSON 音乐推荐结果" /></label><div className="bos-script-actions"><small>校验集数、候选曲目及推荐理由；如需补充，会自动生成下一条提示词。</small><button type="button" disabled={!webTask?.requiresPaste || !manualReply.trim()} onClick={importDeepSeekResult}>导入音乐推荐</button></div></div>
+         <p className="bos-script-footnote">提示词会依次填入 DeepSeek 对话框，发送由你确认。剧情解析回答会自动读取；音乐匹配回答需手动复制到下方并导入。需要补充时，按新提示词再次操作。</p>
+         <div className="bos-batch-manual-result">
+           <div className="bos-script-section-title"><h3>音乐推荐结果</h3>{webTask && <button type="button" onClick={() => onNavigate('webai')}>返回 DeepSeek ↗</button>}</div>
+           <p role="status">{webTask?.requiresPaste ? `当前：${webTask.stage}。在 DeepSeek 手动发送提示词，复制包含 xmTaskId 的完整 JSON 回答，粘贴到下方并点击导入。` : webTask ? `当前：${webTask.stage}。${manualReply.trim() ? '已提交上一条回答，正在校验或准备下一步提示词。' : '请在 DeepSeek 网页手动发送提示词；剧情解析回答会自动读取。'}` : '开始分析后，在音乐匹配阶段复制 DeepSeek 的完整回答并粘贴到这里。'}</p>
+           <label><span className="bos-visually-hidden">DeepSeek 音乐推荐结果</span><textarea aria-label="DeepSeek 音乐推荐结果" rows={6} maxLength={200000} value={manualReply} onChange={event => setManualReply(event.target.value)} placeholder="复制 DeepSeek 返回的完整 JSON（含 xmTaskId、result），粘贴到此处" /></label>
+           <div className="bos-script-actions"><small>导入后校验集数、候选曲目及推荐理由；如需补充，会填入下一条提示词。</small><button type="button" disabled={!webTask?.requiresPaste || !manualReply.trim()} onClick={importDeepSeekResult}>导入音乐推荐</button></div>
+         </div>
       </div>}
     </section>
     {!state.projects.length && <div className="bos-script-empty"><strong>输入剧名，开始整理第一部剧</strong><p>每部剧会生成一张独立大卡片，分集字幕与推荐统一保存在其中。</p></div>}

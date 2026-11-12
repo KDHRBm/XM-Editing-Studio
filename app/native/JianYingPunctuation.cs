@@ -96,7 +96,7 @@ internal sealed partial class JianYingEngine
     private static void RequireRealPath(string path)
     {
         if ((File.GetAttributes(path) & FileAttributes.ReparsePoint) != 0)
-            throw new InvalidOperationException("标点还原不处理链接文件或链接目录，请选择草稿实际所在位置：" + path);
+            throw new InvalidOperationException("字幕草稿修改不处理链接文件或链接目录，请选择草稿实际所在位置：" + path);
     }
 
     private static IEnumerable<string> PunctuationDraftDirectories(string root)
@@ -111,7 +111,7 @@ internal sealed partial class JianYingEngine
     {
         var processes = Process.GetProcessesByName("JianyingPro");
         try {
-            if (processes.Length > 0) throw new InvalidOperationException("请保存草稿并完全退出剪映，再还原标准标点。重新打开草稿后即可按标准标点排版。");
+            if (processes.Length > 0) throw new InvalidOperationException("请保存草稿并完全退出剪映，再修改字幕；完成后重新打开草稿检查排版。");
         } finally { foreach (var process in processes) process.Dispose(); }
     }
 
