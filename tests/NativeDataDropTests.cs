@@ -20,6 +20,22 @@ internal static class NativeDataDropTests {
             Check(File.Exists(Path.Combine(from,"settings.json")),"old profile unchanged");
             Check(DataPaths.Resolve(root,to)==to,"explicit isolated profile preserved");
             Check(Environment.GetEnvironmentVariable("TEMP")==Path.Combine(to,"cache","temp"),"child temporary files stay inside profile");
+            string roaming=Path.Combine(root,"roaming"),electron=Path.Combine(roaming,"xiaoma-editing-studio");
+            Directory.CreateDirectory(Path.Combine(electron,"Local Storage"));
+            File.WriteAllText(Path.Combine(electron,"Local Storage","old-data"),"preserve old Electron data");
+            string clean=Path.Combine(root,"fresh-install");Directory.CreateDirectory(clean);
+            Check(DataPaths.Resolve(clean,null,roaming)==Path.Combine(clean,"data"),"fresh install starts despite old Electron profile");
+            Check(DataPaths.LegacyProfilePending==electron,"legacy profile is reported on first launch");
+            Check(File.ReadAllText(Path.Combine(clean,"data","legacy-profile-pending.txt"))==electron,"migration marker identifies old profile");
+            Check(File.ReadAllText(Path.Combine(electron,"Local Storage","old-data"))=="preserve old Electron data","old data remains untouched");
+            DataPaths.Resolve(clean,null,roaming);
+            Check(DataPaths.LegacyProfilePending==null,"notice is shown once for a new install");
+            string native=Path.Combine(roaming,"黑曜信号台");Directory.CreateDirectory(Path.Combine(native,"native-webview"));
+            File.WriteAllText(Path.Combine(native,"settings.json"),"native profile");
+            string second=Path.Combine(root,"second-install");Directory.CreateDirectory(second);
+            DataPaths.Resolve(second,null,roaming);
+            Check(File.ReadAllText(Path.Combine(second,"data","settings.json"))=="native profile","native profile takes priority over Electron data");
+            Check(DataPaths.LegacyProfilePending==null,"native migration does not show old Electron warning");
             Console.WriteLine("Native data relocation and recursive pet drop passed");return 0;
         } finally {
             Environment.SetEnvironmentVariable("TEMP",oldTemp);Environment.SetEnvironmentVariable("TMP",oldTmp);Directory.Delete(root,true);

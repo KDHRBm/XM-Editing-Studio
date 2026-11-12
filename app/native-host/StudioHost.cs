@@ -202,6 +202,8 @@ namespace XM.Native {
             try { profile = DataPaths.Resolve(AppDomain.CurrentDomain.BaseDirectory, Environment.GetEnvironmentVariable("XM_NATIVE_USER_DATA_DIR")); }
             catch (Exception error) { MessageBox.Show("无法准备安装目录下的 data 文件夹。\n" + error.Message, "XM剪辑台"); Environment.ExitCode = 1; return; }
             if (args.Contains("--verify-migration")) { Application.Run(new MigrationVerifier(profile)); return; }
+            if (DataPaths.LegacyProfilePending != null)
+                MessageBox.Show("检测到旧版资料。完整安装包无法直接读取旧版浏览器数据库。\n\n软件将使用全新的 data 目录启动；旧资料未迁移、未删除，仍保留在：\n" + DataPaths.LegacyProfilePending + "\n\n请保留旧目录以便后续迁移。", "XM剪辑台旧版资料", MessageBoxButtons.OK, MessageBoxIcon.Information);
             string identity = J.Hash(profile.ToLowerInvariant()).Substring(0, 24); bool owner;
             using (var mutex = new Mutex(true, "Local\\XMEditingStudioNative_" + identity, out owner))
             using (var wake = new EventWaitHandle(false, EventResetMode.AutoReset, "Local\\XMEditingStudioNativeWake_" + identity)) {

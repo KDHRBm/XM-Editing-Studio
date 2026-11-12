@@ -4,19 +4,30 @@ using System.Linq;
 
 namespace XM.Native {
     internal static class DataPaths {
+        internal static string LegacyProfilePending { get; private set; }
         internal static string Resolve(string install, string explicitProfile) {
+            return Resolve(install, explicitProfile, Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData));
+        }
+        internal static string Resolve(string install, string explicitProfile, string roaming) {
+            LegacyProfilePending = null;
             if (!string.IsNullOrWhiteSpace(explicitProfile)) return Prepare(Path.GetFullPath(explicitProfile));
             string target = Path.Combine(Path.GetFullPath(install), "data");
             if (!Directory.Exists(target)) {
-                string roaming = Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData);
-                string legacy = new[] { "xiaoma-editing-studio", "黑曜信号台" }.Select(x => Path.Combine(roaming, x)).FirstOrDefault(Directory.Exists);
-                if (legacy != null && Directory.Exists(Path.Combine(legacy, "native-webview"))) {
+                var profiles = new[] { "xiaoma-editing-studio", "黑曜信号台" }.Select(x => Path.Combine(roaming, x)).ToArray();
+                string legacy = profiles.FirstOrDefault(x => Directory.Exists(Path.Combine(x, "native-webview")));
+                if (legacy != null) {
                     string stage = target + ".migrate-" + Guid.NewGuid().ToString("N");
                     CopyProfile(legacy, stage);
                     File.WriteAllText(Path.Combine(stage, "profile-relocated.txt"), DateTime.UtcNow.ToString("o"));
                     Directory.Move(stage, target);
-                } else if (legacy != null && Directory.Exists(Path.Combine(legacy, "Local Storage"))) {
-                    throw new IOException("检测到旧版数据，请运行 1.4.2 更新程序迁移后启动，原数据仍保留。");
+                } else {
+                    legacy = profiles.FirstOrDefault(x => Directory.Exists(Path.Combine(x, "Local Storage")));
+                    if (legacy != null) {
+                        // Electron storage cannot be copied into WebView2. Keep the source intact and start a clean profile.
+                        Directory.CreateDirectory(target);
+                        File.WriteAllText(Path.Combine(target, "legacy-profile-pending.txt"), legacy);
+                        LegacyProfilePending = legacy;
+                    }
                 }
             }
             return Prepare(target);
