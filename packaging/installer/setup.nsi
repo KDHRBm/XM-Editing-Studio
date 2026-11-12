@@ -53,10 +53,16 @@ VIAddVersionKey /LANG=2052 "LegalCopyright" "XM剪辑台"
 !insertmacro MUI_LANGUAGE "SimpChinese"
 
 Var PreviousDirectory
+Var TestMode
 
 Function .onInit
   SetShellVarContext current
   SetRegView 64
+  StrCpy $TestMode 0
+  ${GetParameters} $0
+  ${GetOptions} $0 "/TEST" $1
+  IfErrors +2 0
+    StrCpy $TestMode 1
   ${IfNot} ${RunningX64}
     MessageBox MB_OK|MB_ICONSTOP "此安装包需要 64 位 Windows 10 或 Windows 11。" /SD IDOK
     SetErrorLevel 2
@@ -67,7 +73,9 @@ Function .onInit
     SetErrorLevel 2
     Quit
   ${EndIf}
-  ReadRegStr $PreviousDirectory HKCU "${PRODUCT_KEY}" "InstallLocation"
+  StrCpy $PreviousDirectory ""
+  StrCmp $TestMode 1 +2
+    ReadRegStr $PreviousDirectory HKCU "${PRODUCT_KEY}" "InstallLocation"
 FunctionEnd
 
 Function ValidateDirectory
@@ -145,6 +153,7 @@ Section "XM剪辑台（必选）" MainSection
   !include "generated-install.nsh"
   SetOutPath "$INSTDIR"
   WriteUninstaller "$INSTDIR\卸载XM剪辑台.exe"
+  StrCmp $TestMode 1 registrationDone
   WriteRegStr HKCU "${PRODUCT_KEY}" "InstallLocation" "$INSTDIR"
   WriteRegStr HKCU "${UNINSTALL_KEY}" "DisplayName" "XM剪辑台"
   WriteRegStr HKCU "${UNINSTALL_KEY}" "DisplayVersion" "${APP_VERSION}"
@@ -165,11 +174,14 @@ Section "XM剪辑台（必选）" MainSection
   CreateShortcut "$SMPROGRAMS\XM剪辑台\XM剪辑台.lnk" "$INSTDIR\小马剪辑台.exe"
   CreateShortcut "$SMPROGRAMS\XM剪辑台\使用说明.lnk" "$INSTDIR\使用说明.txt"
   CreateShortcut "$SMPROGRAMS\XM剪辑台\卸载.lnk" "$INSTDIR\卸载XM剪辑台.exe"
+  registrationDone:
 SectionEnd
 
 Section "创建桌面快捷方式" DesktopSection
+  StrCmp $TestMode 1 desktopDone
   SetOutPath "$INSTDIR"
   CreateShortcut "$DESKTOP\XM剪辑台.lnk" "$INSTDIR\小马剪辑台.exe"
+  desktopDone:
 SectionEnd
 
 !insertmacro MUI_FUNCTION_DESCRIPTION_BEGIN
