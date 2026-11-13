@@ -3,6 +3,7 @@ import { createWebAnalysis } from '../electron/web-ai-analysis.mjs';
 import { createJianyingWebScan } from '../electron/jianying-web-scan.mjs';
 import { runNativeWebAI } from './web-ai-driver.mjs';
 import { webAIScriptPrompt } from '../shared/web-ai-prompts.mjs';
+import { webAIProvider } from '../shared/web-ai.mjs';
 import { requestJianyingAI, buildJianyingAIRequest } from '../electron/jianying-ai.mjs';
 import { isDeepSeekScan } from '../shared/jianying-models.mjs';
 import { materialTexts, validateScoreRequest, parseScoreResponse } from '../shared/script-score.mjs';
@@ -157,6 +158,8 @@ window.blackObsidian = Object.freeze({
   },
   webAIAction: async (provider, action) => {
     const state = await invoke('web-ai-action', { provider, action });
+    const site = webAIProvider(provider);
+    if (site.manualOnly) return { ...state, pageNotice: `请在 ${site.name} 网页中手动登录和发送，回答可复制回剪辑台导入。` };
     if (['login', 'page-status'].includes(action) && driver.visible(provider)) { try { const access = await driver.run(provider, { command: action === 'login' ? 'login' : 'probe' }); return { ...state, access: access.state, pageNotice: access.message }; } catch {} }
     return state;
   },

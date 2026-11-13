@@ -50,6 +50,7 @@ export function createWebAIHost({ View, getWindow, shell }) {
     async run(id, input, signal) {
       signal?.throwIfAborted();
       const value = entry(id), contents = value.view.webContents;
+      if (value.provider.manualOnly) return { state: 'manual', message: `请在 ${value.provider.name} 官网手动发送并复制回答到剪辑台导入。` };
       if (attached !== value) throw new Error('请在内嵌官方页面完成登录。');
       if (!isWebAIPage(id, contents.getURL())) return { state: 'login', message: '请在内嵌官方页面完成登录。' };
       const result = await contents.executeJavaScript(webAIPageScript({ ...input, host: value.provider.host }), true);
@@ -88,6 +89,7 @@ export function createWebAIHost({ View, getWindow, shell }) {
       if (!['home', 'reload', 'status', 'page-status', 'login'].includes(action)) throw new Error('未知网页操作。');
       const value = entry(id);
       if (action === 'page-status' || action === 'login') {
+        if (provider.manualOnly) return { ...snapshot(value), pageNotice: `请在 ${provider.name} 网页中手动登录和发送，回答可复制回剪辑台导入。` };
         if (attached !== value || !isWebAIPage(id, value.view.webContents.getURL())) return snapshot(value);
         return value.view.webContents.executeJavaScript(webAIPageScript({ command: action === 'login' ? 'login' : 'probe', host: value.provider.host }), action === 'login').then(result => ({ ...snapshot(value), access: result.state, pageNotice: result.message })).catch(() => snapshot(value));
       }

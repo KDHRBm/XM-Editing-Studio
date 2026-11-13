@@ -12,7 +12,7 @@ using System.Threading.Tasks;
 namespace XM.Native {
     internal sealed partial class StudioHost {
         private const string LocalModelHost = "http://127.0.0.1:11435";
-        private static readonly string[] LocalModelNames = { "deepseek-r1:1.5b", "deepseek-r1:7b", "deepseek-r1:14b", "deepseek-r1:32b", "deepseek-r1:70b" };
+        private static readonly string[] LocalModelNames = { "qwen3.5:4b", "qwen3.5:9b", "deepseek-r1:1.5b", "deepseek-r1:7b", "deepseek-r1:14b", "deepseek-r1:32b", "deepseek-r1:70b" };
         private readonly SemaphoreSlim localModelGate = new SemaphoreSlim(1, 1);
         private readonly SemaphoreSlim localStartGate = new SemaphoreSlim(1, 1);
         private CancellationTokenSource localModelCancel;
@@ -29,7 +29,7 @@ namespace XM.Native {
             Emit("bos:local-model-progress", localModelProgress);
         }
         private async Task<object> LocalModelStatus() {
-            object[] models = LocalModelNames.Where(name => File.Exists(Path.Combine(LocalModelsPath, "manifests", "registry.ollama.ai", "library", "deepseek-r1", name.Split(':')[1]))).Cast<object>().ToArray();
+            object[] models = LocalModelNames.Where(name => File.Exists(Path.Combine(LocalModelsPath, "manifests", "registry.ollama.ai", "library", name.Split(':')[0], name.Split(':')[1]))).Cast<object>().ToArray();
             bool running = false;
             try {
                 using (var cts = new CancellationTokenSource(1500))
@@ -107,7 +107,7 @@ namespace XM.Native {
         private async Task<object> CheckModelSource(string model) {
             try {
                 using (var cts = new CancellationTokenSource(15000)) {
-                    string root = "https://registry.ollama.ai/v2/library/deepseek-r1/";
+                    string root = "https://registry.ollama.ai/v2/library/" + model.Split(':')[0] + "/";
                     using (var manifest = await http.GetAsync(root + "manifests/" + model.Split(':')[1], cts.Token)) {
                         manifest.EnsureSuccessStatusCode();
                         var payload = J.Decode(await manifest.Content.ReadAsStringAsync());
@@ -206,6 +206,8 @@ namespace XM.Native {
         }
         private async Task PullLocalModel(string model, CancellationToken token) {
             long modelBytes = model.EndsWith(":70b") ? 43L * 1024 * 1024 * 1024
+                : model == "qwen3.5:4b" ? 4L * 1024 * 1024 * 1024
+                : model == "qwen3.5:9b" ? 8L * 1024 * 1024 * 1024
                 : model.EndsWith(":32b") ? 20L * 1024 * 1024 * 1024
                 : model.EndsWith(":14b") ? 9L * 1024 * 1024 * 1024
                 : model.EndsWith(":7b") ? 5L * 1024 * 1024 * 1024 : 2L * 1024 * 1024 * 1024;

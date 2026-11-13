@@ -33,7 +33,34 @@ const nodes = tree => !tree || typeof tree !== 'object' ? [] : [tree, ...(tree.c
 const textOf = tree => typeof tree === 'string' || typeof tree === 'number' ? String(tree) : (tree?.children || []).flat(Infinity).map(textOf).join('');
 const findLabel = (tree, label) => nodes(tree).find(node => node.props['aria-label'] === label);
 const findText = (tree, text) => nodes(tree).find(node => node.type === 'button' && textOf(node) === text);
-const render = () => { cursor = 0; effects = []; return ui.BatchAnalysis({ active: true, providers, onNavigate: () => {} }); };
+const render = (available = providers) => { cursor = 0; effects = []; return ui.BatchAnalysis({ active: true, providers: available, onNavigate: () => {} }); };
+
+test('batch analysis remembers the last model across remounts and delayed local providers', () => {
+  const key = 'xm.batch-preferences.v1', original = saved.get(key);
+  const reset = () => { states = []; refs = []; cursor = 0; previousEffects = []; effects = []; };
+  const local = { id: 'provider-ollama-local', name: '本地模型', protocol: 'ollama', models: ['qwen3.5:4b'] };
+  const available = [...providers, local];
+  try {
+    for (const choice of ['webai:kimi::Kimi', 'g::gemini-test', 'provider-ollama-local::qwen3.5:4b']) {
+      saved.set(key, JSON.stringify({ preserve: false })); reset();
+      let tree = render(available);
+      findLabel(tree, '跑量剪辑流模型').props.onChange({ target: { value: choice } });
+      assert.deepEqual(JSON.parse(saved.get(key)), { preserve: false, analyzerKey: choice });
+      reset(); tree = render(available);
+      assert.equal(findLabel(tree, '跑量剪辑流模型').props.value, choice);
+      assert.equal(findLabel(tree, '跑量字幕标点保留').props['aria-checked'], false);
+    }
+    reset();
+    assert.equal(findLabel(render([]), '跑量剪辑流模型').props.value, 'webai:deepseek::DeepSeek');
+    assert.equal(JSON.parse(saved.get(key)).analyzerKey, 'provider-ollama-local::qwen3.5:4b');
+    assert.equal(findLabel(render(available), '跑量剪辑流模型').props.value, 'provider-ollama-local::qwen3.5:4b');
+    saved.set(key, '{broken'); reset();
+    assert.equal(findLabel(render(), '跑量剪辑流模型').props.value, 'webai:deepseek::DeepSeek');
+  } finally {
+    if (original === undefined) saved.delete(key); else saved.set(key, original);
+    reset();
+  }
+});
 test('batch UI defaults are independent; paste automatically analyzes multiple episodes and cards open dialogs, close individually and clear together', async () => {
   await ui.batchQueue.initialize();
   let tree = render();

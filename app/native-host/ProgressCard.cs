@@ -12,12 +12,10 @@ namespace XM.Native {
     internal sealed class ProgressCardWindow : RoundedWindow {
         [DllImport("user32.dll")] private static extern int GetWindowLong(IntPtr handle, int index);
         [DllImport("user32.dll")] private static extern int SetWindowLong(IntPtr handle, int index, int value);
-        [DllImport("user32.dll")] private static extern bool SetWindowDisplayAffinity(IntPtr handle, uint affinity);
         [DllImport("user32.dll")] private static extern bool ShowWindow(IntPtr handle, int command);
-        internal ProgressCardWindow() { FormBorderStyle = FormBorderStyle.None; ShowInTaskbar = false; TopMost = true; BackColor = Color.FromArgb(27, 32, 41); Opacity = .98; CornerRadius = 18; }
+        internal ProgressCardWindow() { FormBorderStyle = FormBorderStyle.None; ShowInTaskbar = false; TopMost = true; BackColor = Color.FromArgb(29, 31, 35); CornerRadius = 11; }
         protected override bool ShowWithoutActivation { get { return true; } }
         protected override CreateParams CreateParams { get { var value = base.CreateParams; value.ExStyle |= 0x08000000; return value; } }
-        protected override void OnHandleCreated(EventArgs e) { base.OnHandleCreated(e); SetWindowDisplayAffinity(Handle, 0x11); }
         internal void Passive(bool value) { int style = GetWindowLong(Handle, -20); SetWindowLong(Handle, -20, value ? style | 0x20 : style & ~0x20); }
         internal void ShowInactive() { ShowWindow(Handle, 4); }
     }
@@ -90,7 +88,7 @@ namespace XM.Native {
                 : phase == "web" ? "等待官方网页返回分析结果" : "正在准备分析";
             string range = first == last ? "第 " + first + " 集" : "第 " + first + "–" + last + " 集";
             string stage = status == "paused" ? "cancelled" : status == "running" ? active > 0 ? "running" : "preparing" : status;
-            string message = status == "running" ? active > 0 ? phaseText + " · 本批 " + range + "，共 " + batchSize + " 集。模型返回并保存后，已完成集数会一次更新。" : "正在准备下一批 · 已保存 " + completed + "/" + total + " 集"
+            string message = status == "running" ? active > 0 ? phaseText + " · 当前 " + range + " · 本次共 " + total + " 集。模型返回并保存后，已完成集数会更新。" : "正在准备下一批 · 已保存 " + completed + "/" + total + " 集"
                 : status == "complete" ? "剧本分析完成，已保存 " + completed + "/" + total + " 集" : status == "paused" ? "分析已中断，已完成 " + completed + "/" + total + " 集" : "分析未完成，已完成 " + completed + "/" + total + " 集";
             ShowProgress(J.Obj("id", id, "operation", "batch", "stage", stage, "phase", phase, "message", message, "model", model.Length > 80 ? model.Substring(0, 80) : model, "total", total, "completed", completed, "batchFirst", first, "batchLast", last, "batchSize", batchSize, "startedAt", J.Num(value, "startedAt", J.Now())));
         }
@@ -119,6 +117,18 @@ namespace XM.Native {
             // Create handles without activating or displaying before the page is ready.
             var handle = progressWindow.Handle; progressView.CreateControl();
             await InitializeView(progressView, "main", Origin + "/jianying-scan/index.html", true);
+        }
+        private async Task UpdateProgressPalette() {
+            if (progressView == null || progressView.IsDisposed || progressView.CoreWebView2 == null || MainView.IsDisposed || MainView.CoreWebView2 == null) return;
+            var source = await MainView.CoreWebView2.ExecuteScriptAsync("(()=>{const r=document.documentElement;return {theme:r.dataset.bosTheme||'graphite',tokens:Object.fromEntries([...r.style].filter(n=>n.startsWith('--ui-')).map(n=>[n,r.style.getPropertyValue(n)]))}})()");
+            if (progressView.IsDisposed || progressWindow == null || progressWindow.IsDisposed) return;
+            var raw = await progressView.CoreWebView2.ExecuteScriptAsync("(()=>{if(!document.querySelector('.card'))return null;const a=" + source + ";const r=document.documentElement;r.dataset.bosTheme=a.theme;[...r.style].filter(n=>n.startsWith('--ui-')).forEach(n=>r.style.removeProperty(n));Object.entries(a.tokens).forEach(([n,v])=>r.style.setProperty(n,v));return {background:getComputedStyle(document.body).backgroundColor,radius:parseFloat(getComputedStyle(r).getPropertyValue('--ui-radius'))||0}})()");
+            if (progressWindow.IsDisposed) return;
+            var appearance = J.Decode(raw);
+            if (appearance == null) return;
+            var match = System.Text.RegularExpressions.Regex.Match(J.Str(appearance, "background"), @"^rgb\((\d+),\s*(\d+),\s*(\d+)\)$");
+            if (match.Success) { progressWindow.BackColor = Color.FromArgb(int.Parse(match.Groups[1].Value), int.Parse(match.Groups[2].Value), int.Parse(match.Groups[3].Value)); progressView.DefaultBackgroundColor = progressWindow.BackColor; }
+            progressWindow.CornerRadius = Math.Max(0, Math.Min(40, (int)J.Num(appearance, "radius")));
         }
         private async Task<object> ProgressAction(string action) {
             if (action == "state") return currentProgress;

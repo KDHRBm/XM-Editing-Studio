@@ -1,10 +1,12 @@
 export const WEB_AI_PROVIDERS = [
   { id: 'deepseek', name: 'DeepSeek', url: 'https://chat.deepseek.com/', host: 'chat.deepseek.com', description: '使用官方网页提供的对话、深度思考等选项。' },
   { id: 'doubao', name: '豆包', url: 'https://www.doubao.com/chat/', host: 'www.doubao.com', description: '使用豆包官方网页提供的最新功能与模型选项。' },
+  { id: 'qwen', name: '千问', url: 'https://www.qianwen.com/', host: 'www.qianwen.com', manualOnly: true, description: '登录千问官网，复制任务并手动导入回答，无需 API 密钥。' },
+  { id: 'kimi', name: 'Kimi', url: 'https://www.kimi.com/', host: 'www.kimi.com', manualOnly: true, description: '登录 Kimi 官网，复制剧本任务并导入分析和配乐回答，无需 API 密钥。' },
 ];
 export function webAIProvider(id) {
   const provider = WEB_AI_PROVIDERS.find(item => item.id === id);
-  if (!provider) throw new Error('请选择 DeepSeek 或豆包。');
+  if (!provider) throw new Error('请选择 DeepSeek、豆包、千问或 Kimi。');
   return provider;
 }
 export function isSecureWebURL(value) {
@@ -14,7 +16,7 @@ export function isSecureWebURL(value) {
 export function isWebAIPage(id, value) {
   if (!isSecureWebURL(value)) return false;
   const url = new URL(value), provider = webAIProvider(id);
-  const domain = provider.id === 'deepseek' ? 'deepseek.com' : 'doubao.com';
+  const domain = provider.id === 'deepseek' ? 'deepseek.com' : provider.id === 'qwen' ? 'qianwen.com' : provider.id === 'kimi' ? 'kimi.com' : 'doubao.com';
   return url.hostname === domain || url.hostname.endsWith('.' + domain);
 }
 export function fitWebAIBounds(bounds, viewport, zoom = 1) {

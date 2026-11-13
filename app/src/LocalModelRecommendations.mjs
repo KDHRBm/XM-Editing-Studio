@@ -1,4 +1,6 @@
 export const LOCAL_MODEL_OPTIONS = [
+  { id: 'qwen3.5:4b', size: '3.4 GB', label: '千问 4B · 免费本地', detail: '适合先在 8 GB 显存设备上试用剧本与中文配乐分析，无需 API 密钥。' },
+  { id: 'qwen3.5:9b', size: '约 6.6 GB', label: '千问 9B · 更大模型', detail: '需要更多显存和内存，可在 4B 效果不足时尝试。' },
   { id: 'deepseek-r1:1.5b', size: '1.1 GB', label: '1.5B · 入门测试', detail: '适合低配置设备，剧本分析质量有限。' },
   { id: 'deepseek-r1:7b', size: '4.7 GB', label: '7B · 速度优先', detail: '适合中端显卡与 16 GB 以上内存。' },
   { id: 'deepseek-r1:14b', size: '9 GB', label: '14B · 质量优先', detail: '需 12 GB 以上显存，或更大内存承担部分推理。' },
@@ -6,9 +8,10 @@ export const LOCAL_MODEL_OPTIONS = [
   { id: 'deepseek-r1:70b', size: '43 GB', label: '70B · 工作站', detail: '建议 48 GB 显存与 96 GB 内存，普通电脑不适合。' },
 ];
 
-export function recommendLocalModel(hardware) {
+export function recommendLocalModel(hardware, family = 'deepseek') {
   if (!hardware || !Number.isFinite(hardware.ramGB)) return { id: '', reason: '设备信息未读取成功，请手动选择。' };
   const ram = hardware.ramGB, vram = Number(hardware.vramGB) || 0;
+  if (family === 'qwen' && ram >= 16 && vram >= 6) return { id: vram >= 12 && ram >= 32 ? 'qwen3.5:9b' : 'qwen3.5:4b', reason: '免费本地千问，按当前显存选择规模；推理不调用云端 API。' };
   if (vram >= 48 && ram >= 96) return { id: 'deepseek-r1:70b', reason: '显存与内存达到工作站档位。' };
   if (vram >= 24 && ram >= 64) return { id: 'deepseek-r1:32b', reason: '显存与内存适合 32B。' };
   if (vram >= 12 && ram >= 32) return { id: 'deepseek-r1:14b', reason: '显存与内存适合 14B。' };

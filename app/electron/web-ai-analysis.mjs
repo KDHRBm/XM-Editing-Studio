@@ -6,7 +6,7 @@ export function createWebAnalysis({ driver, notify, copy, now = Date.now, delay 
   let current = null;
   let lastAutoInputAt = null;
   const inputIntervalMs = 3000;
-  const snapshot = () => current ? { id: current.id, provider: current.provider, stage: current.stage, message: current.message, prompt: current.prompt || '', token: current.token || '', manualWeb: !!current.manualWeb, requiresPaste: !!current.requiresPaste } : null;
+  const snapshot = () => current ? { id: current.id, provider: current.provider, stage: current.stage, message: current.message, prompt: current.prompt || '', token: current.token || '', manualWeb: !!current.manualWeb, manualOnly: !!current.manualOnly, requiresPaste: !!current.requiresPaste } : null;
   const update = values => { if (current && Object.entries(values).some(([key, value]) => current[key] !== value)) { Object.assign(current, values); notify(snapshot()); } };
   const check = task => { if (task.cancelled || current !== task) throw new Error('网页分析已中断。'); };
   async function paceInput(task) {
@@ -37,13 +37,14 @@ export function createWebAnalysis({ driver, notify, copy, now = Date.now, delay 
   async function ask(task, messages, stage) {
     check(task);
     const token = uuid(), prompt = webTaskPrompt(messages, token);
-    const requiresPaste = task.manualWeb && /^(批量匹配|联合补充与纠正)/.test(stage);
-    update({ stage, token, prompt, manualResult: null, manualMode: false, requiresPaste, message: '正在准备网页，请在官网完成登录。' });
+    const requiresPaste = task.manualOnly || task.manualWeb && /^(批量匹配|联合补充与纠正)/.test(stage);
+    update({ stage, token, prompt, manualResult: null, manualMode: false, requiresPaste, message: task.manualOnly ? `请复制当前任务，在 ${webAIProvider(task.provider).name} 官网粘贴并发送，再将完整回答粘贴回此处导入。` : '正在准备网页，请在官网完成登录。' });
     let filled = false, attempted = false, stable = '', stableCount = 0;
-    const deadline = now() + (task.manualWeb ? 60 : 8) * 60 * 1000;
+    const deadline = now() + (task.manualWeb || task.manualOnly ? 60 : 8) * 60 * 1000;
     while (now() < deadline) {
       check(task);
       if (task.manualResult) return task.manualResult;
+      if (task.manualOnly) { await delay(1500); continue; }
       if (task.manualMode) attempted = true;
       if (driver.visible(task.provider)) {
         try {
@@ -95,7 +96,7 @@ export function createWebAnalysis({ driver, notify, copy, now = Date.now, delay 
       if (current) throw new Error('已有网页分析任务，请先完成或中断当前任务。');
       if (!request || typeof request.id !== 'string' || !/^[a-zA-Z0-9-]{8,80}$/.test(request.id)) throw new Error('网页任务标识无效。');
       webAIProvider(request.provider);
-      const task = { id: request.id, provider: request.provider, manualWeb: request.provider === 'deepseek' && request.manualWeb === true, cancelled: false };
+      const task = { id: request.id, provider: request.provider, manualWeb: request.provider === 'deepseek' && request.manualWeb === true, manualOnly: webAIProvider(request.provider).manualOnly === true, cancelled: false };
       current = task;
       try { return await analyzeWithWeb(request.purpose, request.input, (messages, stage) => ask(task, messages, stage)); }
       catch (error) { throw new Error((error.message || '网页分析失败。').replaceAll('Gemini', webAIProvider(task.provider).name)); }

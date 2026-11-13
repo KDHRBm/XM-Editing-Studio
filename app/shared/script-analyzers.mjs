@@ -12,7 +12,9 @@ export function analysisName(value) {
   const name = webAnalyzer(value)?.model || (typeof value === 'string' ? value : value?.model) || '';
   if (/gemini/i.test(name) || value?.protocol === 'gemini' || value?.provider?.protocol === 'gemini') return 'Gemini';
   if (value?.protocol === 'deepseek' || value?.provider?.protocol === 'deepseek') return 'DeepSeek API';
-  if (value?.protocol === 'ollama' || value?.provider?.protocol === 'ollama') return 'DeepSeek 本地';
+  if (value?.protocol === 'deepseek-relay' || value?.provider?.protocol === 'deepseek-relay') return 'DeepSeek 中转 API';
+  if (value?.protocol === 'qwen' || value?.provider?.protocol === 'qwen') return '千问 API';
+  if (value?.protocol === 'ollama' || value?.provider?.protocol === 'ollama') return /^qwen/i.test(name) ? '千问 本地' : 'DeepSeek 本地';
   return name || 'AI';
 }
 export function analysisReady(value) { return !!webAnalyzer(value) || value?.provider?.protocol === 'ollama' || !!value?.provider?.apiKey?.trim(); }

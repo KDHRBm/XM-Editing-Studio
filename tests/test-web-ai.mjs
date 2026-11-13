@@ -61,13 +61,16 @@ test('cancelled or switched pages cannot receive a delayed Enter fallback', asyn
   await assert.rejects(second, /网页已切换/); assert.equal(events.length, 0); f.host.dispose();
 });
 test('only known providers and HTTPS pages are allowed; lookalike domains are not official', () => {
-  assert.equal(WEB_AI_PROVIDERS.length, 2);
+  assert.equal(WEB_AI_PROVIDERS.length, 4);
   assert.throws(() => webAIProvider('https://example.com'), /请选择/);
   for (const url of ['file:///C:/private', 'javascript:alert(1)', 'http://localhost', 'data:text/html,x', 'https://user:password@example.com']) assert.equal(isSecureWebURL(url), false);
   assert.equal(isWebAIPage('deepseek', 'https://chat.deepseek.com/'), true);
   assert.equal(isWebAIPage('deepseek', 'https://deepseek.com.evil.test/'), false);
   assert.equal(isWebAIPage('doubao', 'https://www.doubao.com/chat/'), true);
   assert.equal(isWebAIPage('doubao', 'https://chat.deepseek.com/'), false);
+  assert.equal(isWebAIPage('kimi', 'https://www.kimi.com/'), true);
+  assert.equal(isWebAIPage('kimi', 'https://kimi.com.evil.test/'), false);
+  assert.equal(isWebAIPage('kimi', 'https://www.doubao.com/chat/'), false);
 });
 test('native view stays within viewport, scroll region and expanded rail at non-default zoom', () => {
   assert.deepEqual(fitWebAIBounds({ x: -20, y: 80, width: 500, height: 900 }, [600, 500], 1.25), { x: 0, y: 100, width: 600, height: 400 });
@@ -75,6 +78,19 @@ test('native view stays within viewport, scroll region and expanded rail at non-
   assert.throws(() => fitWebAIBounds({ x: NaN }, [600, 500]), /无效/);
   assert.throws(() => fitWebAIBounds(layout('deepseek').bounds, [600, Infinity]), /无效/);
   assert.deepEqual(clipWebAISlot({ left: 250, top: -100, right: 1430, bottom: 1000 }, { left: 0, top: 0, right: 1440, bottom: 900 }, { left: 240, top: 40, right: 1440, bottom: 864 }, 310), { x: 252, y: 40, width: 878, height: 824 });
+});
+
+test('Kimi keeps its own session and manual actions never execute page scripts', async () => {
+  const f = fixture(); f.host.layout(layout('kimi'));
+  const view = f.views[0];
+  assert.equal(view.options.webPreferences.partition, 'persist:xm-official-ai-kimi');
+  assert.deepEqual(view.webContents.loaded, ['https://www.kimi.com/']);
+  view.webContents.executeJavaScript = () => { throw new Error('Unexpected page automation'); };
+  assert.match((await f.host.action('kimi', 'login')).pageNotice, /Kimi/);
+  assert.equal((await f.host.run('kimi', { command: 'send' })).state, 'manual');
+  await f.host.action('kimi', 'external');
+  assert.deepEqual(f.opened, ['https://www.kimi.com/']);
+  f.host.dispose();
 });
 test('webviews create lazily, keep independent login partitions and reuse contents across tabs', () => {
   const f = fixture(); f.host.layout({ visible: false }); assert.equal(f.views.length, 0);
@@ -186,6 +202,9 @@ test('web UI selects and remembers provider, only copies on click, and reports c
   assert.equal(nodes(tree).filter(node => node.type === 'iframe' || node.type === 'webview').length, 0);
   button(tree, '豆包').props.onClick(); tree = render();
   assert.equal(button(tree, '豆包').props['aria-pressed'], true); assert.equal(saved.get('xm.web-ai.provider'), 'doubao');
+  button(tree, 'Kimi').props.onClick(); tree = render();
+  assert.equal(button(tree, 'Kimi').props['aria-pressed'], true); assert.equal(saved.get('xm.web-ai.provider'), 'kimi');
+  assert.match(textOf(tree), /Kimi 官方网页/);
   await button(tree, '复制 Suno 提示词任务').props.onClick();
   assert.equal(copies[0][0].script, draft.script); assert.equal(copies[0][1], 'suno'); assert.match(textOf(render()), /已完整复制/);
   globalThis.blackObsidian.copyWebAITask = async () => { throw new Error('clipboard busy'); };

@@ -55,7 +55,7 @@ export function createScanProgress({ Window, screen, ipcMain, Notification, appD
     window = new Window({ width: 366, height: 236, frame: false, transparent: true, focusable: false, resizable: false, maximizable: false, minimizable: false, alwaysOnTop: true, skipTaskbar: true, show: false, title: 'XM剪辑台 · 任务进度', autoHideMenuBar: true,
       webPreferences: { preload: path.join(appDirectory, 'electron', 'jianying-scan-preload.cjs'), sandbox: true, contextIsolation: true, nodeIntegration: false, devTools: false } });
     const created = window;
-    created.setContentProtection(true);
+    created.setContentProtection(false);
     created.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
     created.webContents.on('will-navigate', event => event.preventDefault());
     created.once('ready-to-show', () => { if (window !== created || disposed) return; ready = true; place(); created.webContents.send('bos:scan-card-progress', state); visible(); });

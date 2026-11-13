@@ -52,6 +52,7 @@ export const batchQueue = createBatchAnalysisQueue({
     const selected = batchAnalyzers().find(item => item.key === task.settings.analyzerKey);
     if (selected?.provider?.protocol !== 'ollama') return {};
     const size = selected.model.split(':')[1];
+    if (/^qwen/.test(selected.model)) return { episodes: 1, characters: size === '4b' ? 6000 : 9000 };
     return size === '1.5b' ? { episodes: 1, characters: 3000 }
       : size === '7b' ? { episodes: 1, characters: 6000 }
       : size === '14b' ? { episodes: 2, characters: 9000 }

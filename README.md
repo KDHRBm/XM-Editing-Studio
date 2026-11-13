@@ -1,12 +1,12 @@
 # XM剪辑台
 
-**1.4.6 累计增量更新**包含 1.4.4 发布后全部修改，新增五部剧本独立归档、上下剧目下拉、新建剧本、网站版本检查及启动自动检查，并累计修复字幕提取、标准标点还原、扫描与导出、鼠标和任务栏图标。支持原版 **1.4.2、1.4.3、1.4.4、1.4.5** 直接更新。首次安装及 1.3.1 等旧版本请先使用 1.4.2 完整安装包。详见 [1.4.6 更新说明](CHANGELOG-1.4.6.md)。软件使用 C# + WebView2，配置、任务和历史保存在安装目录的 `data`；大型字幕兼容组件保持单独选装。
+**1.6.2** 新增免费本地千问、千问和 Kimi 网页剧本分析、千问官方 API 与 DeepSeek 中转 API，本地模型后缀统一为“本地部署”。提供完整安装包及原版 **1.6.1 → 1.6.2** 增量更新。详见 [1.6.2 更新说明](CHANGELOG-1.6.2.md)。软件使用 C# + WebView2，配置、任务和历史保存在安装目录的 `data`；本地模型权重与大型字幕兼容组件单独下载。
 
 **把剧本、字幕、音乐和剪映常用工具放进一个工作台。**
 
 XM剪辑台面向短剧剪辑与批量制作：粘贴剧本，整理中文／英文／西语台词，按整篇或不同情节分析配乐，在本地音乐库里找合适的音乐，或交给 Suno 生成，再继续完成样片水印和剪映工程处理。
 
-[下载安装](https://kdhrbm.github.io/XM-Editing-Studio-Website/) · [更新说明](CHANGELOG-1.4.6.md) · [查看源码](app) · [参与开发](CONTRIBUTING.md) · [反馈问题](https://github.com/KDHRBm/XM-Editing-Studio/issues)
+[下载安装](https://kdhrbm.github.io/XM-Editing-Studio-Website/) · [更新说明](CHANGELOG-1.6.2.md) · [查看源码](app) · [参与开发](CONTRIBUTING.md) · [反馈问题](https://github.com/KDHRBm/XM-Editing-Studio/issues)
 
 ## 剪辑台能做什么
 
@@ -99,16 +99,17 @@ XM剪辑台面向短剧剪辑与批量制作：粘贴剧本，整理中文／英
 
 | 下载 | 适用情况 |
 | --- | --- |
-| [1.4.2 安装与更新包](https://github.com/KDHRBm/XM-Editing-Studio/releases/download/v1.4.2/XM-Editing-Studio-1.4.2-Windows-x64-Setup.exe) | 首次安装，或原版 1.3.1 及以上版本直接升级 |
-| [1.4.2 更新说明](CHANGELOG-1.4.2.md) | C# 主程序、数据迁移、桌宠工作流与剪映兼容 |
+| [1.6.2 完整安装包](https://github.com/KDHRBm/XM-Editing-Studio/releases/download/v1.6.2/XM-Editing-Studio-1.6.2-Windows-x64-Setup.exe) | 首次安装；包含当前全部功能 |
+| [1.6.1 → 1.6.2 增量包](https://github.com/KDHRBm/XM-Editing-Studio/releases/download/v1.6.2/XM-Editing-Studio-1.6.1-to-1.6.2-Incremental-20261113.zip) | 已安装原版 1.6.1 时使用 |
+| [1.6.2 更新说明](CHANGELOG-1.6.2.md) | 本地千问、千问与 Kimi 网页端、API 连接及模型选择记忆 |
 | [1.2 → 1.3 历史更新说明](CHANGELOG-1.3.0.md) | 查看此前功能变化 |
 | [文件校验](SHA256SUMS.txt) | 校验发布附件完整性 |
 
-运行 1.4.2 安装与更新包，选择原版安装目录即可从 1.3.1 及以上版本直接升级，也可选择空目录安装。升级前请从托盘彻底退出软件及桌宠；更新先备份并验证配置、任务和历史，再替换程序。数据保存在安装目录的 `data`，备份保存在 `.xiaoma-update-backups`。首次从 Electron 迁移后，国内 AI 网页需要重新登录。需要系统已安装 Microsoft Edge WebView2 运行时。
+首次安装选择专用空目录；已有原版 1.6.1 时，完整解压增量 ZIP，运行外层更新器并选择原安装目录。更新前请从托盘彻底退出软件及桌宠；更新会校验和备份程序文件，保留配置、任务、音乐及本地模型。数据保存在安装目录的 `data`，备份保存在 `.xiaoma-update-backups`。旧版便携目录建议保留，另选空目录安装完整包。需要系统已安装 Microsoft Edge WebView2 运行时。
 
 ## 源码与协作
 
-当前 1.4.2 功能源码已公开：C# + WebView2 主程序、React 功能界面、模型接入、字幕和音乐逻辑、水印模块、剪映工具及桌宠适配均可查看、修改并提交 Pull Request。桌宠动画素材有独立的非商业使用限制。
+当前功能源码包括 C# + WebView2 主程序、React 功能界面、模型接入、字幕和音乐逻辑、水印模块、剪映工具及桌宠适配，均可查看、修改并提交 Pull Request。桌宠动画素材有独立的非商业使用限制。
 
 | 目录 | 内容 |
 | --- | --- |
@@ -127,10 +128,10 @@ XM剪辑台面向短剧剪辑与批量制作：粘贴剧本，整理中文／英
 
 历史 `v1.3.0` 标签保留原始发布记录，`v1.3.0-source` 标签对应首次公开源码快照；后续源码修订请使用 `main` 分支。程序安装包与源码是不同交付物。
 
-**1.4.2 安装与更新包**包含此前累计改进，安装后无需再叠加旧更新包。`v1.4.2` 标签对应本次发布源码。
+**1.6.2 完整安装包**包含此前累计改进，安装后无需再叠加旧更新包。`v1.6.2` 标签对应本次发布源码。
 
 ## 验证与来源
 
-本次发布检查见 [验证记录](VERIFICATION.md)，开发构建步骤见 [开发说明](docs/DEVELOPMENT.md)。未分别在 Windows 10、Windows 11 两台实机验证，也未消耗付费额度测试真实生成。
+本次发布检查见 [1.6.2 验证记录](VERIFICATION-1.6.2.md)，开发构建步骤见 [开发说明](docs/DEVELOPMENT.md)。未分别在 Windows 10、Windows 11 两台实机验证，也未消耗付费额度测试真实生成。
 
 第三方来源与许可见 [THIRD_PARTY_NOTICES.txt](THIRD_PARTY_NOTICES.txt) 和 [源码来源说明](docs/SOURCE-PROVENANCE.md)。源码公开不改变第三方组件原有许可，也不代表官方平台背书。仓库不包含个人 API 密钥、登录数据、剧本或音乐素材。

@@ -47,7 +47,7 @@ test('scan card stays in the work area of the main monitor without stealing focu
   const f = cardFixture(t); f.update('preparing'); const window = f.windows[0];
   assert.equal(window.visible, false); window.emit('ready-to-show');
   assert.equal(window.visible, true); assert.equal(window.options.parent, undefined); assert.equal(window.options.skipTaskbar, true);
-  assert.equal(window.protected, true); assert.equal(f.main.focused, 0);
+  assert.equal(window.protected, false); assert.equal(f.main.focused, 0);
   f.screen.emit('display-metrics-changed'); assert.equal(window.bounds.x, -378);
   assert.equal(window.options.webPreferences.nodeIntegration, false); assert.equal(window.openHandler().action, 'deny');
 });

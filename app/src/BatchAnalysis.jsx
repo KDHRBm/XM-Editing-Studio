@@ -17,7 +17,7 @@ const batchPhases = {
 };
 const PREFERENCES = 'xm.batch-preferences.v1';
 const EPISODES_PER_PAGE = 12;
-function preferences() { try { return JSON.parse(localStorage.getItem(PREFERENCES)) || {}; } catch { return {}; } }
+function preferences() { try { const value = JSON.parse(localStorage.getItem(PREFERENCES)); return value && typeof value === 'object' && !Array.isArray(value) ? value : {}; } catch { return {}; } }
 function download(text, name, type = 'text/plain;charset=utf-8') {
   const url = URL.createObjectURL(new Blob([text], { type }));
   const anchor = document.createElement('a'); anchor.href = url; anchor.download = name.replace(/[<>:"/\\|?*]/g, '_'); anchor.click();
@@ -135,13 +135,21 @@ export function BatchAnalysis({ active, providers, onNavigate }) {
   setBatchProviders(providers);
   const state = useBatchAnalysis(), models = batchAnalyzers(providers);
   const [draftTexts, setDraftTexts] = i.useState({}), [dramaName, setDramaName] = i.useState(''), [projectViews, setProjectViews] = i.useState({}), [projectPending, setProjectPending] = i.useState(false), [error, setError] = i.useState(''), [notice, setNotice] = i.useState(''), [selected, setSelected] = i.useState(''), [confirmClear, setConfirmClear] = i.useState(false);
-  const [settings, setSettings] = i.useState(() => ({ analyzerKey: models[0].key, subtitleLanguage: 'auto', segmented: false, segmentCount: 3 }));
+  const [settings, setSettings] = i.useState(() => {
+    const saved = preferences().analyzerKey;
+    return { analyzerKey: typeof saved === 'string' && saved.trim() ? saved : models[0].key, subtitleLanguage: 'auto', segmented: false, segmentCount: 3 };
+  });
   const [inputTab, setInputTab] = i.useState('input'), [webTask, setWebTask] = i.useState(null), [manualReply, setManualReply] = i.useState('');
   const [preserve, setPreserve] = i.useState(() => preferences().preserve !== false);
   const [catalog, setCatalog] = i.useState({ tracks: [], directories: [] }), [scanning, setScanning] = i.useState(false);
   const importLock = i.useRef(false), attemptedText = i.useRef('');
   const webTaskToken = i.useRef('');
   const model = models.find(item => item.key === settings.analyzerKey) || models[0];
+  const selectAnalyzer = analyzerKey => {
+    setSettings(value => ({ ...value, analyzerKey }));
+    try { localStorage.setItem(PREFERENCES, JSON.stringify({ ...preferences(), preserve, analyzerKey })); }
+    catch { setError('分析模型选择无法保存，当前选择仍有效。'); }
+  };
   const deepseek = models.find(item => webAnalyzer(item)?.provider.webId === 'deepseek');
   const busy = state.running || !!state.activeIds.length;
   const currentProject = state.projects.find(p => p.id === state.activeProjectId);
@@ -207,7 +215,7 @@ export function BatchAnalysis({ active, providers, onNavigate }) {
     finally { importLock.current = false; setProjectPending(false); }
   };
   const projectSelect = label => <DramaPicker id={'bos-picker-' + label} label={label} projects={state.projects} tasks={state.tasks} activeProjectId={state.activeProjectId} disabled={projectPending || !state.loaded} deleteDisabled={importBusy} onSelect={selectDrama} onDelete={removeDrama} />;
-  i.useEffect(() => { try { localStorage.setItem(PREFERENCES, JSON.stringify({ preserve })); } catch { setError('字幕保留偏好无法保存，当前开关仍有效。'); } }, [preserve]);
+  i.useEffect(() => { try { localStorage.setItem(PREFERENCES, JSON.stringify({ ...preferences(), preserve })); } catch { setError('字幕保留偏好无法保存，当前开关仍有效。'); } }, [preserve]);
   i.useEffect(() => {
     if (!globalThis.blackObsidian?.setBatchPunctuationEnabled) return;
     let live = true;
@@ -299,7 +307,7 @@ export function BatchAnalysis({ active, providers, onNavigate }) {
       <p className="bos-script-footnote">本次粘贴归入：<strong>{requestedName || '请先输入剧名'}</strong>。输入新剧名后点击“新剧本”直接创建；重命名当前剧目后，从下拉列表切换已有剧目。</p>
       <div className="bos-batch-input-tabs" role="tablist" aria-label="剧本分析流程"><button type="button" role="tab" id="bos-batch-tab-input" aria-selected={inputTab === 'input'} aria-controls="bos-batch-panel-input" onClick={() => setInputTab('input')}>剧本分析</button><button type="button" role="tab" id="bos-batch-tab-deepseek" aria-selected={inputTab === 'deepseek'} aria-controls="bos-batch-panel-deepseek" onClick={() => setInputTab('deepseek')}>DeepSeek 分析结果</button></div>
       {inputTab === 'input' ? <div id="bos-batch-panel-input" role="tabpanel" aria-labelledby="bos-batch-tab-input">
-      <div className="bos-batch-settings"><label><span>分析模型</span><select aria-label="跑量剪辑流模型" disabled={busy} value={model.key} onChange={event => setSettings(value => ({ ...value, analyzerKey: event.target.value }))}>{models.map(item => <option value={item.key} key={item.key}>{item.label || `${item.model} · ${item.provider.name}`}</option>)}</select></label><label><span>字幕语言</span><select aria-label="跑量字幕语言" disabled={busy} value={settings.subtitleLanguage} onChange={event => setSettings(value => ({ ...value, subtitleLanguage: event.target.value }))}><option value="auto">自动识别</option><option value="zh">中文</option><option value="en">英文</option><option value="es">西语</option></select></label><div className="bos-batch-model-tools">{webAnalyzer(model) ? <button type="button" onClick={() => openWebAnalyzer(model)}>登录 {analysisName(model)} ↗</button> : <button type="button" onClick={() => onNavigate('providers')}>管理分析连接 ↗</button>}</div></div>
+      <div className="bos-batch-settings"><label><span>分析模型</span><select aria-label="跑量剪辑流模型" disabled={busy} value={model.key} onChange={event => selectAnalyzer(event.target.value)}>{models.map(item => <option value={item.key} key={item.key}>{item.label || `${item.model} · ${item.provider.protocol === "ollama" ? "本地部署" : item.provider.name}`}</option>)}</select></label><label><span>字幕语言</span><select aria-label="跑量字幕语言" disabled={busy} value={settings.subtitleLanguage} onChange={event => setSettings(value => ({ ...value, subtitleLanguage: event.target.value }))}><option value="auto">自动识别</option><option value="zh">中文</option><option value="en">英文</option><option value="es">西语</option></select></label><div className="bos-batch-model-tools">{webAnalyzer(model) ? <button type="button" onClick={() => openWebAnalyzer(model)}>登录 {analysisName(model)} ↗</button> : <button type="button" onClick={() => onNavigate('providers')}>管理分析连接 ↗</button>}</div></div>
       <div className="bos-batch-segment-settings"><label><span>配乐分析方式</span><select aria-label="跑量配乐分析方式" disabled={busy} value={settings.segmented ? 'segments' : 'whole'} onChange={event => setSettings(value => ({ ...value, segmented: event.target.value === 'segments' }))}><option value="whole">每集整篇推荐</option><option value="segments">每集分析多段音乐</option></select></label>{settings.segmented && <label><span>每集最多情节数</span><select aria-label="每集配乐段数" disabled={busy} value={settings.segmentCount} onChange={event => setSettings(value => ({ ...value, segmentCount: Number(event.target.value) }))}>{[2,3,4,5,6].map(n => <option key={n} value={n}>{n} 段</option>)}</select></label>}<small>根据真实剧情与情绪转折分段，场次编号仅供参考；每段优先推荐 5–8 首本地音乐。</small></div>
       <label><span className="bos-visually-hidden">多集完整剧本</span><textarea aria-label="多集完整剧本" rows={7} maxLength={BATCH_TEXT_LIMIT} disabled={importBusy} value={text} onChange={event => setText(event.target.value)} placeholder={'第1集 重逢\n[EN] JACK: We meet again.\n\n第2集 真相\n[EN] MIA: Tell me the truth.\n\n粘贴后自动识别全部集数，并联合分析本地配乐。'} /></label>
       <div className="bos-script-actions"><small>{text.length.toLocaleString()} / 1,000,000 字符 · 单集不超过 3 万字符</small><button type="button" disabled={!text.trim() || !requestedName || importBusy || !state.loaded} onClick={() => importAndAnalyze(text)}>立即识别并分析</button></div>
@@ -358,7 +366,7 @@ export function BatchProgressCard({ state, providers, onNavigate }) {
   const elapsed = Math.max(0, Math.floor(((progress.finishedAt || now) - progress.startedAt) / 1000));
   const duration = `${String(Math.floor(elapsed / 60)).padStart(2, '0')}:${String(elapsed % 60).padStart(2, '0')}`;
   const range = progress.batchFirst === progress.batchLast ? `第 ${progress.batchFirst} 集` : `第 ${progress.batchFirst}–${progress.batchLast} 集`;
-  const message = running ? progress.active ? `${batchPhases[progress.phase] || '正在准备分析'} · 本批 ${range}，共 ${progress.batchSize} 集` : '正在准备下一批'
+  const message = running ? progress.active ? `${batchPhases[progress.phase] || '正在准备分析'} · 当前 ${range} · 本次共 ${progress.total} 集` : '正在准备下一批'
     : progress.status === 'paused' ? '分析已中断，可继续处理剩余集数'
       : progress.status === 'error' ? progress.failed ? `${progress.failed} 集需要处理，请查看任务卡` : '分析未完成，请查看错误提示' : '本次分析已完成';
   return <aside className="bos-batch-api-progress" data-status={progress.status} aria-label="AI 分析进度">

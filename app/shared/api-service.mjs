@@ -1,6 +1,6 @@
 import { normalizeMusicOptions, buildSunoBody } from '../shared/music-options.mjs';
 import { getSunoSongs } from '../server/suno-response.mjs';
-import { isScriptAnalysisModel, scoreMessages, parseScoreResponse, validateScoreRequest } from '../shared/script-score.mjs';
+import { isScriptAnalysisModel, isLocalQwenModel, scoreMessages, parseScoreResponse, validateScoreRequest } from '../shared/script-score.mjs';
 import { validateLibraryInput, keywordMessages, parseKeywords, shortlistTracks, matchMessages, parseMatches } from '../shared/library-match.mjs';
 import { analyzeWithWeb } from '../shared/web-script-analysis.mjs';
 import { analyzeBatchMusic } from '../shared/batch-music.mjs';
@@ -9,12 +9,14 @@ import { readLocalModelSettings } from '../shared/local-model-settings.mjs';
 
 const DEFAULT_GEMINI_BASE_URL = 'https://generativelanguage.googleapis.com/v1beta';
 const DEEPSEEK_BASE_URL = 'https://api.deepseek.com';
+const QWEN_BASE_URL = 'https://dashscope.aliyuncs.com/compatible-mode/v1';
 const OLLAMA_BASE_URL = 'http://127.0.0.1:11435/v1';
 
 // Protocol and validation are shared by the legacy server and the native renderer.
 export function createApiService(fetch = globalThis.fetch, onBatchStage = () => {}) {
 function providerBaseUrl(provider) {
   if (provider?.protocol === 'deepseek') return DEEPSEEK_BASE_URL;
+  if (provider?.protocol === 'qwen') return QWEN_BASE_URL;
   if (provider?.protocol === 'ollama') return OLLAMA_BASE_URL;
   return provider?.protocol === 'gemini' && !provider.baseUrl?.trim()
     ? DEFAULT_GEMINI_BASE_URL : provider?.baseUrl;
@@ -69,7 +71,7 @@ async function requestProviderModels(provider) {
     throw Object.assign(new Error('请先填写 API 密钥。'), { status: 400 });
   }
   const protocol = provider.protocol || 'openai';
-  if (!['gemini', 'deepseek', 'openai', 'custom', 'anthropic', 'ollama'].includes(protocol)) {
+  if (!['gemini', 'deepseek', 'deepseek-relay', 'qwen', 'openai', 'custom', 'anthropic', 'ollama'].includes(protocol)) {
     throw Object.assign(new Error('此协议不提供模型列表，请手动添加模型 ID。'), { status: 400 });
   }
   const url = endpointUrl(providerBaseUrl(provider), '/models');
@@ -100,6 +102,7 @@ async function requestProviderModels(provider) {
     .map(name => String(name).replace(/^models\//, ''))
     .filter(name => protocol === 'gemini'
       ? /^gemini-/i.test(name) && !/embedding|embed|imagen|image|tts|whisper|audio-only/i.test(name)
+      : protocol === 'qwen' ? isScriptAnalysisModel(provider, name)
       : name && !/embedding|embed|tts|whisper/i.test(name));
   return [...new Set(models)];
 }
@@ -207,6 +210,7 @@ function buildProviderRequest(provider, model, messages, structured = false) {
       headers: { 'Content-Type': 'application/json' },
       body: {
         model, messages, stream: false,
+        ...(isLocalQwenModel(model) ? { think: false } : {}),
         ...(structured ? { format: typeof structured === 'object' ? structured : 'json' } : {}),
         options: { num_ctx: settings.contextTokens, num_predict: settings.outputTokens },
       },
@@ -246,7 +250,16 @@ function buildProviderRequest(provider, model, messages, structured = false) {
     };
   } else {
     if (protocol !== 'ollama') headers.Authorization = `Bearer ${provider.apiKey}`;
-    body = { model, messages, ...(protocol === 'deepseek' ? { max_tokens: 8192 } : {}), ...(protocol === 'deepseek' && structured ? { response_format: { type: 'json_object' } } : {}) };
+    body = { model, messages, ...(['deepseek', 'deepseek-relay', 'qwen'].includes(protocol) ? { max_tokens: 8192 } : {}), ...(['deepseek', 'deepseek-relay', 'qwen'].includes(protocol) && structured ? { response_format: { type: 'json_object' } } : {}) };
+    // Qwen structured output requires non-thinking mode, including models whose
+    // default mode may change when an alias is updated by the provider.
+    if (protocol === 'qwen') {
+      body.enable_thinking = false;
+      // The upstream JSON mode also requires the literal word JSON in a message.
+      if (structured && !messages.some(message => /json/i.test(message.content))) {
+        body.messages = [{ role: 'system', content: '只返回一个合法 JSON 对象。' }, ...messages];
+      }
+    }
   }
 
   return { url, headers, body };
@@ -298,6 +311,10 @@ async function requestProvider(provider, model, messages, timeoutMs = 120_000, s
   }
   const answer = extractText(provider.protocol || "openai", payload);
   const finishReason = payload?.candidates?.[0]?.finishReason || payload?.choices?.[0]?.finish_reason || payload?.done_reason || payload?.stop_reason || '';
+  if (provider.protocol === 'qwen') {
+    if (finishReason === 'length') throw Object.assign(new Error('千问 API 输出达到长度上限，分析未完成；请减少本批集数、分段数或缩短剧本后重试。'), { status: 502 });
+    if (!answer.trim()) throw Object.assign(new Error('千问 API 返回空白内容，请检查模型连接后重试。'), { status: 502 });
+  }
   if (provider.protocol === 'ollama' && structured && finishReason === 'length') {
     throw Object.assign(new Error('本地模型已达到输出 token 上限，未返回完整分析。请在“本地部署”提高最大输出 token，或缩短本集剧本。'), { status: 502 });
   }
@@ -543,14 +560,14 @@ signal.throwIfAborted();
     try {
       const result = await analyzeBatchMusic(body, async (messages, _label, schema) => {
         abort.signal.throwIfAborted();
-        const result = await requestProvider(body.provider, body.model, messages, 240_000, abort.signal, body.provider.protocol === 'ollama' && schema === false ? false : body.provider.protocol === 'ollama' && schema ? schema : ['deepseek', 'ollama'].includes(body.provider.protocol));
+        const result = await requestProvider(body.provider, body.model, messages, 240_000, abort.signal, body.provider.protocol === 'ollama' && schema === false ? false : body.provider.protocol === 'ollama' && schema ? schema : ['deepseek', 'deepseek-relay', 'qwen', 'ollama'].includes(body.provider.protocol));
         abort.signal.throwIfAborted();
-        if (body.provider.protocol === 'deepseek') {
+        if (['deepseek', 'deepseek-relay'].includes(body.provider.protocol)) {
           if (result.finishReason === 'length') throw Object.assign(new Error('DeepSeek API 输出达到长度上限，音乐匹配未完成；请减少本批集数或分段数后重试。'), { status: 502 });
           if (!result.text.trim()) throw Object.assign(new Error(`DeepSeek API 返回空白内容${result.finishReason ? `（${result.finishReason}）` : ''}；请检查模型连接后重试。`), { status: 502 });
         }
         return result.text;
-      }, { deepseekApi: ['deepseek', 'ollama'].includes(body.provider.protocol), localModel: body.provider.protocol === 'ollama', onStage: phase => onBatchStage(body.progressId, phase) });
+      }, { deepseekApi: ['deepseek', 'deepseek-relay', 'qwen', 'ollama'].includes(body.provider.protocol), localModel: body.provider.protocol === 'ollama', onStage: phase => onBatchStage(body.progressId, phase) });
       return reply(200, result);
     } finally {}
   }
@@ -561,7 +578,7 @@ signal.throwIfAborted();
     try {
       const result = await analyzeWithWeb('library-match', body, async messages => {
         abort.signal.throwIfAborted();
-        const answer = await requestProvider(body.provider, body.model, messages, 120_000, abort.signal, body.provider.protocol === 'ollama');
+        const answer = await requestProvider(body.provider, body.model, messages, 120_000, abort.signal, ['qwen', 'ollama'].includes(body.provider.protocol));
         abort.signal.throwIfAborted();
         return answer.text;
       });
@@ -579,7 +596,7 @@ signal.throwIfAborted();
         return reply(200, { segments });
       } finally {}
     }
-    const result = await requestProvider(body.provider, body.model, scoreMessages(input), 120_000, signal, body.provider.protocol === 'ollama');
+    const result = await requestProvider(body.provider, body.model, scoreMessages(input), 120_000, signal, ['qwen', 'ollama'].includes(body.provider.protocol));
     return reply(200, { score: parseScoreResponse(result.text, input.durationSeconds) });
   }
 

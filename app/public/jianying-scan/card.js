@@ -21,6 +21,8 @@ function render(value) {
   $('operation').textContent = batch ? `${value.model || 'AI'} · 剧本分析` : recording ? '录制坐标向导' : exporting ? '批量导出草稿' : 'AI 扫描草稿';
   $('title').textContent = title || '正在处理';
   $('message').textContent = value.message;
+  $('counts').hidden = !batch;
+  $('counts').textContent = batch ? `已完成 ${value.completed} / ${value.total} 集` : '';
   $('icon').textContent = terminal() ? value.stage === 'complete' ? '✓' : value.stage === 'error' ? '!' : '—' : '';
   $('stop').hidden = terminal() || activeManual;
   $('dismiss').hidden = activeManual;

@@ -60,7 +60,7 @@ namespace XM.Native {
                 case "titlebar-theme": {
                     var value = J.Str(p, "theme");
                     if (!System.Text.RegularExpressions.Regex.IsMatch(value, "^[a-z0-9-]{1,40}$")) throw new Exception("无效的主题。");
-                    theme = value; themeLight = J.Bool(p, "light"); MainWindow.Palette(!themeLight); Emit("bos:companion-theme", theme, PanelView); await UpdateMainPalette(); await UpdatePanelPalette(); return true;
+                    theme = value; themeLight = J.Bool(p, "light"); MainWindow.Palette(!themeLight); Emit("bos:companion-theme", theme, PanelView); await UpdateMainPalette(); await UpdatePanelPalette(); await UpdateProgressPalette(); return true;
                 }
                 case "http-fetch": return await Fetch(p);
                 case "http-cancel": { CancellationTokenSource token; if (requests.TryGetValue(J.Str(p, "requestId"), out token)) token.Cancel(); return null; }
@@ -143,7 +143,7 @@ namespace XM.Native {
                 foreach (var value in aiViews.Values) BrowserInput.Hide(value, MainView);
                 return null;
             }
-            string provider = J.Str(p, "provider"); if (provider != "deepseek" && provider != "doubao") throw new Exception("无效的网页模型。");
+            string provider = J.Str(p, "provider"); if (provider != "deepseek" && provider != "doubao" && provider != "qwen" && provider != "kimi") throw new Exception("无效的网页模型。");
             if (requestedAi != provider) { requestedAi = provider; aiInput.Invalidate(); }
             WebView2 view;
             if (!aiViews.TryGetValue(provider, out view)) {
@@ -168,23 +168,31 @@ namespace XM.Native {
             if (visible && changed) view.BringToFront(); activeAi = visible ? provider : "";
             return AIState(provider);
         }
+        private static string OfficialAIUrl(string provider) {
+            if (provider == "deepseek") return "https://chat.deepseek.com/";
+            if (provider == "doubao") return "https://www.doubao.com/chat/";
+            if (provider == "qwen") return "https://www.qianwen.com/";
+            if (provider == "kimi") return "https://www.kimi.com/";
+            throw new Exception("无效的网页模型。");
+        }
         private async Task InitializeAI(WebView2 view, string provider) {
             aiLoading.Add(provider);
-            await InitializeView(view, "official-" + provider, provider == "deepseek" ? "https://chat.deepseek.com/" : "https://www.doubao.com/chat/", false);
+            await InitializeView(view, "official-" + provider, OfficialAIUrl(provider), false);
             view.CoreWebView2.NavigationStarting += (s, e) => { if (activeAi == provider) aiInput.Invalidate(); aiLoading.Add(provider); aiErrors[provider] = ""; };
             view.CoreWebView2.NavigationCompleted += (s, e) => { aiLoading.Remove(provider); aiErrors[provider] = e.IsSuccess ? "" : "网页加载失败：" + e.WebErrorStatus + "，可刷新重试。"; };
         }
         private object AIState(string provider) { WebView2 view; string error; aiErrors.TryGetValue(provider, out error); bool found = aiViews.TryGetValue(provider, out view); return J.Obj("provider", provider, "visible", found && view.Visible && activeAi == provider, "loading", aiLoading.Contains(provider), "url", found && view.CoreWebView2 != null ? view.CoreWebView2.Source : "", "error", error ?? ""); }
         private async Task<object> AIAction(object p) {
             string provider = J.Str(p, "provider"), action = J.Str(p, "action"); WebView2 view;
-            if (action == "external") { OpenPath(provider == "deepseek" ? "https://chat.deepseek.com/" : "https://www.doubao.com/chat/"); return J.Obj("external", true); }
+            if (action == "external") { OpenPath(OfficialAIUrl(provider)); return J.Obj("external", true); }
             if (!aiViews.TryGetValue(provider, out view) || view.CoreWebView2 == null) throw new Exception("请先打开官方 AI 页面。");
             if (action == "reload") view.CoreWebView2.Reload();
-            if (action == "home") view.CoreWebView2.Navigate(provider == "deepseek" ? "https://chat.deepseek.com/" : "https://www.doubao.com/chat/");
+            if (action == "home") view.CoreWebView2.Navigate(OfficialAIUrl(provider));
             await Task.Yield(); return AIState(provider);
         }
         private async Task<object> RunAI(object p) {
             string provider = J.Str(p, "provider"); WebView2 view;
+            if (provider == "qwen" || provider == "kimi") return J.Obj("state", "manual", "message", "请在 " + (provider == "qwen" ? "千问" : "Kimi") + " 官网手动发送并复制回答到剪辑台导入。");
             if (activeAi != provider || !aiViews.TryGetValue(provider, out view) || !view.Visible || view.CoreWebView2 == null) throw new Exception("请在内嵌官方页面完成登录。");
             Uri uri; if (!Uri.TryCreate(view.CoreWebView2.Source, UriKind.Absolute, out uri) || uri.Scheme != "https" || !(provider == "deepseek" ? uri.Host == "chat.deepseek.com" : uri.Host == "www.doubao.com" || uri.Host == "doubao.com")) return J.Obj("state", "login", "message", "请在官网完成登录。");
             string script = J.Str(p, "script"); if (script.Length > 16 * 1024 * 1024) throw new Exception("截图内容过大。");

@@ -160,7 +160,7 @@ export function ScriptAutomation({ providers, automation, onNavigate }) {
     setOpened(id); setMessage('已为「' + segment.title + '」启动配乐任务，当前剧本和其他情节推荐已保留。');
   };
   const complete = jobs.filter(j => j.status === 'complete').length;
-  const selectModel = (label, list, selected, key) => <label><span>{label}</span><select aria-label={label} value={selected?.key || ''} onChange={e => change({ [key]: e.target.value })}>{!list.length && <option value="">先添加模型与连接</option>}{list.map(m => <option key={m.key} value={m.key} title={m.model}>{m.label || `${m.model} · ${m.provider.name}`}</option>)}</select></label>;
+  const selectModel = (label, list, selected, key) => <label><span>{label}</span><select aria-label={label} value={selected?.key || ''} onChange={e => change({ [key]: e.target.value })}>{!list.length && <option value="">先添加模型与连接</option>}{list.map(m => <option key={m.key} value={m.key} title={m.model}>{m.label || `${m.model} · ${m.provider.protocol === "ollama" ? "本地部署" : m.provider.name}`}</option>)}</select></label>;
 
   const localSettings = <div className="bos-local-match-settings">
     <div className="bos-script-section-title"><h4>本地音乐匹配</h4><button type="button" onClick={() => onNavigate('providers')}>管理连接 ↗</button></div>

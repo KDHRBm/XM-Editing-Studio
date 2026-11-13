@@ -14,7 +14,7 @@ using Microsoft.Web.WebView2.WinForms;
 
 namespace XM.Native {
     internal sealed partial class StudioHost : ApplicationContext {
-        internal const string Origin = "https://xm.local", Version = "1.6.1";
+        internal const string Origin = "https://xm.local", Version = "1.6.2";
         internal readonly string BaseDir, DataDir, ClientDir;
         internal StudioWindow MainWindow, PanelWindow;
         internal WebView2 MainView, PanelView;
@@ -107,7 +107,7 @@ namespace XM.Native {
                 core.NavigationCompleted += async (s, e) => {
                     if (!e.IsSuccess) { Log("navigation-error " + e.WebErrorStatus); return; }
                     if (view == MainView && core.Source == Origin + "/native-migrate.html") { try { await ImportLegacyStorage(core); core.Navigate(Origin + "/index.html"); } catch (Exception error) { Log("migration " + error); MessageBox.Show(MainWindow, "数据迁移未完成，旧数据仍保留。\n" + error.Message, "XM剪辑台"); } }
-                    else if (view == progressView) { progressReady = true; if (currentProgress != null) ShowProgress(currentProgress); }
+                    else if (view == progressView) { await UpdateProgressPalette(); progressReady = true; if (currentProgress != null) ShowProgress(currentProgress); }
                     else {
                         Emit("bos:companion-theme", theme, view);
                         if (view == MainView) { await UpdateMainPalette(); if (core.Source == Origin + "/index.html") await CheckStartupUpdate(); }
