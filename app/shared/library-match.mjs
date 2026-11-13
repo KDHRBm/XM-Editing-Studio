@@ -19,7 +19,7 @@ export function validateLibraryInput(input) {
   const ids = new Set();
   const tracks = input.tracks.map(track => {
     if (!track || typeof track.id !== 'string' || !/^[a-zA-Z0-9_-]{1,80}$/.test(track.id) || typeof track.title !== 'string' || !track.title.trim() || track.title.length > 240 || ids.has(track.id)) fail('音乐标题索引无效，请刷新音乐库。');
-    ids.add(track.id); return { id: track.id, title: track.title.trim() };
+    ids.add(track.id); return { id: track.id, title: track.title.trim(), ...(typeof track.relativePath === 'string' ? {relativePath:track.relativePath.slice(0,1000)} : {}) };
   });
   return { script, ...segmentOptions(input), title: String(input.title || '剧本配乐').slice(0, 80), hint, tracks, customKeywords };
 }

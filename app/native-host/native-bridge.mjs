@@ -59,7 +59,7 @@ window.fetch = async (input, options = {}) => {
       });
       const result = await api(url.pathname, body, signal); signal.throwIfAborted();
       return Response.json(result.body, { status: result.status });
-    } catch (error) { signal.throwIfAborted(); return Response.json({ error: error.message }, { status: error.status || 500 }); }
+    } catch (error) { signal.throwIfAborted(); return Response.json({ error: error.message, ...(error.usage?{usage:error.usage}:{}), ...(error.rawAnalysis?{rawAnalysis:error.rawAnalysis}:{}) }, { status: error.status || 500 }); }
   }
   return browserFetch(input, options);
 };

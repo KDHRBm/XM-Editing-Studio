@@ -65,10 +65,10 @@ export const batchQueue = createBatchAnalysisQueue({
     const catalog = await globalThis.blackObsidian?.getMusicLibrary?.() || { tracks: [], revision: '' };
     signal.throwIfAborted();
     const tracks = excludeUsedMusic(catalog.tracks, musicUsage.snapshot().history);
-    const value = await requestScriptAnalysis('batch-library-match', { segmented: !!tasks[0].settings.segmented, segmentCount: tasks[0].settings.segmentCount || 3, manualWeb: !!tasks[0].settings.manualWeb, episodes: tasks.map(({ id, episodeNumber, title, script }) => ({ id, episodeNumber, title, script })), recentEpisodes, provider: model.provider, model: model.model, tracks: tracks.map(({ id, title }) => ({ id, title })) }, webAnalyzer(model) ? signal : AbortSignal.any([signal, AbortSignal.timeout(730000)]), onStage);
+    const value = await requestScriptAnalysis('batch-library-match', { analysisMode:tasks[0].settings.analysisMode || 'standard', operation:tasks[0].operation || 'analyze', ...(tasks[0].operation==='supplement'?{previousEpisodes:tasks.map(t=>({id:t.id,...t.result}))}:{}), segmented: !!tasks[0].settings.segmented, segmentCount: tasks[0].settings.segmentCount || 3, manualWeb: !!tasks[0].settings.manualWeb, episodes: tasks.map(({ id, episodeNumber, title, script }) => ({ id, episodeNumber, title, script })), recentEpisodes, provider: model.provider, model: model.model, tracks: tracks.map(({ id, title,relativePath }) => ({ id, title,relativePath })) }, webAnalyzer(model) ? signal : AbortSignal.any([signal, AbortSignal.timeout(730000)]), onStage);
     signal.throwIfAborted();
     const titleMatches = matches => (matches || []).map(match => ({ ...match, title: catalog.tracks.find(track => track.id === match.id)?.title || match.id }));
-    return value.episodes.map(episode => ({ id: episode.id, value: { ...episode.value, matches: titleMatches(episode.value.matches), ...(episode.value.segments ? {segments:episode.value.segments.map(segment=>({...segment,matches:titleMatches(segment.matches)}))} : {}) }, revision: catalog.revision, analyzer: analysisName(model) }));
+    return value.episodes.map(episode => ({ id: episode.id, usage:value.usage, value: { ...episode.value, matches: titleMatches(episode.value.matches), ...(episode.value.segments ? {segments:episode.value.segments.map(segment=>({...segment,matches:titleMatches(segment.matches)}))} : {}) }, revision: catalog.revision, analyzer: analysisName(model) }));
   },
 });
 export function useBatchAnalysis() {

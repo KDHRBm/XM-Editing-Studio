@@ -67,12 +67,15 @@ export function nextBatchGroup(tasks, onlyIds = [], limits = {}) {
   const pending = tasks.filter(task => (!onlyIds.length || onlyIds.includes(task.id)) && ['queued', 'paused'].includes(task.status));
   const first = pending[0];
   if (!first) return [];
-  const episodeLimit = Math.min(first.settings.segmented ? Math.min(BATCH_GROUP_EPISODES, Math.floor(24 / (first.settings.segmentCount || 3))) : BATCH_GROUP_EPISODES, limits.episodes || BATCH_GROUP_EPISODES);
+  const fast = first.settings.analysisMode === 'fast';
+  const maximum = fast ? 20 : BATCH_GROUP_EPISODES;
+  const episodeLimit = Math.min(fast ? Math.min(20, Math.floor(120 / (first.settings.segmented ? first.settings.segmentCount || 3 : 1))) : first.settings.segmented ? Math.min(BATCH_GROUP_EPISODES, Math.floor(24 / (first.settings.segmentCount || 3))) : BATCH_GROUP_EPISODES, limits.episodes || maximum);
   const characterLimit = Math.min(BATCH_GROUP_CHARACTERS, limits.characters || BATCH_GROUP_CHARACTERS);
   let length = 0; const group = [];
   for (const task of pending) {
     if (task.projectId !== first.projectId || task.settings.analyzerKey !== first.settings.analyzerKey || !!task.settings.segmented !== !!first.settings.segmented || (task.settings.segmented && task.settings.segmentCount !== first.settings.segmentCount)) continue;
     if (!!task.settings.manualWeb !== !!first.settings.manualWeb) continue;
+    if ((task.settings.analysisMode || 'standard') !== (first.settings.analysisMode || 'standard') || (task.operation || 'analyze') !== (first.operation || 'analyze')) continue;
     if (group.length && (group.length >= episodeLimit || length + task.script.length > characterLimit)) break;
     group.push(task); length += task.script.length;
   }
@@ -153,8 +156,8 @@ export function createBatchAnalysisQueue({ load, save, analyze, extract = task =
       if (!projectId && !state.projects.length) projectId = await this.createProject('未命名剧本');
       if (!state.projects.some(p => p.id === projectId)) fail('请先选择或创建剧目。');
       const batchId = makeId(), now = new Date().toISOString();
-      const safeSettings = { analyzerKey: settings.analyzerKey, subtitleLanguage: settings.subtitleLanguage, manualWeb: !!settings.manualWeb, ...segmentOptions(settings) };
-      const added = episodes.filter(episode => !state.tasks.some(task => task.projectId === projectId && task.script === episode.script && task.settings.analyzerKey === safeSettings.analyzerKey && task.settings.subtitleLanguage === safeSettings.subtitleLanguage && !!task.settings.manualWeb === safeSettings.manualWeb && !!task.settings.segmented === safeSettings.segmented && (!safeSettings.segmented || task.settings.segmentCount === safeSettings.segmentCount))).map(episode => ({ ...episode, id: makeId(), batchId, projectId, settings: safeSettings, status: 'queued', createdAt: now, subtitleCount: null, result: null, error: '' }));
+      const safeSettings = { analyzerKey: settings.analyzerKey, subtitleLanguage: settings.subtitleLanguage, manualWeb: !!settings.manualWeb, analysisMode:settings.analysisMode === 'fast' ? 'fast' : 'standard', ...segmentOptions(settings) };
+      const added = episodes.filter(episode => !state.tasks.some(task => task.projectId === projectId && task.script === episode.script && (task.settings.analysisMode || 'standard') === safeSettings.analysisMode && task.settings.analyzerKey === safeSettings.analyzerKey && task.settings.subtitleLanguage === safeSettings.subtitleLanguage && !!task.settings.manualWeb === safeSettings.manualWeb && !!task.settings.segmented === safeSettings.segmented && (!safeSettings.segmented || task.settings.segmentCount === safeSettings.segmentCount))).map(episode => ({ ...episode, id: makeId(), batchId, projectId, settings: safeSettings, status: 'queued', createdAt: now, subtitleCount: null, result: null, error: '' }));
       if (state.tasks.length + added.length > BATCH_TASK_LIMIT) fail('最多保留 200 个任务。请先导出结果并清理不再需要的任务。');
       const previous = state.tasks;
       publish({ tasks: [...state.tasks, ...added], error: '' });
@@ -163,7 +166,8 @@ export function createBatchAnalysisQueue({ load, save, analyze, extract = task =
     },
     async remove(id) { assertIdle(); const previous = state.tasks; publish({ tasks: state.tasks.filter(task => task.id !== id), error: '' }); try { await persist(); } catch (error) { publish({ tasks: previous }); throw error; } },
     async clear(projectId) { assertIdle(); const previous = state.tasks; publish({ tasks: projectId ? state.tasks.filter(t => t.projectId !== projectId) : [], error: '' }); try { await persist(); } catch (error) { publish({ tasks: previous }); throw error; } },
-    async retry(id, analyzerKey, options) { assertIdle(); const task = state.tasks.find(task => task.id === id); if (!task) return; const previous = state.tasks; update(id, { status: 'queued', error: '', settings: { ...task.settings, ...(analyzerKey ? { analyzerKey } : {}), ...(options ? segmentOptions(options) : {}) } }); try { await persist(); } catch(error) { publish({tasks:previous}); throw error; } },
+    async retry(id, analyzerKey, options) { assertIdle(); const task = state.tasks.find(task => task.id === id); if (!task) return; const previous = state.tasks; update(id, { status: 'queued', operation:'analyze', error: '', settings: { ...task.settings, ...(analyzerKey ? { analyzerKey } : {}), ...(options ? {...segmentOptions(options),...(options.analysisMode ? {analysisMode:options.analysisMode === 'fast'?'fast':'standard'} : {})} : {}) } }); try { await persist(); } catch(error) { publish({tasks:previous}); throw error; } },
+    async supplement(id) { assertIdle(); const task=state.tasks.find(t=>t.id===id); if(!task?.result?.analysis) fail('请先完成剧情分析。'); const previous=state.tasks; update(id,{status:'queued',operation:'supplement',error:''}); try{await persist();}catch(error){publish({tasks:previous});throw error;} },
     pause() { generation++; controller?.abort(); publish({ running: false, progress: state.progress ? { ...state.progress, status: 'paused' } : null }); },
     dismissProgress() { if (!state.running) publish({ progress: null }); },
     start(onlyIds = []) {
@@ -202,10 +206,10 @@ export function createBatchAnalysisQueue({ load, save, analyze, extract = task =
               if (token !== generation || controller.signal.aborted) { for (const task of group) update(task.id, { status: 'paused' }); break; }
               if (!Array.isArray(results) || results.length !== group.length || new Set(results.map(item => item.id)).size !== group.length || group.some(task => !results.some(result => result.id === task.id && result.value?.analysis && Array.isArray(result.value.matches)))) fail('模型未完整返回本批次全部集数的配乐结果，请重试本批次。');
               reportStage('saving');
-              for (const result of results) update(result.id, { status: 'complete', result: result.value, revision: result.revision, analyzer: result.analyzer, completedAt: new Date().toISOString() });
+              for (const result of results) { const old=state.tasks.find(t=>t.id===result.id); update(result.id, { status: 'complete', operation:'analyze', result: result.value, revision: result.revision, analyzer: result.analyzer, usageHistory:[...(old?.usageHistory || []),...(result.usage ? [result.usage] : [])].slice(-30), completedAt: new Date().toISOString() }); }
               await persist();
             } catch (error) {
-              for (const task of group) update(task.id, { status: token !== generation || controller.signal.aborted ? 'paused' : 'error', error: token !== generation ? '' : error.message });
+              for (const task of group) update(task.id, { status: token !== generation || controller.signal.aborted ? 'paused' : 'error', error: token !== generation ? '' : error.message, ...(error.usage ? {usageHistory:[...(state.tasks.find(t=>t.id===task.id)?.usageHistory||[]),error.usage].slice(-30)} : {}) });
               await persist();
               break; // Authentication, service or persistence errors need attention before another request.
             }
@@ -226,7 +230,7 @@ export function createBatchAnalysisQueue({ load, save, analyze, extract = task =
   // Serialize user mutations through persistence so a failed save cannot roll
   // back a later tab selection or another drama's episodes.
   const guarded = { ...api };
-  for (const method of ['selectProject', 'createProject', 'renameProject', 'removeProject', 'import', 'remove', 'clear', 'retry']) {
+  for (const method of ['selectProject', 'createProject', 'renameProject', 'removeProject', 'import', 'remove', 'clear', 'retry','supplement']) {
     guarded[method] = async (...args) => {
       if (mutating) fail('正在保存剧目，请稍后再操作。');
       mutating = true;

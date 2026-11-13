@@ -35,6 +35,21 @@ const findLabel = (tree, label) => nodes(tree).find(node => node.props['aria-lab
 const findText = (tree, text) => nodes(tree).find(node => node.type === 'button' && textOf(node) === text);
 const render = (available = providers) => { cursor = 0; effects = []; return ui.BatchAnalysis({ active: true, providers: available, onNavigate: () => {} }); };
 
+test('DeepSeek fast mode is selectable, persists, and disappears on unsupported providers',()=>{
+  const key='xm.batch-preferences.v1',original=saved.get(key);
+  const reset=()=>{states=[];refs=[];cursor=0;previousEffects=[];effects=[];};
+  const available=[...providers,{id:'ds',protocol:'deepseek',name:'DS 官方',apiKey:'fixture',models:['deepseek-flash']}];
+  try{
+    saved.set(key,JSON.stringify({analyzerKey:'ds::deepseek-flash'}));reset();
+    let tree=render(available);
+    findLabel(tree,'DeepSeek 推荐数量').props.onChange({target:{value:'fast'}});
+    reset();tree=render(available);
+    assert.equal(findLabel(tree,'DeepSeek 推荐数量').props.value,'fast');
+    findLabel(tree,'跑量剪辑流模型').props.onChange({target:{value:'g::gemini-test'}});
+    assert.equal(findLabel(render(available),'DeepSeek 推荐数量'),undefined);
+  }finally{if(original===undefined)saved.delete(key);else saved.set(key,original);reset();}
+});
+
 test('batch analysis remembers the last model across remounts and delayed local providers', () => {
   const key = 'xm.batch-preferences.v1', original = saved.get(key);
   const reset = () => { states = []; refs = []; cursor = 0; previousEffects = []; effects = []; };
@@ -111,7 +126,7 @@ test('existing cards can be rerun in multi-segment mode and the dialog shows eac
   tree=render();
   assert.equal(lastRequest.input.segmented,true);assert.equal(lastRequest.input.segmentCount,5);assert.equal(lastRequest.input.episodes.length,2);
   assert.ok(record.tasks.every(task=>task.settings.segmented && task.result.segments.length===2));
-  assert.ok(findText(tree,'补充不足五首的推荐'));
+  assert.equal(findText(tree,'仅补选缺失音乐'),undefined, 'incremental API supplement is not offered for web models');
   findLabel(tree,'查看第31集字幕与音乐').props.onClick();tree=render();
   const modal=nodes(tree).find(node=>typeof node.type==='function' && node.type.name==='TaskDialog');
   // Render the dialog hooks in an isolated harness, then switch to its music tab.

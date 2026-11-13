@@ -6,8 +6,8 @@ import { parseSegments } from './script-segments.mjs';
 import { MUSIC_RECOMMENDATION_RULE, needsMusicReview, mergeMusicSelections, musicShortfall } from './music-recommendation-policy.mjs';
 import { localLibraryKeywordMessages, localSceneExcerpt, musicSemanticTitle, LOCAL_MUSIC_MATCH_RULE } from './music-title-vocabulary.mjs';
 const fail = message => { throw Object.assign(new Error(message), { status: 400 }); };
-export function validateBatchMusic(input) {
-  if (!Array.isArray(input.episodes) || !input.episodes.length || input.episodes.length > BATCH_GROUP_EPISODES) fail('每个联合分析批次需包含 1–12 集。');
+export function validateBatchMusic(input, {maxEpisodes = BATCH_GROUP_EPISODES} = {}) {
+  if (!Array.isArray(input.episodes) || !input.episodes.length || input.episodes.length > maxEpisodes) fail(`每个联合分析批次需包含 1–${maxEpisodes} 集。`);
   const ids = new Set();
   const episodes = input.episodes.map(episode => {
     if (!episode || typeof episode.id !== 'string' || !/^[a-zA-Z0-9-]{1,80}$/.test(episode.id) || ids.has(episode.id)) fail('批量集数标识无效或重复。');
