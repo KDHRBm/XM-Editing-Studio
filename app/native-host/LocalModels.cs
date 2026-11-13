@@ -189,12 +189,13 @@ namespace XM.Native {
             info.EnvironmentVariables["OLLAMA_NO_CLOUD"] = "1";
             info.EnvironmentVariables["OLLAMA_NUM_PARALLEL"] = "1";
             info.EnvironmentVariables["OLLAMA_TMPDIR"] = Path.Combine(LocalModelRoot, "temp");
+            await Task.Run(() => LocalModelNetwork.Configure(info));
             Directory.CreateDirectory(info.EnvironmentVariables["OLLAMA_TMPDIR"]);
             if (J.Bool(await LocalModelStatus(), "running")) throw new Exception("11435 端口已有其他服务，请先关闭该服务。");
             localModelServer = Process.Start(info);
             if (localModelServer == null) throw new Exception("无法启动 Ollama 本地服务。");
-            localModelServer.OutputDataReceived += (s, e) => { if (e.Data != null) Log("local-model " + e.Data); };
-            localModelServer.ErrorDataReceived += (s, e) => { if (e.Data != null) Log("local-model " + e.Data); };
+            localModelServer.OutputDataReceived += (s, e) => { if (e.Data != null) Log("local-model " + LocalModelNetwork.RedactLog(e.Data)); };
+            localModelServer.ErrorDataReceived += (s, e) => { if (e.Data != null) Log("local-model " + LocalModelNetwork.RedactLog(e.Data)); };
             localModelServer.BeginOutputReadLine(); localModelServer.BeginErrorReadLine();
             for (int attempt = 0; attempt < 30; attempt++) {
                 if (localModelServer.HasExited) throw new Exception("Ollama 本地服务启动失败，请查看启动日志。");
@@ -227,7 +228,7 @@ namespace XM.Native {
                                 while ((line = await reader.ReadLineAsync()) != null) {
                                     token.ThrowIfCancellationRequested();
                                     var progress = J.Decode(line);
-                                    string error = J.Str(progress, "error"); if (error.Length > 0) throw new Exception("模型下载失败：" + error);
+                                    string error = J.Str(progress, "error"); if (error.Length > 0) throw new Exception(LocalModelNetwork.DownloadError(error));
                                     ReportLocalModel("model", J.Str(progress, "status", "正在下载 " + model), (long)J.Num(progress, "completed"), (long)J.Num(progress, "total"));
                                 }
                             }
