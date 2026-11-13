@@ -50,7 +50,7 @@ test('local JSON analysis uses Ollama native options and format', async () => {
   assert.deepEqual(calls[0].options, { num_ctx: 16384, num_predict: 4096 });
   assert.equal(calls[0].format, undefined);
   await api('/api/script/batch-library-match', { provider, model: 'deepseek-r1:7b', episodes: [{ id: 'episode-1', episodeNumber: 1, title: '第1集', script: '发现关键线索。' }], tracks: [] });
-  assert.deepEqual(calls[1].options, { num_ctx: 16384, num_predict: 4096 });
+  assert.deepEqual(calls[1].options, { num_ctx: 16384, num_predict: 4096, temperature: 0 });
   assert.equal(calls[1].format.properties.episodes.minItems, 1);
   assert.deepEqual(calls[1].format.properties.episodes.items.properties.id.enum, ['episode-1']);
 });
@@ -114,7 +114,7 @@ test('local music matching sends compact references and writes scene-specific re
   assert.ok(requests[1].format.properties.episodes.items.required.includes('matches'));
   assert.deepEqual(requests[1].format.properties.episodes.items.properties.matches.items.properties.ref.enum, candidates.map(track => track.ref));
   assert.match(requests[2].messages[1].content, /夜间发现线索/);
-  assert.equal(requests[2].format, undefined);
+  assert.equal(requests[2].format.properties.reasons.maxItems, 5);
   assert.equal(result.body.episodes[0].value.matches.length, 5);
 });
 
@@ -153,8 +153,8 @@ test('local music reasons are rewritten in Chinese before saving', async () => {
   });
   const result = await api('/api/script/batch-library-match', { provider, model: 'deepseek-r1:7b', episodes: [{ id: 'episode-1', episodeNumber: 1, script: '雨夜发现线索。' }], tracks: [{ id: 'track-1', title: 'ES_Winter Warm 悬疑弦乐' }, { id: 'track-2', title: '紧张钢琴' }] });
   assert.equal(requests.length, 3);
-  assert.match(requests[2].messages[0].content, /为已经选出的每首曲目分别写一条具体的简体中文推荐理由/);
-  assert.equal(requests[2].format, undefined);
+  assert.deepEqual(requests[2].format.properties.reasons.items.properties.label.enum, ['R1', 'R2']);
+  assert.equal(requests[2].format.type, 'object');
   assert.equal(result.body.episodes[0].value.matches.length, 2);
   assert.ok(result.body.episodes[0].value.matches.every(match => /女主在雨夜/.test(match.reason)));
 });

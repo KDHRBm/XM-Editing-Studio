@@ -212,7 +212,7 @@ function buildProviderRequest(provider, model, messages, structured = false) {
         model, messages, stream: false,
         ...(isLocalQwenModel(model) ? { think: false } : {}),
         ...(structured ? { format: typeof structured === 'object' ? structured : 'json' } : {}),
-        options: { num_ctx: settings.contextTokens, num_predict: settings.outputTokens },
+        options: { num_ctx: settings.contextTokens, num_predict: settings.outputTokens, ...(structured ? { temperature: 0 } : {}) },
       },
     };
   }
@@ -576,6 +576,15 @@ signal.throwIfAborted();
     if (!isScriptAnalysisModel(body.provider, body.model)) throw Object.assign(new Error("请选择可用的剧本分析模型。"), { status: 400 });
     const abort = { signal };
     try {
+      if (body.provider.protocol === 'ollama') {
+        const result = await analyzeBatchMusic({ ...body, episodes: [{ id: 'single-script', episodeNumber: 1, title: body.title, script: body.script }] }, async (messages, _label, schema) => {
+          abort.signal.throwIfAborted();
+          const answer = await requestProvider(body.provider, body.model, messages, 240_000, abort.signal, schema || true);
+          abort.signal.throwIfAborted();
+          return answer.text;
+        }, { localModel: true, deepseekApi: true });
+        return reply(200, { ...result.episodes[0].value, customKeywords: validateLibraryInput(body).customKeywords });
+      }
       const result = await analyzeWithWeb('library-match', body, async messages => {
         abort.signal.throwIfAborted();
         const answer = await requestProvider(body.provider, body.model, messages, 120_000, abort.signal, ['qwen', 'ollama'].includes(body.provider.protocol));

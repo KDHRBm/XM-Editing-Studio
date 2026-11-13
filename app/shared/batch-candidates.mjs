@@ -1,3 +1,4 @@
+import { musicKeywordWeight } from './music-title-vocabulary.mjs';
 // Broaden title retrieval before AI judges semantic suitability. Never synthesize a recommendation.
 const families = [
   ['悲伤','伤感','悲痛','忧伤','哀伤','悲凉','失落','悲剧','sad','sadness','sorrow','melancholy','melancholic'],
@@ -12,16 +13,26 @@ const families = [
 const normalize = text => text.normalize('NFKC').toLowerCase().replace(/[^\p{L}\p{N}]+/gu, ' ').trim();
 const includes = (text, term) => /\p{Script=Han}/u.test(term) ? text.includes(term) : ` ${text} `.includes(` ${term} `);
 const titleFamily = text => normalize(text).replace(/\b\d+\b/g, '').trim();
-export function batchCandidates(tracks, keywords, limit = 40) {
+export function batchCandidates(tracks, keywords, limit = 40, options = {}) {
   const exact = [...new Set(keywords.map(normalize))];
   const expanded = new Set(exact.flatMap(word => word.split(' ').filter(word => word.length > 1)));
   for (const family of families) if (family.some(term => exact.some(word => includes(word, term)))) for (const term of family) expanded.add(term);
+  let primary = options.localModel ? exact.find(word => musicKeywordWeight(word) >= 4) : undefined;
+  // A concrete action is more informative than the tension shared by a fight,
+  // investigation, and office confrontation. Do not override grief or warmth.
+  if (['紧张', '激烈', '压迫'].includes(primary)) primary = ['战斗', '打架', '追逐', '对峙'].find(word => exact.includes(word)) || primary;
+  const primaryTerms = primary ? [primary, ...families.filter(family => family.some(term => includes(primary, term))).flat()] : [];
+  const weights = new Map([...exact, ...expanded].map(word => [word, options.localModel ? musicKeywordWeight(word) : 1]));
+  const preferred = options.localModel ? (options.customKeywords || []).map(normalize) : [];
   const scored = tracks.map((track, index) => {
     const title = normalize(track.title);
-    const score = exact.reduce((sum, word) => sum + (includes(title, word) ? 30 + Math.min(word.length, 12) : 0), 0)
-      + [...expanded].reduce((sum, word) => sum + (includes(title, word) ? 4 : 0), 0);
-    return { track, index, score, family: titleFamily(track.title) };
-  }).sort((a, b) => b.score - a.score || a.index - b.index);
+    const weight = word => weights.get(word);
+    const score = exact.reduce((sum, word) => sum + (includes(title, word) ? (30 + Math.min(word.length, 12)) * weight(word) : 0), 0)
+      + [...expanded].reduce((sum, word) => sum + (includes(title, word) ? 4 * weight(word) : 0), 0);
+    const primaryScore = primary && includes(title, primary) ? 2 : primaryTerms.some(term => includes(title, term)) ? 1 : 0;
+    const preferenceScore = preferred.filter(word => includes(title, word)).length;
+    return { track, index, score, primaryScore, preferenceScore, family: titleFamily(track.title) };
+  }).sort((a, b) => b.primaryScore - a.primaryScore || b.preferenceScore - a.preferenceScore || b.score - a.score || a.index - b.index);
   // A small library can go directly to the model. Larger libraries keep title
   // diversity so numbered copies of one track cannot crowd out other moods.
   const selected = [], used = new Set(), groups = new Map();
