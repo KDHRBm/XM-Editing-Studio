@@ -163,7 +163,7 @@ internal static class JianYingNativeTests
                 targetAnchors.SetValue(blankTitle,1);
                 Reject(()=>Call("WaitForDraftHome",drafts[0],gen,2,0.0),"a weak AI title box alone cannot authorize a draft click");
                 for(int n=0;n<2;n++) {
-                    var neighbor=new Rectangle(1100+n*250,500,130,70);
+                    var neighbor=new Rectangle(res[0]*(6+n*2)/10,res[1]*2/3,Math.Max(16,res[0]/12),Math.Max(16,res[1]/12));
                     using(var brush=new SolidBrush(n==0?Color.Firebrick:Color.DarkGreen))g.FillRectangle(brush,neighbor);
                     g.DrawLine(Pens.White,neighbor.Left,neighbor.Top,neighbor.Right,neighbor.Bottom);
                     var extra=Array.CreateInstance(targetAnchors.GetType().GetElementType(),2);

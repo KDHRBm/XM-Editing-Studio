@@ -9,6 +9,12 @@ using System.Windows.Forms;
 using XM.Native;
 
 internal static class NativeShellIdentityTests {
+    [DllImport("kernel32.dll", CharSet = CharSet.Unicode)] static extern uint GetLongPathName(string path, StringBuilder value, uint capacity);
+    static string CanonicalPath(string path) {
+        var value = new StringBuilder(32768);
+        uint length = GetLongPathName(path, value, (uint)value.Capacity);
+        return length > 0 && length < value.Capacity ? value.ToString() : Path.GetFullPath(path);
+    }
     [DllImport("shell32.dll")] static extern int SHGetPropertyStoreForWindow(IntPtr hwnd, ref Guid iid, [MarshalAs(UnmanagedType.Interface)] out ShellIdentity.IPropertyStore store);
     [DllImport("shell32.dll")] static extern int GetCurrentProcessExplicitAppUserModelID(out IntPtr value);
     [DllImport("user32.dll")] static extern IntPtr SendMessage(IntPtr hwnd, uint message, IntPtr wparam, IntPtr lparam);
@@ -36,9 +42,9 @@ internal static class NativeShellIdentityTests {
             ((IPersistFile)shell).Load(shortcut, 0); var link = (ShellIdentity.IShellLink)shell;
             Check(ShellIdentity.Read((ShellIdentity.IPropertyStore)shell, 5) == ShellIdentity.AppId, "explicit AppID persists");
             var value = new StringBuilder(32768); link.GetPath(value, value.Capacity, IntPtr.Zero, 4);
-            Check(string.Equals(value.ToString(), target, StringComparison.OrdinalIgnoreCase), "target preserved: expected " + target + ", received " + value);
-            link.GetWorkingDirectory(value, value.Capacity); Check(string.Equals(value.ToString(), Path.GetDirectoryName(target), StringComparison.OrdinalIgnoreCase), "working directory corrected");
-            int index; link.GetIconLocation(value, value.Capacity, out index); Check(string.Equals(value.ToString(), icon, StringComparison.OrdinalIgnoreCase) && index == 0, "app icon set");
+            Check(string.Equals(CanonicalPath(value.ToString()), CanonicalPath(target), StringComparison.OrdinalIgnoreCase), "target preserved: expected " + target + ", received " + value);
+            link.GetWorkingDirectory(value, value.Capacity); Check(string.Equals(CanonicalPath(value.ToString()), CanonicalPath(Path.GetDirectoryName(target)), StringComparison.OrdinalIgnoreCase), "working directory corrected");
+            int index; link.GetIconLocation(value, value.Capacity, out index); Check(string.Equals(CanonicalPath(value.ToString()), CanonicalPath(icon), StringComparison.OrdinalIgnoreCase) && index == 0, "app icon set");
             link.GetArguments(value, value.Capacity); Check(value.ToString() == "--kept \"带空格的参数 value\"", "arguments preserved");
             link.GetDescription(value, value.Capacity); Check(value.ToString() == "preserve description", "description preserved");
             int show; link.GetShowCmd(out show); Check(show == 3, "show mode preserved");
