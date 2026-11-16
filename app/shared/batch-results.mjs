@@ -1,5 +1,5 @@
 export function needsMusicSupplement(task) {
-  const target = task.result?.recommendationTarget || (task.settings?.analysisMode === 'fast' ? 1 : 5);
+  const target = task.result?.recommendationTarget || (task.settings?.analysisMode === 'targeted' ? 3 : task.settings?.analysisMode === 'fast' ? 1 : 5);
   return task.status === 'complete' && (task.result?.segments || [task.result]).some(unit => (unit?.matches?.length || 0) < target);
 }
 

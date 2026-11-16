@@ -50,6 +50,28 @@ test('DeepSeek fast mode is selectable, persists, and disappears on unsupported 
   }finally{if(original===undefined)saved.delete(key);else saved.set(key,original);reset();}
 });
 
+test('targeted trial requires an explicit choice, persists, and does not change unsupported model defaults',()=>{
+  const key='xm.batch-preferences.v1',original=saved.get(key);
+  const reset=()=>{states=[];refs=[];cursor=0;previousEffects=[];effects=[];};
+  const available=[...providers,{id:'ds',protocol:'deepseek',name:'DS 官方',apiKey:'fixture',models:['deepseek-flash']}];
+  try{
+    saved.set(key,JSON.stringify({analyzerKey:'ds::deepseek-flash'}));reset();
+    let tree=render(available);
+    assert.equal(findLabel(tree,'DeepSeek 推荐数量').props.value,'standard');
+    assert.equal(findLabel(tree,'跑量配乐分析方式').props.value,'whole');
+    findLabel(tree,'DeepSeek 推荐数量').props.onChange({target:{value:'targeted'}});
+    tree=render(available);
+    assert.equal(findLabel(tree,'跑量配乐分析方式').props.value,'segments');
+    assert.equal(findLabel(tree,'每集配乐段数').props.value,6);
+    reset();tree=render(available);
+    assert.equal(findLabel(tree,'DeepSeek 推荐数量').props.value,'targeted');
+    assert.equal(findLabel(tree,'每集配乐段数').props.value,6);
+    saved.set(key,JSON.stringify({analyzerKey:'webai:kimi::Kimi',analysisMode:'targeted'}));reset();tree=render(available);
+    assert.equal(findLabel(tree,'DeepSeek 推荐数量'),undefined);
+    assert.equal(findLabel(tree,'跑量配乐分析方式').props.value,'whole');
+  }finally{if(original===undefined)saved.delete(key);else saved.set(key,original);reset();}
+});
+
 test('batch analysis remembers the last model across remounts and delayed local providers', () => {
   const key = 'xm.batch-preferences.v1', original = saved.get(key);
   const reset = () => { states = []; refs = []; cursor = 0; previousEffects = []; effects = []; };

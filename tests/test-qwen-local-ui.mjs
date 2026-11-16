@@ -11,6 +11,32 @@ const bundle = await build({ entryPoints: ['app/src/LocalModels.jsx'], bundle: t
 const { LocalModels, useLocalProvider } = await import('data:text/javascript;base64,' + Buffer.from(bundle.outputFiles[0].text).toString('base64'));
 const nodes = tree => tree && typeof tree === 'object' ? [tree, ...(tree.children || []).flat(Infinity).flatMap(nodes)] : [];
 const textOf = tree => typeof tree === 'string' ? tree : (tree?.children || []).flat(Infinity).map(textOf).join('');
+
+test('RX 6500 XT exposes Vulkan controls, real GPU status and the 4 GB preset', async () => {
+  const values = new Map();
+  globalThis.localStorage = { getItem: key => values.get(key), setItem: (key, value) => values.set(key, value) };
+  const calls = [];
+  const status = { runtimeInstalled: true, running: true, models: ['qwen3.5:4b'], hardware: { gpuName: 'AMD Radeon RX 6500 XT', hasAmd: true, vramGB: 4, ramGB: 15.8 }, acceleration: {
+    settings: { mode: 'auto', vulkanDevice: '' }, hasAmd: true, vulkanInstalled: true, rocmInstalled: false, usageState: 'cpu', models: [{ name: 'qwen3.5:4b', vramBytes: 0 }],
+  } };
+  globalThis.blackObsidian = { localModelAction: async (...args) => { calls.push(args); return status; } };
+  states = [status, null, '', '', null]; cursor = 0; effects = [];
+  const tree = LocalModels();
+  assert.match(textOf(tree), /当前模型仅使用 CPU/);
+  assert.match(textOf(tree), /推荐 qwen3.5:4b/);
+  const choice = nodes(tree).find(n => n.type === 'select' && n.props.value === 'auto');
+  await choice.props.onChange({ target: { value: 'vulkan' } });
+  assert.deepEqual(calls[0], ['acceleration', '', { mode: 'vulkan', vulkanDevice: '' }]);
+  assert.equal(nodes(choice).find(n => n.type === 'option' && n.props.value === 'rocm').props.disabled, true);
+  nodes(tree).find(n => n.type === 'button' && textOf(n).includes('应用 4GB')).props.onClick();
+  assert.deepEqual(JSON.parse(values.get('xm-local-model-inference-v1')), { contextTokens: 8192, outputTokens: 2048 });
+  const { localAccelerationMessage, localVramText } = await import('../app/src/LocalAccelerationStatus.mjs');
+  assert.match(localAccelerationMessage({ usageState: 'idle' }), /尚未加载/);
+  assert.match(localAccelerationMessage({ usageState: 'gpu' }), /显卡已参与/);
+  assert.match(localAccelerationMessage({ usageState: 'unknown' }), /暂未取得/);
+  assert.equal(localVramText({ vramBytes: -1 }), '未知');
+  delete globalThis.localStorage;
+});
 test('local deployment displays downloaded Qwen and adds it without replacing existing connections', async () => {
   const events = [];
   const handlers = new Map();

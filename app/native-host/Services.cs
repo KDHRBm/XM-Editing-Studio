@@ -101,7 +101,7 @@ namespace XM.Native {
                 case "companion-action": return await CompanionAction(J.Str(p, "action"), J.Get(p, "value"));
                 case "updater-status": return updater;
                 case "updater-action": return await UpdateAction(J.Str(p, "action"));
-                case "local-model-action": return await LocalModelAction(J.Str(p, "action"), J.Str(p, "model"));
+                case "local-model-action": return await LocalModelAction(J.Str(p, "action"), J.Str(p, "model"), J.Get(p, "settings"));
                 default: throw new Exception("未知本机操作：" + command);
             }
         }

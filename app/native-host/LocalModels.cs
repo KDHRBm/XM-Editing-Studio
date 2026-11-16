@@ -41,26 +41,34 @@ namespace XM.Native {
                     }
                 }
             } catch { /* The local service is not running yet. */ }
+            object hardware = localHardware ?? (localHardware = await Task.Run(() => DetectLocalHardware()));
             return J.Obj("runtimeInstalled", File.Exists(LocalOllamaExe), "running", running,
                 "models", models, "root", LocalModelRoot, "endpoint", LocalModelHost + "/v1",
-                "progress", localModelProgress, "hardware", localHardware ?? (localHardware = await Task.Run(() => DetectLocalHardware())));
+                "progress", localModelProgress, "hardware", hardware, "acceleration", await LocalAccelerationStatus(running, hardware));
         }
-        private async Task<object> LocalModelAction(string action, string model) {
+        private async Task<object> LocalModelAction(string action, string model, object settings = null) {
+            if (action == "acceleration") return await SaveLocalAcceleration(settings);
             if (action == "detect") { localHardware = null; return await LocalModelStatus(); }
             if (action == "status") return await LocalModelStatus();
             if (action == "sources") return await CheckLocalModelSources(LocalModelNames.Contains(model, StringComparer.Ordinal) ? model : "deepseek-r1:7b");
             if (action == "cancel") { if (localModelCancel != null) localModelCancel.Cancel(); return await LocalModelStatus(); }
             if (action == "start") { await StartLocalModelServer(); return await LocalModelStatus(); }
             if (action == "stop") { await StopLocalModelServer(); return await LocalModelStatus(); }
-            if (action != "install-runtime" && action != "pull") throw new Exception("无效的本地模型操作。");
+            if (action != "install-runtime" && action != "upgrade-runtime" && action != "pull") throw new Exception("无效的本地模型操作。");
             if (action == "pull" && !LocalModelNames.Contains(model, StringComparer.Ordinal)) throw new Exception("不支持此模型，请从列表中选择。");
             if (!await localModelGate.WaitAsync(0)) throw new Exception("已有本地模型下载任务正在进行。");
             using (var cts = new CancellationTokenSource()) {
                 localModelCancel = cts;
                 try {
-                    if (action == "install-runtime") await InstallLocalRuntime(cts.Token);
-                    else { await StartLocalModelServer(); await PullLocalModel(model, cts.Token); }
-                    ReportLocalModel("done", action == "pull" ? model + " 已下载，可以加入分析模型。" : "本地运行环境已安装到 E 盘数据目录。");
+                    if (action == "pull") { await StartLocalModelServer(); await PullLocalModel(model, cts.Token); }
+                    else {
+                        await localStartGate.WaitAsync(cts.Token);
+                        try {
+                            if (J.Bool(await LocalModelStatus(), "running")) throw new Exception("请先等本地分析完成并停止本地服务，再更新运行环境。");
+                            await InstallLocalRuntime(cts.Token, action == "upgrade-runtime");
+                        } finally { localStartGate.Release(); }
+                    }
+                    ReportLocalModel("done", action == "pull" ? model + " 已下载，可以加入分析模型。" : "本地运行环境已安装；已下载的模型保留。");
                     return await LocalModelStatus();
                 } catch (OperationCanceledException) { ReportLocalModel("cancelled", "下载已取消。已下载的模型分块可在下次继续使用。"); throw new Exception("下载已取消。"); }
                 catch (Exception error) { if (cts.IsCancellationRequested) { ReportLocalModel("cancelled", "下载已取消。已下载的模型分块可在下次继续使用。"); throw new Exception("下载已取消。"); } ReportLocalModel("error", error.Message); throw; }
@@ -123,9 +131,9 @@ namespace XM.Native {
                 }
             } catch (Exception error) { return J.Obj("ok", false, "message", "模型下载源不可用：" + error.Message); }
         }
-        private async Task InstallLocalRuntime(CancellationToken token) {
-            if (File.Exists(LocalOllamaExe)) return;
-            if (Directory.Exists(LocalRuntime)) throw new Exception("运行环境目录已存在但缺少 ollama.exe，请检查 " + LocalRuntime);
+        private async Task InstallLocalRuntime(CancellationToken token, bool upgrade = false) {
+            if (File.Exists(LocalOllamaExe) && !upgrade) return;
+            if (Directory.Exists(LocalRuntime) && !upgrade) throw new Exception("运行环境目录已存在但缺少 ollama.exe，请更新运行环境修复 " + LocalRuntime);
             Directory.CreateDirectory(LocalModelRoot);
             ReportLocalModel("runtime", "正在查询 Ollama 官方 Windows 运行环境…");
             object release;
@@ -171,7 +179,12 @@ namespace XM.Native {
                     }
                 }, token);
                 if (!File.Exists(Path.Combine(stage, "ollama.exe"))) throw new Exception("运行环境解压后缺少 ollama.exe。");
-                Directory.Move(stage, LocalRuntime);
+                token.ThrowIfCancellationRequested();
+                string backup = Path.Combine(LocalModelRoot, "runtime-backup-" + DateTime.UtcNow.ToString("yyyyMMdd-HHmmss") + "-" + Guid.NewGuid().ToString("N"));
+                bool previous = Directory.Exists(LocalRuntime);
+                if (previous) Directory.Move(LocalRuntime, backup);
+                try { Directory.Move(stage, LocalRuntime); }
+                catch { if (previous && !Directory.Exists(LocalRuntime)) Directory.Move(backup, LocalRuntime); throw; }
             } finally {
                 if (File.Exists(archive)) File.Delete(archive);
                 if (Directory.Exists(stage)) Directory.Delete(stage, true);
@@ -190,9 +203,12 @@ namespace XM.Native {
             info.EnvironmentVariables["OLLAMA_NUM_PARALLEL"] = "1";
             info.EnvironmentVariables["OLLAMA_TMPDIR"] = Path.Combine(LocalModelRoot, "temp");
             Directory.CreateDirectory(info.EnvironmentVariables["OLLAMA_TMPDIR"]);
+            object acceleration = ReadLocalAcceleration();
+            LocalAcceleration.Apply(info, acceleration, localHardware ?? (localHardware = await Task.Run(() => DetectLocalHardware())), LocalRuntime);
             if (J.Bool(await LocalModelStatus(), "running")) throw new Exception("11435 端口已有其他服务，请先关闭该服务。");
             localModelServer = Process.Start(info);
             if (localModelServer == null) throw new Exception("无法启动 Ollama 本地服务。");
+            localAccelerationActive = acceleration;
             localModelServer.OutputDataReceived += (s, e) => { if (e.Data != null) Log("local-model " + e.Data); };
             localModelServer.ErrorDataReceived += (s, e) => { if (e.Data != null) Log("local-model " + e.Data); };
             localModelServer.BeginOutputReadLine(); localModelServer.BeginErrorReadLine();
@@ -264,6 +280,7 @@ namespace XM.Native {
                 }
                 localModelServer.Dispose();
                 localModelServer = null;
+                localAccelerationActive = null;
             } finally { localStartGate.Release(); }
         }
         private void StopLocalModels() {

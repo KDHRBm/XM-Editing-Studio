@@ -10,7 +10,8 @@ export const LOCAL_MODEL_OPTIONS = [
 
 export function recommendLocalModel(hardware, family = 'deepseek') {
   if (!hardware || !Number.isFinite(hardware.ramGB)) return { id: '', reason: '设备信息未读取成功，请手动选择。' };
-  const ram = hardware.ramGB, vram = Number(hardware.vramGB) || 0;
+  const ram = Math.ceil(hardware.ramGB), vram = Number(hardware.vramGB) || 0;
+  if (family === 'qwen' && ram >= 16 && vram >= 3.5 && vram < 6) return { id: 'qwen3.5:4b', reason: '4 GB 显存建议先用 8K 上下文、2K 输出；可能由 CPU 分担部分推理，实际以显存状态为准。' };
   if (family === 'qwen' && ram >= 16 && vram >= 6) return { id: vram >= 12 && ram >= 32 ? 'qwen3.5:9b' : 'qwen3.5:4b', reason: '免费本地千问，按当前显存选择规模；推理不调用云端 API。' };
   if (vram >= 48 && ram >= 96) return { id: 'deepseek-r1:70b', reason: '显存与内存达到工作站档位。' };
   if (vram >= 24 && ram >= 64) return { id: 'deepseek-r1:32b', reason: '显存与内存适合 32B。' };

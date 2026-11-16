@@ -9,7 +9,7 @@ export async function requestScriptAnalysis(purpose, body, signal, onStage = () 
     try {
       const response = await fetch(`/api/script/${purpose}`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ...body, progressId }), signal });
       const value = await response.json();
-      if (!response.ok) throw Object.assign(new Error(value.error || '剧本分析失败。'), {usage:value.usage});
+      if (!response.ok) throw Object.assign(new Error(value.error || '剧本分析失败。'), {usage:value.usage,...(typeof value.rawAnalysis==='string'?{rawAnalysis:value.rawAnalysis.slice(0,200000)}:{})});
       return value;
     } finally { globalThis.window?.removeEventListener('xm-batch-analysis-stage', stage); }
   }

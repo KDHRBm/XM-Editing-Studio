@@ -4,11 +4,12 @@ import { isScriptAnalysisModel, isLocalQwenModel, scoreMessages, parseScoreRespo
 import { validateLibraryInput, keywordMessages, parseKeywords, shortlistTracks, matchMessages, parseMatches } from '../shared/library-match.mjs';
 import { analyzeWithWeb } from '../shared/web-script-analysis.mjs';
 import { analyzeBatchMusic } from '../shared/batch-music.mjs';
-import { segmentMessages, parseSegments, planSegments, segmentCandidates, segmentMatchMessages, parseSegmentMatches } from '../shared/script-segments.mjs';
+import { segmentMessages, parseSegments, planSegments, segmentSchema, repairSegmentLineBreaks, segmentCandidates, segmentMatchMessages, parseSegmentMatches } from '../shared/script-segments.mjs';
 import { readLocalModelSettings } from '../shared/local-model-settings.mjs';
 import { analyzeFastBatchMusic } from './fast-batch-music.mjs';
 import { analysisCallUsage, summarizeAnalysisUsage } from './analysis-usage.mjs';
 import { supplementBatchMusic } from './supplement-batch-music.mjs';
+import { analyzeTargetedBatchMusic } from './targeted-batch-music.mjs';
 
 const DEFAULT_GEMINI_BASE_URL = 'https://generativelanguage.googleapis.com/v1beta';
 const DEEPSEEK_BASE_URL = 'https://api.deepseek.com';
@@ -204,6 +205,22 @@ async function requestSunoModelTest(provider, model) {
   await readUpstreamResponse(response, provider.apiKey, "Suno 异步接口测试失败");
 }
 
+function geminiResponseSchema(schema) {
+  // Some gateways translate JSON Schema to Gemini's older Schema message, which
+  // rejects additionalProperties even when it is nested inside array items.
+  const {additionalProperties, ...compatible} = schema;
+  if (schema.properties) compatible.properties = Object.fromEntries(Object.entries(schema.properties).map(([name, child]) => [name, geminiResponseSchema(child)]));
+  if (schema.items) compatible.items = geminiResponseSchema(schema.items);
+  return compatible;
+}
+
+function canRetryGeminiJson(provider, model, structured, status, detail) {
+  const gemini = provider.protocol === 'gemini' || ['openai', 'custom'].includes(provider.protocol) && /gemini/i.test(model);
+  return gemini && structured && typeof structured === 'object' && status === 400
+    && /response_?format|response(?:_?json)?_?schema|additionalProperties|json_schema/i.test(detail)
+    && /unknown (?:name|field)|cannot find field|not supported|unsupported|unrecognized|not allowed|不支持|未知字段/i.test(detail);
+}
+
 function buildProviderRequest(provider, model, messages, structured = false, requestOptions = {}) {
   const protocol = provider.protocol || "openai";
   if (protocol === 'ollama') {
@@ -249,11 +266,17 @@ function buildProviderRequest(provider, model, messages, structured = false, req
         parts: [{ text: item.content }],
       })),
       ...(system ? { systemInstruction: { parts: [{ text: system }] } } : {}),
-      ...(structured ? { generationConfig: { responseMimeType: 'application/json', maxOutputTokens: 16384 } } : {}),
+      ...(structured ? { generationConfig: { responseMimeType: 'application/json', maxOutputTokens: 16384, ...(typeof structured==='object'?{responseJsonSchema:geminiResponseSchema(structured)}:{}) } } : {}),
     };
   } else {
     if (protocol !== 'ollama') headers.Authorization = `Bearer ${provider.apiKey}`;
     body = { model, messages, ...(['deepseek', 'deepseek-relay', 'qwen'].includes(protocol) ? { max_tokens: 8192 } : {}), ...(['deepseek', 'deepseek-relay', 'qwen'].includes(protocol) && structured ? { response_format: { type: 'json_object' } } : {}) };
+    if(structured&&['openai','custom'].includes(protocol)&&/gemini/i.test(model)){
+      body.max_tokens=16384;
+      body.response_format=typeof structured==='object'
+        ? {type:'json_schema',json_schema:{name:'segmented_music_plan',schema:geminiResponseSchema(structured)}}
+        : {type:'json_object'};
+    }
     if (protocol === 'deepseek' || protocol === 'deepseek-relay' && requestOptions.disableThinking) body.thinking = {type:'disabled'};
     if (requestOptions.fast) body.max_tokens = 32768;
     // Qwen structured output requires non-thinking mode, including models whose
@@ -276,7 +299,7 @@ function extractText(protocol, payload) {
     return (payload?.content || []).filter((item) => item.type === "text").map((item) => item.text).join("");
   }
   if (protocol === "gemini") {
-    return (payload?.candidates?.[0]?.content?.parts || []).map((item) => item.text || "").join("");
+    return (payload?.candidates?.[0]?.content?.parts || []).filter(item=>item.thought!==true).map((item) => item.text || "").join("");
   }
   const content = payload?.choices?.[0]?.message?.content;
   if (typeof content === "string") return content;
@@ -312,6 +335,12 @@ async function requestProvider(provider, model, messages, timeoutMs = 120_000, s
   if (!response.ok) {
     let detail = payload?.error?.message || (typeof payload?.error === 'string' ? payload.error : '') || payload?.message || payload?.msg || `服务返回 HTTP ${response.status}`;
     if (provider.apiKey) detail = String(detail).replaceAll(provider.apiKey, "••••••••");
+    if (canRetryGeminiJson(provider, model, structured, response.status, String(detail))) {
+      // Only a definitive schema-parameter rejection permits this one retry.
+      // Passing true retains JSON mode and prevents another schema fallback.
+      signal?.throwIfAborted();
+      return requestProvider(provider, model, messages, timeoutMs, signal, true, requestOptions);
+    }
     throw Object.assign(new Error(`连接失败（${response.status}）：${String(detail).slice(0, 400)}`), { status: 502 });
   }
   const answer = extractText(provider.protocol || "openai", payload);
@@ -323,7 +352,11 @@ async function requestProvider(provider, model, messages, timeoutMs = 120_000, s
   if (provider.protocol === 'ollama' && structured && finishReason === 'length') {
     throw Object.assign(new Error('本地模型已达到输出 token 上限，未返回完整分析。请在“本地部署”提高最大输出 token，或缩短本集剧本。'), { status: 502 });
   }
-  return { payload, text: provider.protocol === 'ollama' ? answer.replace(/^\s*<think>[\s\S]*?<\/think>\s*/i, '') : answer, finishReason };
+  const separateThinking=provider.protocol==='ollama'||structured&&/gemini/i.test(model);
+  const finalAnswer=separateThinking?answer.replace(/^(?:\s*<think>[\s\S]*?<\/think>\s*)+/i,''):answer;
+  const resultText=separateThinking&&/^\s*<think>/i.test(finalAnswer)?'':finalAnswer;
+  const repairGemini=structured&&(provider.protocol==='gemini'||['openai','custom'].includes(provider.protocol)&&/gemini/i.test(model));
+  return { payload, text:repairGemini?repairSegmentLineBreaks(resultText):resultText, finishReason };
 }
 
 function asTrack(song) {
@@ -562,18 +595,27 @@ signal.throwIfAborted();
   if (url === '/api/script/batch-library-match') {
     if (!isScriptAnalysisModel(body.provider, body.model)) throw Object.assign(new Error('请选择可用的剧本分析模型。'), { status: 400 });
     const abort = { signal };
-    const fast = body.analysisMode === 'fast';
+    const targeted = body.analysisMode === 'targeted';
+    const fast = body.analysisMode === 'fast' || targeted;
     const supplement = body.operation === 'supplement';
     if (fast && !['deepseek','deepseek-relay'].includes(body.provider.protocol)) throw Object.assign(new Error('快速联合模式目前支持 DeepSeek 官方或兼容中转 API。'),{status:400});
     if (supplement && !['deepseek','deepseek-relay'].includes(body.provider.protocol)) throw Object.assign(new Error('增量补选目前支持 DeepSeek API。'),{status:400});
     const startedAt=Date.now(),calls=[];
     let lastReply='';
     try {
-      const result = await (supplement ? supplementBatchMusic : fast ? analyzeFastBatchMusic : analyzeBatchMusic)(body, async (messages, _label, schema) => {
+      const result = await (targeted ? analyzeTargetedBatchMusic : supplement ? supplementBatchMusic : fast ? analyzeFastBatchMusic : analyzeBatchMusic)(body, async (messages, _label, schema) => {
         abort.signal.throwIfAborted();
         const callStarted=Date.now();
-        const result = await requestProvider(body.provider, body.model, messages, fast ? 600_000 : 240_000, abort.signal, body.provider.protocol === 'ollama' && schema === false ? false : body.provider.protocol === 'ollama' && schema ? schema : ['deepseek', 'deepseek-relay', 'qwen', 'ollama'].includes(body.provider.protocol), {fast,disableThinking:fast});
-        calls.push(analysisCallUsage(result.payload,{label:_label,elapsedMs:Date.now()-callStarted,provider:body.provider,model:body.model}));
+        let result;
+        try {
+          result = await requestProvider(body.provider, body.model, messages, fast ? 600_000 : 240_000, abort.signal, body.provider.protocol === 'ollama' && schema === false ? false : body.provider.protocol === 'ollama' && schema ? schema : ['deepseek', 'deepseek-relay', 'qwen', 'ollama'].includes(body.provider.protocol), {fast,disableThinking:fast});
+        } catch(error) {
+          // A failed request may still have been billed. Unknown usage must not become zero.
+          if(targeted)calls.push({...analysisCallUsage({}, {label:_label,elapsedMs:Date.now()-callStarted,provider:body.provider,model:body.model}),requestedModel:body.model,thinking:'disabled',startedAt:new Date(callStarted).toISOString(),finishedAt:new Date().toISOString(),inputCharacters:JSON.stringify(messages).length,outputCharacters:null,finishReason:null,outcome:'request-failed'});
+          throw error;
+        }
+        calls.push({...analysisCallUsage(result.payload,{label:_label,elapsedMs:Date.now()-callStarted,provider:body.provider,model:body.model}),
+          ...(targeted?{requestedModel:body.model,thinking:'disabled',startedAt:new Date(callStarted).toISOString(),finishedAt:new Date().toISOString(),inputCharacters:JSON.stringify(messages).length,outputCharacters:result.text.length,finishReason:result.finishReason||null,outcome:'response'}: {})});
         if(fast) lastReply=result.text;
         abort.signal.throwIfAborted();
         if (['deepseek', 'deepseek-relay'].includes(body.provider.protocol)) {
@@ -615,7 +657,8 @@ signal.throwIfAborted();
     if (input.segmented) {
       const abort = { signal };
       try {
-        const segments = await planSegments(input, 'suno', messages => requestProvider(body.provider, body.model, messages, 120_000, abort.signal, true));
+        const schema=segmentSchema(input,'suno');
+        const segments = await planSegments(input, 'suno', messages => requestProvider(body.provider, body.model, messages, 120_000, abort.signal, schema));
         return reply(200, { segments });
       } finally {}
     }

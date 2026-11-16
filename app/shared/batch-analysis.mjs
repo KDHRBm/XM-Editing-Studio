@@ -67,7 +67,7 @@ export function nextBatchGroup(tasks, onlyIds = [], limits = {}) {
   const pending = tasks.filter(task => (!onlyIds.length || onlyIds.includes(task.id)) && ['queued', 'paused'].includes(task.status));
   const first = pending[0];
   if (!first) return [];
-  const fast = first.settings.analysisMode === 'fast';
+  const fast = ['fast','targeted'].includes(first.settings.analysisMode);
   const maximum = fast ? 20 : BATCH_GROUP_EPISODES;
   const episodeLimit = Math.min(fast ? Math.min(20, Math.floor(120 / (first.settings.segmented ? first.settings.segmentCount || 3 : 1))) : first.settings.segmented ? Math.min(BATCH_GROUP_EPISODES, Math.floor(24 / (first.settings.segmentCount || 3))) : BATCH_GROUP_EPISODES, limits.episodes || maximum);
   const characterLimit = Math.min(BATCH_GROUP_CHARACTERS, limits.characters || BATCH_GROUP_CHARACTERS);
@@ -156,7 +156,7 @@ export function createBatchAnalysisQueue({ load, save, analyze, extract = task =
       if (!projectId && !state.projects.length) projectId = await this.createProject('未命名剧本');
       if (!state.projects.some(p => p.id === projectId)) fail('请先选择或创建剧目。');
       const batchId = makeId(), now = new Date().toISOString();
-      const safeSettings = { analyzerKey: settings.analyzerKey, subtitleLanguage: settings.subtitleLanguage, manualWeb: !!settings.manualWeb, analysisMode:settings.analysisMode === 'fast' ? 'fast' : 'standard', ...segmentOptions(settings) };
+      const safeSettings = { analyzerKey: settings.analyzerKey, subtitleLanguage: settings.subtitleLanguage, manualWeb: !!settings.manualWeb, analysisMode:['fast','targeted'].includes(settings.analysisMode) ? settings.analysisMode : 'standard', ...segmentOptions(settings) };
       const added = episodes.filter(episode => !state.tasks.some(task => task.projectId === projectId && task.script === episode.script && (task.settings.analysisMode || 'standard') === safeSettings.analysisMode && task.settings.analyzerKey === safeSettings.analyzerKey && task.settings.subtitleLanguage === safeSettings.subtitleLanguage && !!task.settings.manualWeb === safeSettings.manualWeb && !!task.settings.segmented === safeSettings.segmented && (!safeSettings.segmented || task.settings.segmentCount === safeSettings.segmentCount))).map(episode => ({ ...episode, id: makeId(), batchId, projectId, settings: safeSettings, status: 'queued', createdAt: now, subtitleCount: null, result: null, error: '' }));
       if (state.tasks.length + added.length > BATCH_TASK_LIMIT) fail('最多保留 200 个任务。请先导出结果并清理不再需要的任务。');
       const previous = state.tasks;
@@ -166,7 +166,7 @@ export function createBatchAnalysisQueue({ load, save, analyze, extract = task =
     },
     async remove(id) { assertIdle(); const previous = state.tasks; publish({ tasks: state.tasks.filter(task => task.id !== id), error: '' }); try { await persist(); } catch (error) { publish({ tasks: previous }); throw error; } },
     async clear(projectId) { assertIdle(); const previous = state.tasks; publish({ tasks: projectId ? state.tasks.filter(t => t.projectId !== projectId) : [], error: '' }); try { await persist(); } catch (error) { publish({ tasks: previous }); throw error; } },
-    async retry(id, analyzerKey, options) { assertIdle(); const task = state.tasks.find(task => task.id === id); if (!task) return; const previous = state.tasks; update(id, { status: 'queued', operation:'analyze', error: '', settings: { ...task.settings, ...(analyzerKey ? { analyzerKey } : {}), ...(options ? {...segmentOptions(options),...(options.analysisMode ? {analysisMode:options.analysisMode === 'fast'?'fast':'standard'} : {})} : {}) } }); try { await persist(); } catch(error) { publish({tasks:previous}); throw error; } },
+    async retry(id, analyzerKey, options) { assertIdle(); const task = state.tasks.find(task => task.id === id); if (!task) return; const previous = state.tasks; update(id, { status: 'queued', operation:'analyze', error: '', settings: { ...task.settings, ...(analyzerKey ? { analyzerKey } : {}), ...(options ? {...segmentOptions(options),...(options.analysisMode ? {analysisMode:['fast','targeted'].includes(options.analysisMode)?options.analysisMode:'standard'} : {})} : {}) } }); try { await persist(); } catch(error) { publish({tasks:previous}); throw error; } },
     async supplement(id) { assertIdle(); const task=state.tasks.find(t=>t.id===id); if(!task?.result?.analysis) fail('请先完成剧情分析。'); const previous=state.tasks; update(id,{status:'queued',operation:'supplement',error:''}); try{await persist();}catch(error){publish({tasks:previous});throw error;} },
     pause() { generation++; controller?.abort(); publish({ running: false, progress: state.progress ? { ...state.progress, status: 'paused' } : null }); },
     dismissProgress() { if (!state.running) publish({ progress: null }); },
@@ -201,15 +201,20 @@ export function createBatchAnalysisQueue({ load, save, analyze, extract = task =
               if (token !== generation) { for (const task of group) update(task.id, { status: 'paused' }); break; }
               const groupIds = new Set(group.map(task => task.id));
               const neighbors = state.tasks.filter(task => task.projectId === group[0].projectId && !groupIds.has(task.id) && task.status === 'complete' && task.result && group.some(item => Math.abs(item.episodeNumber - task.episodeNumber) <= 2))
-                .map(task => ({ episodeNumber: task.episodeNumber, trackIds: [...new Set((task.result.segments?.flatMap(segment => segment.matches || []) || task.result.matches || []).map(match => match.id))] }));
+                .map(task => ({ episodeNumber: task.episodeNumber, trackIds: [...new Set((task.result.segments?.flatMap(segment => segment.matches || []) || task.result.matches || []).map(match => match.id))], ...(group[0].settings.analysisMode==='targeted'?{trackNames:[...new Set((task.result.segments?.flatMap(segment=>segment.matches||[])||task.result.matches||[]).map(match=>match.title).filter(title=>typeof title==='string'&&title.trim()))]}: {}) }));
               const results = await analyze(group, controller.signal, neighbors, reportStage);
               if (token !== generation || controller.signal.aborted) { for (const task of group) update(task.id, { status: 'paused' }); break; }
-              if (!Array.isArray(results) || results.length !== group.length || new Set(results.map(item => item.id)).size !== group.length || group.some(task => !results.some(result => result.id === task.id && result.value?.analysis && Array.isArray(result.value.matches)))) fail('模型未完整返回本批次全部集数的配乐结果，请重试本批次。');
+              if (!Array.isArray(results) || results.length !== group.length || new Set(results.map(item => item?.id)).size !== group.length || group.some(task => !results.some(result => result?.id === task.id && ((result.value?.analysis && Array.isArray(result.value.matches)) || (task.settings.analysisMode==='targeted' && typeof result.error==='string' && result.error.trim()))))) fail('模型未完整返回本批次全部集数的配乐结果，请重试本批次。');
               reportStage('saving');
-              for (const result of results) { const old=state.tasks.find(t=>t.id===result.id); update(result.id, { status: 'complete', operation:'analyze', result: result.value, revision: result.revision, analyzer: result.analyzer, usageHistory:[...(old?.usageHistory || []),...(result.usage ? [result.usage] : [])].slice(-30), completedAt: new Date().toISOString() }); }
+              for (const result of results) {
+                const old=state.tasks.find(t=>t.id===result.id);
+                const shared={usageHistory:[...(old?.usageHistory || []),...(result.usage ? [result.usage] : [])].slice(-30)};
+                update(result.id,result.error?{...shared,status:'error',error:result.error,rawAnalysis:typeof result.rawAnalysis==='string'?result.rawAnalysis.slice(0,200000):undefined}:{...shared,status:'complete',error:'',rawAnalysis:undefined,operation:'analyze',result:result.value,revision:result.revision,analyzer:result.analyzer,completedAt:new Date().toISOString()});
+              }
               await persist();
+              if(results.some(result=>result.error))break;
             } catch (error) {
-              for (const task of group) update(task.id, { status: token !== generation || controller.signal.aborted ? 'paused' : 'error', error: token !== generation ? '' : error.message, ...(error.usage ? {usageHistory:[...(state.tasks.find(t=>t.id===task.id)?.usageHistory||[]),error.usage].slice(-30)} : {}) });
+              for (const task of group) update(task.id, { status: token !== generation || controller.signal.aborted ? 'paused' : 'error', error: token !== generation ? '' : error.message, rawAnalysis:task===group[0]&&typeof error.rawAnalysis==='string'?error.rawAnalysis.slice(0,200000):undefined, ...(error.usage ? {usageHistory:[...(state.tasks.find(t=>t.id===task.id)?.usageHistory||[]),error.usage].slice(-30)} : {}) });
               await persist();
               break; // Authentication, service or persistence errors need attention before another request.
             }

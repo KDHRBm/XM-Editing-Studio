@@ -20,7 +20,8 @@ export function validateBatchMusic(input, {maxEpisodes = BATCH_GROUP_EPISODES} =
   if (input.recentEpisodes != null && (!Array.isArray(input.recentEpisodes) || input.recentEpisodes.length > 200)) fail('相邻集配乐记录无效。');
   const recentEpisodes = (input.recentEpisodes || []).map(item => {
     if (!Number.isInteger(item?.episodeNumber) || item.episodeNumber < 1 || item.episodeNumber > 9999 || !Array.isArray(item.trackIds) || item.trackIds.length > 64 || item.trackIds.some(id => typeof id !== 'string' || !/^[a-zA-Z0-9_-]{1,80}$/.test(id))) fail('相邻集配乐记录无效。');
-    return { episodeNumber: item.episodeNumber, trackIds: [...new Set(item.trackIds)] };
+    if(item.trackNames != null && (!Array.isArray(item.trackNames)||item.trackNames.length>64||item.trackNames.some(title=>typeof title!=='string'||!title.trim()||title.length>240)))fail('相邻集曲名记录无效。');
+    return { episodeNumber: item.episodeNumber, trackIds: [...new Set(item.trackIds)], ...(item.trackNames?{trackNames:[...new Set(item.trackNames)]}: {}) };
   });
   return { episodes, tracks, hint, customKeywords, recentEpisodes, ...segmentOptions(input) };
 }

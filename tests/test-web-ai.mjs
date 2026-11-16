@@ -160,7 +160,7 @@ const taskData = prompt => { const normalized = prompt.replace(/\r\n/g, '\n'); r
 test('manual web prompts preserve full script and user options without exporting credentials', () => {
   for (const purpose of ['keywords', 'suno']) for (const segmented of [false, true]) {
     const prompt = webAIScriptPrompt({ ...draft, segmented }, purpose), data = taskData(prompt);
-    assert.equal(data.originalScript, draft.script); assert.doesNotMatch(prompt, /do-not-export/);
+    assert.equal(segmented ? data.numberedScript.map(row=>row.text).join('\n') : data.originalScript, draft.script); assert.doesNotMatch(prompt, /do-not-export/);
     if (segmented) { assert.equal(data.maxSegments, 3); assert.equal(data.numberedScript.length, 4); assert.match(prompt, /startLine/); }
     if (purpose === 'suno') assert.match(prompt, /no vocals/);
     if (purpose === 'keywords') assert(data.customKeywords.includes('钢琴'));
@@ -174,7 +174,7 @@ test('web task copy remains complete and valid JSON with subtitle protection ena
   await guard.configure(true, 'compatible');
   const prompt = webAIScriptPrompt({ ...draft, segmented: true }, 'suno');
   const result = await guard.copyPlain(prompt); await tick(); await tick();
-  assert.equal(result.copyVerified, true); assert.equal(value.replace(/\r\n/g, '\n'), prompt); assert.equal(taskData(value).originalScript, draft.script);
+  assert.equal(result.copyVerified, true); assert.equal(value.replace(/\r\n/g, '\n'), prompt); assert.equal(taskData(value).numberedScript.map(row=>row.text).join('\n'), draft.script);
   await guard.copy('Subtitles, keep.'); assert.equal(value, 'Subtitles‚ keep․');
   await assert.rejects(guard.copyPlain('Bad\0text'), /格式无效/);
   await guard.dispose();

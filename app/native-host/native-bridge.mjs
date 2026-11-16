@@ -146,7 +146,7 @@ window.blackObsidian = Object.freeze({
   runtime: 'csharp-webview2',
   reportBatchProgress: progress => invoke('batch-progress', { progress }),
   getUpdaterStatus: () => invoke('updater-status'), updaterAction: action => invoke('updater-action', { action }, 25 * 60000), onUpdaterState: fn => on('bos:updater-state', fn),
-  localModelAction: (action, model = '') => invoke('local-model-action', { action, model }, 60 * 60000), onLocalModelProgress: fn => on('bos:local-model-progress', fn),
+  localModelAction: (action, model = '', settings) => invoke('local-model-action', { action, model, ...(settings ? { settings } : {}) }, 60 * 60000), onLocalModelProgress: fn => on('bos:local-model-progress', fn),
   setTitlebarTheme: (theme, light = false) => invoke('titlebar-theme', { theme, light }), onTrayNavigate: fn => on('bos:tray-navigate', fn),
   companionAction: (action, value) => invoke('companion-action', { action, value }, 25 * 60000), onCompanionState: fn => on('bos:companion-state', fn), onCompanionTheme: fn => on('bos:companion-theme', fn), onCompanionPlay: fn => on('bos:companion-play', fn), onCompanionPreviewBubble: fn => on('bos:companion-preview-bubble', fn), windowControl: action => invoke('window-control', { action }),
   layoutWebAI: async input => {
