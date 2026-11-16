@@ -104,6 +104,8 @@ export async function analyzeTargetedBatchMusic(body, ask, options={}) {
         }
         const e={...items[0],id:source.id},script=source.script.split('\n'),ss=e.segments;
         if(e.episodeNumber!=null&&e.episodeNumber!==source.episodeNumber)fail(`第${source.episodeNumber}集的 id 与 episodeNumber 冲突。`);
+        // Whole-episode bounds are known locally; a skipped heading is not a paid-request failure.
+        if(!input.segmented&&Array.isArray(ss)&&ss.length===1&&ss[0]&&typeof ss[0]==='object')ss[0].startLine=1;
         if(!Array.isArray(ss)||!ss.length||ss.length>(input.segmented?input.segmentCount:1)||ss.some((s,i)=>!Number.isSafeInteger(s?.startLine)||s.startLine<1||s.startLine>script.length||(i===0?s.startLine!==1:s.startLine<=ss[i-1].startLine)))fail('情节起点无效，不会自动重发付费请求。');
         for(let i=0;i<ss.length;i++){
           ss[i].endLine=ss[i+1]?ss[i+1].startLine-1:script.length;

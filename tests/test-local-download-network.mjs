@@ -7,7 +7,7 @@ import {spawnSync} from 'node:child_process';
 
 test('local Ollama launch carries the selected Windows HTTPS proxy into the child process',async()=>{
   const source=await fs.readFile('app/native-host/LocalModels.cs','utf8');
-  const start=source.slice(source.indexOf('private async Task StartLocalModelServer()'),source.indexOf('private async Task PullLocalModel('));
+  const start=source.slice(source.indexOf('private async Task StartLocalModelServer('),source.indexOf('private async Task PullLocalModel('));
   assert.match(start,/LocalModelNetwork\.Configure\(info/,'Ollama child process currently misses Windows system proxy');
 });
 

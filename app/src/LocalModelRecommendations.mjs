@@ -1,5 +1,5 @@
 export const LOCAL_MODEL_OPTIONS = [
-  { id: 'qwen3.5:4b', size: '3.4 GB', label: '千问 4B · 免费本地', detail: '适合先在 8 GB 显存设备上试用剧本与中文配乐分析，无需 API 密钥。' },
+  { id: 'qwen3.5:4b', size: '3.4 GB', label: '千问 4B · 免费本地', detail: '建议先选此模型；4 GB 显存可降低上下文并由内存分担，8 GB 显存更充裕，无需 API 密钥。' },
   { id: 'qwen3.5:9b', size: '约 6.6 GB', label: '千问 9B · 更大模型', detail: '需要更多显存和内存，可在 4B 效果不足时尝试。' },
   { id: 'deepseek-r1:1.5b', size: '1.1 GB', label: '1.5B · 入门测试', detail: '适合低配置设备，剧本分析质量有限。' },
   { id: 'deepseek-r1:7b', size: '4.7 GB', label: '7B · 速度优先', detail: '适合中端显卡与 16 GB 以上内存。' },

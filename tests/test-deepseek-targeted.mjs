@@ -66,6 +66,20 @@ test('targeted mode runs two stages with three grounded alternatives and real ID
   assert.ok(!JSON.stringify(result).includes(provider.apiKey));
 });
 
+test('whole episode ranges are derived locally even when the model skips the title', async () => {
+  const body = {...input(2), segmented:false};
+  const result = await run(body, (data, payload) => {
+    if (payload.phase !== 'music') for (const e of data.episodes) e.segments[0].startLine = 3;
+  });
+  assert.equal(result.episodes.length, 2);
+  for (const e of result.episodes) {
+    assert.ok(e.value, JSON.stringify(e));
+    assert.equal(e.value.startLine, 1);
+    assert.equal(e.value.endLine, 4);
+    assert.equal(e.value.matches.length, 3);
+  }
+});
+
 test('targeted batching and queue preserve the explicit trial mode',async()=>{
   const settings={analyzerKey:'ds::deepseek-flash',subtitleLanguage:'zh',analysisMode:'targeted',segmented:true,segmentCount:6};
   const tasks=input(20).episodes.map(e=>({...e,projectId:'p',status:'queued',settings}));

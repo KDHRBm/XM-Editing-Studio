@@ -60,7 +60,18 @@ namespace XM.Native {
             using (var cts = new CancellationTokenSource()) {
                 localModelCancel = cts;
                 try {
-                    if (action == "pull") { await StartLocalModelServer(); await PullLocalModel(model, cts.Token); }
+                    if (action == "pull") {
+                        await localStartGate.WaitAsync(cts.Token);
+                        try {
+                            if (!File.Exists(LocalOllamaExe)) {
+                                if (J.Bool(await LocalModelStatus(), "running")) throw new Exception("11435 端口已有其他本地服务，请先关闭该服务再部署模型。");
+                                await InstallLocalRuntime(cts.Token);
+                            }
+                        } finally { localStartGate.Release(); }
+                        cts.Token.ThrowIfCancellationRequested();
+                        await StartLocalModelServer(cts.Token);
+                        await PullLocalModel(model, cts.Token);
+                    }
                     else {
                         await localStartGate.WaitAsync(cts.Token);
                         try {
@@ -190,8 +201,8 @@ namespace XM.Native {
                 if (Directory.Exists(stage)) Directory.Delete(stage, true);
             }
         }
-        private async Task StartLocalModelServer() {
-            await localStartGate.WaitAsync();
+        private async Task StartLocalModelServer(CancellationToken token = default(CancellationToken)) {
+            await localStartGate.WaitAsync(token);
             try {
             if (!File.Exists(LocalOllamaExe)) throw new Exception("请先下载本地运行环境。");
             if (localModelServer != null && !localModelServer.HasExited && J.Bool(await LocalModelStatus(), "running")) return;
@@ -216,7 +227,7 @@ namespace XM.Native {
             for (int attempt = 0; attempt < 30; attempt++) {
                 if (localModelServer.HasExited) throw new Exception("Ollama 本地服务启动失败，请查看启动日志。");
                 if (J.Bool(await LocalModelStatus(), "running")) return;
-                await Task.Delay(500);
+                await Task.Delay(500, token);
             }
             throw new Exception("Ollama 本地服务启动超时，请查看启动日志。");
             } finally { localStartGate.Release(); }

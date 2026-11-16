@@ -36,9 +36,9 @@ internal static class NativeShellIdentityTests {
             ((IPersistFile)shell).Load(shortcut, 0); var link = (ShellIdentity.IShellLink)shell;
             Check(ShellIdentity.Read((ShellIdentity.IPropertyStore)shell, 5) == ShellIdentity.AppId, "explicit AppID persists");
             var value = new StringBuilder(32768); link.GetPath(value, value.Capacity, IntPtr.Zero, 4);
-            Check(value.ToString() == target, "target preserved");
-            link.GetWorkingDirectory(value, value.Capacity); Check(value.ToString() == Path.GetDirectoryName(target), "working directory corrected");
-            int index; link.GetIconLocation(value, value.Capacity, out index); Check(value.ToString() == icon && index == 0, "app icon set");
+            Check(string.Equals(value.ToString(), target, StringComparison.OrdinalIgnoreCase), "target preserved: expected " + target + ", received " + value);
+            link.GetWorkingDirectory(value, value.Capacity); Check(string.Equals(value.ToString(), Path.GetDirectoryName(target), StringComparison.OrdinalIgnoreCase), "working directory corrected");
+            int index; link.GetIconLocation(value, value.Capacity, out index); Check(string.Equals(value.ToString(), icon, StringComparison.OrdinalIgnoreCase) && index == 0, "app icon set");
             link.GetArguments(value, value.Capacity); Check(value.ToString() == "--kept \"带空格的参数 value\"", "arguments preserved");
             link.GetDescription(value, value.Capacity); Check(value.ToString() == "preserve description", "description preserved");
             int show; link.GetShowCmd(out show); Check(show == 3, "show mode preserved");

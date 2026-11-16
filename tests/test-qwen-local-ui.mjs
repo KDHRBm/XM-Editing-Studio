@@ -12,6 +12,22 @@ const { LocalModels, useLocalProvider } = await import('data:text/javascript;bas
 const nodes = tree => tree && typeof tree === 'object' ? [tree, ...(tree.children || []).flat(Infinity).flatMap(nodes)] : [];
 const textOf = tree => typeof tree === 'string' ? tree : (tree?.children || []).flat(Infinity).map(textOf).join('');
 
+test('a fresh computer can download Qwen without a preinstalled runtime or detected GPU', async () => {
+  for (const status of [null, { models: [], runtimeInstalled: false, hardware: null }]) {
+    const calls = [];
+    globalThis.blackObsidian = { localModelAction: async (...args) => { calls.push(args); return { models: [], runtimeInstalled: false }; } };
+    states = [status, null, '', '', null]; cursor = 0; effects = [];
+    const tree = LocalModels(), all = nodes(tree);
+    const row = all.find(n => n.props.className === 'bos-local-model-row' && textOf(n).includes('qwen3.5:4b'));
+    assert.ok(row, 'Qwen must remain visible before device detection completes');
+    const download = nodes(row).find(n => n.type === 'button');
+    assert.equal(download.props.disabled, false, 'a clean machine must have an actionable Qwen download');
+    assert.ok(all.indexOf(row) < all.findIndex(n => n.props.className === 'bos-local-runtime'), 'downloads must precede advanced setup');
+    await download.props.onClick();
+    assert.deepEqual(calls[0], ['pull', 'qwen3.5:4b']);
+  }
+});
+
 test('RX 6500 XT exposes Vulkan controls, real GPU status and the 4 GB preset', async () => {
   const values = new Map();
   globalThis.localStorage = { getItem: key => values.get(key), setItem: (key, value) => values.set(key, value) };

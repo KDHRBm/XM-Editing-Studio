@@ -106,7 +106,8 @@ internal static class JianYingNativeTests
         int gen = (int)Field("_operationGeneration");
         using (var scene = new Bitmap(res[0], res[1])) using (var g = Graphics.FromImage(scene)) using (var font = new Font("Arial", 17))
         {
-            g.Clear(Color.FromArgb(30,30,30)); g.DrawString("Local drafts / Show A",font,Brushes.White,heading.Location);
+            // Keep the differing glyph inside the measured heading at small CI screen sizes.
+            g.Clear(Color.FromArgb(30,30,30)); g.DrawString("Home A",font,Brushes.White,heading.Location);
             g.FillRectangle(Brushes.SteelBlue,box); g.FillEllipse(Brushes.Gold,Rectangle.Inflate(box,-30,-25));
             g.DrawLine(Pens.White,box.Left,box.Top,box.Right,box.Bottom);
             Action<string> title = text => {using(var brush=new SolidBrush(Color.FromArgb(30,30,30)))g.FillRectangle(brush,box.Left,box.Bottom,box.Width,36); g.DrawString(text,font,Brushes.White,box.Left,box.Bottom+2);};
@@ -137,10 +138,10 @@ internal static class JianYingNativeTests
                 Reject(()=>Call("WaitForDraftHome",drafts[0],gen,2,0.0),"different draft title with identical cover is rejected");
                 title("Episode 02");
                 using(var brush=new SolidBrush(Color.FromArgb(30,30,30)))g.FillRectangle(brush,heading);
-                g.DrawString("Local drafts / Show B",font,Brushes.White,heading.Location);
+                g.DrawString("Home B",font,Brushes.White,heading.Location);
                 Reject(()=>Call("WaitForDraftHome",drafts[0],gen,2,0.0),"another folder breadcrumb is rejected");
                 using(var brush=new SolidBrush(Color.FromArgb(30,30,30)))g.FillRectangle(brush,heading);
-                g.DrawString("Local drafts / Show A",font,Brushes.White,heading.Location);
+                g.DrawString("Home A",font,Brushes.White,heading.Location);
                 currentFrame[2]+=100;
                 Reject(()=>Call("WaitForDraftHome",drafts[0],gen,2,0.0),"resized home is never accepted"); currentFrame[2]-=100;
                 currentFrame[4]=144;
