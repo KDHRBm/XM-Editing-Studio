@@ -91,7 +91,8 @@ for(const [name,bytes] of candidates) {
   if(baseline.files[name] && hash(await fs.readFile(path.join(base,name)))!==baseline.files[name])throw Error('Baseline modified: '+name);
   await add(name,bytes,baseline.files[name],priorManifests.some(prior=>prior.files[name]!==baseline.files[name])||installedFiles[name]&&installedFiles[name]!==baseline.files[name]);finalFiles[name]=hash(bytes);
 }
-await add('native-files.json',Buffer.from(JSON.stringify({...baseline,version,files:finalFiles},null,2)),hash(await fs.readFile(path.join(base,'native-files.json'))));
+const orderedFiles=Object.fromEntries(Object.entries(finalFiles).sort(([a],[b])=>a<b?-1:a>b?1:0));
+await add('native-files.json',Buffer.from(JSON.stringify({...baseline,version,files:orderedFiles},null,2)),hash(await fs.readFile(path.join(base,'native-files.json'))));
 const retained=Object.fromEntries(Object.entries(programFiles).filter(([name])=>!changed.some(file=>file.name===name)&&(!name.startsWith('resources/companion/') || ['resources/companion/xm-manifest.json','resources/companion/dsh-pet-standalone-webm-chat.exe'].includes(name))));
 for(const [name,digest] of Object.entries(retained)) if(hash(await fs.readFile(path.join(base,name)))!==digest) throw Error('Retained baseline changed: '+name);
 const baselines=[];

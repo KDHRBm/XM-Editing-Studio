@@ -18,23 +18,29 @@ namespace XM.Native {
         private Dictionary<string, Dictionary<string, object>> tracks = new Dictionary<string, Dictionary<string, object>>();
         private readonly Dictionary<string, Tuple<string, long, long>> dragFiles = new Dictionary<string, Tuple<string, long, long>>();
         private readonly SemaphoreSlim libraryGate = new SemaphoreSlim(1, 1);
+        private MusicLibraryLoader libraryLoader;
         private void InitLibrary() {
             try { musicRoots = J.Arr(J.Get(J.Read(Path.Combine(DataDir, "music-library.json"), null), "directories")).OfType<string>().Where(Path.IsPathRooted).Distinct(StringComparer.OrdinalIgnoreCase).Take(20).ToList(); }
-            catch (Exception error) { libraryCatalog["warning"] = error.Message; }
-            Task.Run(async () => { try { await ScanLibrary(); } catch (Exception error) { Log(error.Message); } });
+            catch (Exception error) { libraryCatalog["warning"] = error.Message; libraryCatalog["error"] = error.Message; }
+            libraryLoader = new MusicLibraryLoader(ScanLibrary);
+            ObserveLibraryStartup();
         }
+        private async void ObserveLibraryStartup() { try { await libraryLoader.Get(); } catch (Exception error) { Log("music-library-startup " + error.Message); } }
+        private Task<object> ReadLibrary() { return libraryLoader.Get(); }
+        private Task<object> RefreshLibrary() { return libraryLoader.Refresh(); }
         private void SaveLibrary() { J.Save(Path.Combine(DataDir, "music-library.json"), J.Obj("version", 1, "directories", musicRoots)); }
         private async Task<object> ConnectMusicFolders(IEnumerable<string> folders) {
+            await ReadLibrary();
             var next = MusicDirectories.Merge(musicRoots, folders);
             J.Save(Path.Combine(DataDir, "music-library.json"), J.Obj("version", 1, "directories", next));
             musicRoots = next;
-            return await ScanLibrary();
+            return await RefreshLibrary();
         }
         private async Task<object> ScanLibrary() {
             await libraryGate.WaitAsync();
             try {
                 var roots = musicRoots.ToArray();
-                return await Task.Run<object>(() => {
+                var catalog = await Task.Run<object>(() => {
                     var index = new Dictionary<string, Dictionary<string, object>>(); var dirs = new List<object>(); var output = new List<object>(); int visited = 0, skipped = 0;
                     foreach (string root in roots) dirs.Add(J.Obj("id", J.Hash(root.ToLowerInvariant()), "path", root, "count", 0, "error", ""));
                     for (int pass = 0; pass < 2 && index.Count < 5000 && visited < 50000; pass++) {
@@ -44,9 +50,12 @@ namespace XM.Native {
                             ScanMusicRoot(roots[at], (Dictionary<string, object>)dirs[at], index, output, quota, visitLimit, ref visited, ref skipped);
                         }
                     }
-                    tracks = index; libraryCatalog = J.Obj("directories", dirs, "tracks", output, "scannedAt", J.Now(), "revision", J.Hash(J.Encode(output)), "warning", index.Count >= 5000 || visited >= 50000 ? "扫描达到范围限制；各文件夹的收录数量见下方，可连接更具体的目录。" : skipped > 0 ? skipped + " 个无法访问项目或链接已跳过。" : "");
+                    tracks = index; libraryCatalog = J.Obj("directories", dirs, "tracks", output, "scannedAt", J.Now(), "revision", J.Hash(J.Encode(output)), "error", J.Str(libraryCatalog, "error"), "warning", index.Count >= 5000 || visited >= 50000 ? "扫描达到范围限制；各文件夹的收录数量见下方，可连接更具体的目录。" : skipped > 0 ? skipped + " 个无法访问项目或链接已跳过。" : "");
                     return libraryCatalog;
                 });
+                Emit("bos:music-library-changed", catalog);
+                if (PanelView != null) Emit("bos:music-library-changed", catalog, PanelView);
+                return catalog;
             } finally { libraryGate.Release(); }
         }
         private static string MusicTitle(string file) {
@@ -95,6 +104,7 @@ namespace XM.Native {
                     if (e.Request.Method != "GET" && e.Request.Method != "HEAD") { e.Response = core.Environment.CreateWebResourceResponse(null, 405, "Method Not Allowed", "Allow: GET, HEAD"); return; }
                     if (e.Request.Headers.Contains("Origin") && e.Request.Headers.GetHeader("Origin") != Origin || e.Request.Headers.Contains("Sec-Fetch-Site") && e.Request.Headers.GetHeader("Sec-Fetch-Site") == "cross-site") { e.Response = core.Environment.CreateWebResourceResponse(null, 403, "Forbidden", "Cache-Control: no-store"); return; }
                     if (uri.AbsolutePath.StartsWith("/local-music/")) file = ResolveTrack(Uri.UnescapeDataString(uri.AbsolutePath.Substring(13)));
+                    else if (uri.AbsolutePath.StartsWith("/voice-audio/")) file = VoiceOutput(Uri.UnescapeDataString(uri.AbsolutePath.Substring(13)));
                     else file = J.Under(ClientDir, Uri.UnescapeDataString(uri.AbsolutePath == "/" ? "index.html" : uri.AbsolutePath.Substring(1)).Replace('/', Path.DirectorySeparatorChar));
                     long size = new FileInfo(file).Length, start = 0, end = size - 1; bool partial = e.Request.Headers.Contains("Range");
                     if (partial) {

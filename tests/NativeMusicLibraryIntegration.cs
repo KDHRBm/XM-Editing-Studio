@@ -4,7 +4,8 @@ using System.Linq;
 using XM.Native;
 namespace XM.Native {
     internal sealed partial class StudioHost {
-        internal StudioHost(string testProfile) { DataDir = testProfile; }
+        // This fixture has no UI window; keep scans/persistence real and suppress view notifications.
+        internal StudioHost(string testProfile) { DataDir = testProfile; Exiting = true; InitLibrary(); }
         internal object TestConnect(string[] folders) { return ConnectMusicFolders(folders).GetAwaiter().GetResult(); }
         internal string TestMusicTitle(string file) { return MusicTitle(file); }
         internal object TestAddFolders(params string[] folders) { return AddQuickFolders(folders).GetAwaiter().GetResult(); }

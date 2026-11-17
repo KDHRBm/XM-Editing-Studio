@@ -1,8 +1,9 @@
 import { validateBatchMusic, parseBatchKeywords } from './batch-music.mjs';
 import { batchCandidates } from './batch-candidates.mjs';
+import { parseTargetedJson } from './targeted-json.mjs';
 
 export const TARGETED_MUSIC_TARGET = 3;
-const CANDIDATES = 20, UNITS_PER_REQUEST = 24, REQUEST_CHARACTERS = 45000;
+const CANDIDATES = 20, UNITS_PER_REQUEST = 8, REQUEST_CHARACTERS = 24000;
 const fail = message => { throw Object.assign(new Error(message), {status:400}); };
 const name = title => title.normalize('NFKC').toLowerCase().replace(/\s+/g,' ').trim();
 const neighbors = (a,b) => Math.abs(a-b) >= 1 && Math.abs(a-b) <= 2;
@@ -24,8 +25,8 @@ function episodeReplies(items, expected) {
   return {byRef,unknown};
 }
 const parse = text => {
-  try { return JSON.parse(text.trim().replace(/^```(?:json)?\s*/i,'').replace(/\s*```$/,'')); }
-  catch { fail('模型未返回完整 JSON，已保留完成的分析和推荐。'); }
+  try { return parseTargetedJson(text); }
+  catch (error) { fail(error.message); }
 };
 const sha256 = async value => [...new Uint8Array(await crypto.subtle.digest('SHA-256',new TextEncoder().encode(value)))].map(b=>b.toString(16).padStart(2,'0')).join('');
 function exact(items, expected, label) {
@@ -88,8 +89,8 @@ export async function analyzeTargetedBatchMusic(body, ask, options={}) {
   }else{
     options.onStage?.('keywords');
     const payload={phase:'segments',maxSegments:input.segmented?input.segmentCount:1,folders,musicRequirements:input.hint,customKeywords:input.customKeywords,
-      episodes:input.episodes.map(e=>({...e,id:episodeRef(e),script:e.script.split('\n').map((line,i)=>`${i+1}|${line}`).join('\n')}))};
-    planningReply=await ask([{role:'system',content:SEGMENT_RULES+' id 使用实际集号的简短编号，例如第13集为 E13；不可改用数组位置、场次号或另造编号。'},{role:'user',content:JSON.stringify(payload)}],'目录优选：剧情分段');
+      episodes:input.episodes.map(e=>({...e,id:episodeRef(e),lineCount:e.script.split('\n').length,script:e.script.split('\n').map((line,i)=>`${i+1}|${line}`).join('\n')}))};
+    planningReply=await ask([{role:'system',content:SEGMENT_RULES+' id 使用实际集号的简短编号，例如第13集为 E13；不可改用数组位置、场次号或另造编号。行号是每行竖线前的整数，不是场次号；startLine与evidenceLine均不得超过本集lineCount。首段包含第1行标题和开场说明；evidenceLine必须指向本段非空的实际原文行。'},{role:'user',content:JSON.stringify(payload)}],'目录优选：剧情分段');
     const data=parse(planningReply);
     if(!Array.isArray(data?.episodes))fail('分段 JSON 缺少 episodes 集数数组，不会自动重发付费请求。');
     const replies=episodeReplies(data.episodes,input.episodes);
@@ -102,14 +103,23 @@ export async function analyzeTargetedBatchMusic(body, ask, options={}) {
           identityDiagnostics[items.length?'duplicate':'missing'].push(ref);
           fail(`第${source.episodeNumber}集（${ref}）分段标识${items.length?'重复':'缺失'}，未按返回顺序猜测归属；其他有效集数保留。`);
         }
-        const e={...items[0],id:source.id},script=source.script.split('\n'),ss=e.segments;
+        const e={...items[0],id:source.id},script=source.script.split('\n');
+        const ss=Array.isArray(e.segments)?e.segments.map(s=>s&&typeof s==='object'?{...s}:s):e.segments;
+        e.segments=ss;
         if(e.episodeNumber!=null&&e.episodeNumber!==source.episodeNumber)fail(`第${source.episodeNumber}集的 id 与 episodeNumber 冲突。`);
         // Whole-episode bounds are known locally; a skipped heading is not a paid-request failure.
         if(!input.segmented&&Array.isArray(ss)&&ss.length===1&&ss[0]&&typeof ss[0]==='object')ss[0].startLine=1;
-        if(!Array.isArray(ss)||!ss.length||ss.length>(input.segmented?input.segmentCount:1)||ss.some((s,i)=>!Number.isSafeInteger(s?.startLine)||s.startLine<1||s.startLine>script.length||(i===0?s.startLine!==1:s.startLine<=ss[i-1].startLine)))fail('情节起点无效，不会自动重发付费请求。');
+        if(!Array.isArray(ss)||!ss.length||ss.length>(input.segmented?input.segmentCount:1))fail(`第${source.episodeNumber}集分段数量无效，应为1–${input.segmented?input.segmentCount:1}段；未自动重发请求。`);
+        const invalidStart=ss.findIndex((s,i)=>!Number.isSafeInteger(s?.startLine)||s.startLine<1||s.startLine>script.length||(i>0&&s.startLine<=ss[i-1].startLine));
+        if(invalidStart>=0)fail(`第${source.episodeNumber}集第${invalidStart+1}段起点无效（${String(ss[invalidStart]?.startLine).slice(0,40)}），应为1–${script.length}内严格递增的整数；未自动重发请求。`);
+        // The first cue can skip a title, cast list or opening setup. Include that
+        // prefix locally; never move subsequent model-selected emotional transitions.
+        // Validate the supplied starts BEFORE extending the first segment so a
+        // missing/zero/out-of-range/reversed boundary cannot be silently accepted.
+        ss[0].startLine=1;
         for(let i=0;i<ss.length;i++){
           ss[i].endLine=ss[i+1]?ss[i+1].startLine-1:script.length;
-          if(!evidenceValid(ss[i].evidenceLine,ss[i],script))fail('分段证据不在本段原文中，不会自动重发付费请求。');
+          if(!evidenceValid(ss[i].evidenceLine,ss[i],script))fail(`第${source.episodeNumber}集第${i+1}段证据行${String(ss[i].evidenceLine).slice(0,40)}无效，应为${ss[i].startLine}–${ss[i].endLine}内的非空原文行；其他有效集数保留。`);
         }
         // Validate each episode independently, without inventing missing fields.
         planned.push(...parseBatchKeywords(JSON.stringify({episodes:[e]}),{...input,episodes:[source],segmented:true}));
@@ -121,7 +131,7 @@ export async function analyzeTargetedBatchMusic(body, ask, options={}) {
     }
     if(!planned.length){
       const details=[['缺失',identityDiagnostics.missing],['重复',identityDiagnostics.duplicate],['未知',identityDiagnostics.unknown]].filter(([,ids])=>ids.length).map(([label,ids])=>`${label} ${ids.slice(0,20).join('、')}`).join('；');
-      fail(`分段结果无可用集数（应返回 ${input.episodes.length} 集，实际 ${data.episodes.length} 项）：${details||planningFailures.values().next().value.error}。未自动重发付费请求。`);
+      fail(`分段结果无可用集数（应返回 ${input.episodes.length} 集，实际 ${data.episodes.length} 项）：${details||planningFailures.values().next().value.error.replace(/[。；]+$/,'')}。`);
     }
     // Store one copy per failed batch, not twenty copies of the same response.
     if(planningFailures.size)planningFailures.values().next().value.rawAnalysis=planningReply.slice(0,200000);
@@ -182,7 +192,7 @@ export async function analyzeTargetedBatchMusic(body, ask, options={}) {
       if(group.length&&size+estimate>REQUEST_CHARACTERS)break;
       offset++;size+=estimate;
       unit.evaluated=candidates.length;
-      if(!candidates.length){unit.noMatchReason='当前曲库没有满足去重条件的候选。';continue;}
+      if(!candidates.length){unit.noMatchReason=input.tracks.length?'当前曲库没有满足去重条件的候选。':'本次未读取到可用音乐；连接或刷新音乐库后，可仅补缺失音乐，无需重新分析剧情。';continue;}
       for(const t of candidates)if(!catalog.has(t.id))catalog.set(t.id,{...t,ref:`M${catalog.size+1}`});
       group.push({episode,unit,evidence,candidates});
     }
@@ -196,20 +206,22 @@ export async function analyzeTargetedBatchMusic(body, ask, options={}) {
     }
     options.onStage?.('matching');
     requests.push({phase:'music',segments:group.length,candidates:catalog.size,inputCharacters:JSON.stringify(payload).length});
+    let selectionReply='';
     try{
-      const data=parse(await ask([{role:'system',content:MATCH_RULES},{role:'user',content:JSON.stringify(payload)}],supplement?'目录优选：仅补缺项':'目录优选：候选选曲'));
+      selectionReply=await ask([{role:'system',content:MATCH_RULES+' 输出仅限上述结果字段：顶层 episodes；每集 id、segments；每段 id、matches、noMatchReason；每首 ref、evidenceLine、reason。输入的 evidence、candidateRefs、summary、keywords、title、行号范围与目录只供判断，不要复制到结果。evidenceLine 使用不带引号的整数。返回一个完整 JSON 对象，不添加前言、代码围栏、注释或末尾逗号；字符串内的双引号、换行须按 JSON 转义，所有数组和对象须闭合。'},{role:'user',content:JSON.stringify(payload)}],supplement?'目录优选：仅补缺项':'目录优选：候选选曲');
+      const data=parse(selectionReply);
       if(!Array.isArray(data?.episodes))fail('选曲 JSON 缺少集数，已保留此前结果。');
       const byRef=new Map([...catalog.values()].map(t=>[t.ref,t]));
       const replies=episodeReplies(data.episodes,[...new Map(group.map(item=>[item.episode.id,item.episode])).values()]);
       for(const item of group){
         const matchingEpisodes=replies.byRef.get(episodeRef(item.episode));
-        if(matchingEpisodes.length!==1){item.unit.noMatchReason='本集选曲缺失或重复，保留其他有效结果。';continue;}
+        if(matchingEpisodes.length!==1){item.unit.matchStatus='invalid';item.unit.noMatchReason='本集选曲缺失或重复，保留其他有效结果。';continue;}
         const reply=matchingEpisodes[0];
-        if(reply.episodeNumber!=null&&reply.episodeNumber!==item.episode.episodeNumber){item.unit.noMatchReason='本集选曲 id 与集号冲突，保留其他有效结果。';continue;}
+        if(reply.episodeNumber!=null&&reply.episodeNumber!==item.episode.episodeNumber){item.unit.matchStatus='invalid';item.unit.noMatchReason='本集选曲 id 与集号冲突，保留其他有效结果。';continue;}
         // Missing one scene cannot erase the other already paid results.
         const matches=Array.isArray(reply.segments)?reply.segments.filter(s=>s?.id===item.unit.id):[];
         if(matches.length!==1||!Array.isArray(matches[0].matches)){
-          item.unit.noMatchReason='本段选曲缺失或重复，保留其他有效结果。';continue;
+          item.unit.matchStatus='invalid';item.unit.noMatchReason='本段选曲缺失或重复，保留其他有效结果。';continue;
         }
         const selection=matches[0],eligible=new Set(item.candidates.map(t=>t.id));
         for(const m of selection.matches){
@@ -219,14 +231,17 @@ export async function analyzeTargetedBatchMusic(body, ask, options={}) {
         item.unit.noMatchReason=item.unit.matches.length===3?'':String(selection.noMatchReason||item.unit.rejectedRecommendations.at(-1)?.error||'没有足够合适曲目。').slice(0,300);
       }
     }catch(error){
-      for(const {episode,unit} of queue)if(unit.matches.length<3)unit.noMatchReason=`${error?.name==='AbortError'?'请求已取消':String(error.message||'请求失败').slice(0,250)}；已保留结果，可仅补缺项。`;
+      const raw=selectionReply||error.rawAnalysis;
+      if(raw)resultById.get(group[0].episode.id).selectionFailure={rawAnalysis:raw.slice(0,200000),error:String(error.message||'JSON 解析失败').slice(0,300),episodeNumbers:[...new Set(group.map(item=>item.episode.episodeNumber))]};
+      const remaining=[...group,...queue.slice(offset)];
+      for(const {unit} of remaining)if(unit.matches.length<3){unit.matchStatus='invalid';unit.noMatchReason=`${error?.name==='AbortError'?'请求已取消':String(error.message||'请求失败').slice(0,250)}；已保存剧情和有效曲目，可仅补缺失音乐。`;}
       break; // No hidden retries of a failed or truncated paid request.
     }
   }
   for(const {value} of results){
     for(const unit of units(value)){
       unit.missingCount=3-unit.matches.length;unit.shortfall=unit.missingCount>0;
-      unit.matchStatus=unit.matches.length?'matched':input.tracks.length?'no-match':'no-library';
+      unit.matchStatus=unit.matchStatus==='invalid'?'invalid':unit.matches.length?'matched':input.tracks.length?'no-match':'no-library';
       unit.noMatchReason=unit.shortfall?`缺 ${unit.missingCount} 首：${unit.noMatchReason||'未找到足够合适曲目，可仅补选本段。'}`:'';
     }
     if(value.segments)value.matches=[...new Map(value.segments.flatMap(u=>u.matches).map(m=>[m.id,m])).values()];

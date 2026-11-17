@@ -3,6 +3,10 @@ export function needsMusicSupplement(task) {
   return task.status === 'complete' && (task.result?.segments || [task.result]).some(unit => (unit?.matches?.length || 0) < target);
 }
 
+export function hasIncompleteMusic(result) {
+  return !!result && (result.segments || [result]).some(unit => unit.matchStatus === 'invalid' || /JSON|请求失败|返回空白|输出达到长度上限/.test(unit.noMatchReason || ''));
+}
+
 export function batchUsageTotals(tasks) {
   const groups = [...new Map(tasks.flatMap(t=>t.usageHistory||[]).filter(u=>u?.id).map(u=>[u.id,u])).values()];
   const sum = key => groups.length && groups.every(g=>g[key]!=null) ? groups.reduce((n,g)=>n+g[key],0) : null;

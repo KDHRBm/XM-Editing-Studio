@@ -55,7 +55,7 @@ test('short aliases tolerate leading zeroes but never attach unknown ids by arra
 });
 
 test('conflicting explicit episode number and bad coverage do not erase another valid plan',async()=>{
-  const f=apiFixture(data=>{data.episodes[0].episodeNumber=14;data.episodes[1].segments[0].startLine=2;});
+  const f=apiFixture(data=>{data.episodes[0].episodeNumber=14;data.episodes[1].segments[0].startLine=999;});
   const result=await f.run(input());
   assert.match(result.episodes[0].error,/冲突/);assert.match(result.episodes[1].error,/起点/);assert.ok(result.episodes[2].value);
 });

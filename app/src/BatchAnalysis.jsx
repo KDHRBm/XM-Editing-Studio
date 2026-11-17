@@ -1,4 +1,4 @@
-import { batchUsageTotals, needsMusicSupplement, exportBatchResults } from '../shared/batch-results.mjs';
+import { batchUsageTotals, needsMusicSupplement, exportBatchResults, hasIncompleteMusic } from '../shared/batch-results.mjs';
 import { MusicUsageHistory } from './MusicUsageHistory.jsx';
 import { BATCH_TEXT_LIMIT, BATCH_PROJECT_LIMIT, splitEpisodes, batchSubtitleLines } from '../shared/batch-analysis.mjs';
 import { analysisName, openWebAnalyzer, webAnalyzer } from '../shared/script-analyzers.mjs';
@@ -9,9 +9,10 @@ import { Pagination } from './Pagination.jsx';
 import { MusicDragButton } from './MusicDragButton.jsx';
 import { musicUsage } from './MusicUsage.mjs';
 import { subtitleClipboardError } from '../shared/period-text.mjs';
+import { watchMusicCatalog } from '../shared/music-catalog-state.mjs';
 
 const statuses = { queued: '待分析', analyzing: '联合分析中', paused: '已中断', complete: '已完成', error: '需处理' };
-const hasInvalidMusic = result => result?.matchStatus === 'invalid' || result?.segments?.some(segment => segment.matchStatus === 'invalid');
+const hasInvalidMusic = hasIncompleteMusic;
 const batchPhases = {
   subtitles: '正在整理字幕', library: '正在读取本地音乐库', keywords: '正在分析剧情与关键词',
   matching: '正在匹配本地音乐', review: '正在复核推荐结果', saving: '正在保存本批结果', web: '等待官方网页返回分析结果',
@@ -68,7 +69,7 @@ function DramaPicker({ id, label, projects, tasks, activeProjectId, disabled, de
     </div>}
   </div>;
 }
-function TaskDialog({ task, preserve, catalog, busy, analyzerName, previousTask, nextTask, position, total, onNavigate, onClose, onRetry }) {
+function TaskDialog({ task, preserve, catalog, busy, analyzerName, previousTask, nextTask, position, total, onNavigate, onClose, onRetry, onSupplement }) {
   const dialog = i.useRef(null);
   const body = i.useRef(null), copyLock = i.useRef(false), retryLock = i.useRef(false);
   const [tab, setTab] = i.useState('subtitles'), [feedback, setFeedback] = i.useState({}), [drafts, setDrafts] = i.useState({});
@@ -116,7 +117,7 @@ function TaskDialog({ task, preserve, catalog, busy, analyzerName, previousTask,
           {task.result.segments && <><h3>第 {index+1} 段 · {section.title}</h3><small>原剧本第 {section.startLine}–{section.endLine} 行 · 已评估 {section.evaluated ?? 0} 首候选</small><p>{section.summary}</p><div className="bos-library-keywords">{section.keywords.map(word => <span key={word}>{word}</span>)}</div></>}
           {section.warning && <p className="bos-script-warning">{section.warning}</p>}
           {!!section.matches.length && section.noMatchReason && <p className="bos-script-footnote">{section.noMatchReason}</p>}
-          {!section.matches.length && <div className="bos-script-empty"><strong>{section.matchStatus === 'invalid' ? '音乐推荐未完成' : '已分析，暂未找到适合的本地音乐'}</strong><p>{section.noMatchReason || '已保存关键词，请刷新音乐库后重新匹配。'}</p><small>音乐库 {task.result.total ?? catalog.tracks.length} 首 · 本段评估 {section.evaluated ?? 0} 首候选</small></div>}
+          {!section.matches.length && <div className="bos-script-empty"><strong>{hasInvalidMusic(section) ? '剧情已分析，音乐推荐未完成' : section.matchStatus === 'no-library' ? '剧情已分析，等待音乐库连接' : '已分析，暂未找到适合的本地音乐'}</strong><p>{section.noMatchReason || '已保存关键词，请刷新音乐库后重新匹配。'}</p><small>本次分析曲库 {task.result.total ?? catalog.tracks.length} 首 · 当前曲库 {catalog.tracks.length} 首 · 本段已选候选 {section.evaluated ?? 0} 首</small></div>}
           {section.matches.map(match => { const track = catalog.tracks.find(item => item.id === match.id); return <article className="bos-library-match" key={match.id}><h4>{track?.title || match.title || '历史音乐'}</h4><p>{match.reason}</p>{track ? <><audio controls preload="none" src={`/local-music/${track.id}`} aria-label={`试听 ${track.title}`} /><div className="bos-script-actions"><MusicDragButton libraryId={track.id} /><button type="button" aria-pressed={usage.history.some(item => item.id === track.id)} title="再次点击可取消使用标记" onClick={() => { const used = musicUsage.toggle(track); setNotice(used ? `已记录「${track.title}」，后续推荐避开最近使用音乐。` : `已取消「${track.title}」的使用标记，可再次参与推荐。`); }}>{usage.history.some(item => item.id === track.id) ? '已标记使用' : '标记已使用'}</button></div></> : <small>原音乐库当前未连接，请在跑量剪辑流页面重新连接。</small>}</article>; })}
         </section>)}
       </> : <div className="bos-script-empty"><strong>{task.status === 'analyzing' ? '多集剧本正在联合分析' : '尚未完成本地音乐分析'}</strong><p>字幕已在本机整理，音乐结果会按集接回对应卡片。</p></div>}</>}
@@ -126,6 +127,13 @@ function TaskDialog({ task, preserve, catalog, busy, analyzerName, previousTask,
         <label><span>本集配乐方式</span><select aria-label="本集配乐分析方式" disabled={busy || submitting} value={options.segmented ? 'segments' : 'whole'} onChange={event => changeOptions({ segmented: event.target.value === 'segments' })}><option value="whole">整段分析</option><option value="segments">多段分析</option></select></label>
         {options.segmented && <label><span>最多情节数</span><select aria-label="本集配乐段数" disabled={busy || submitting} value={options.segmentCount} onChange={event => changeOptions({ segmentCount: Number(event.target.value) })}>{[2,3,4,5,6].map(n => <option key={n} value={n}>{n} 段</option>)}</select></label>}
         <button type="button" className="bos-script-primary" disabled={busy || submitting} onClick={reanalyze}>{analyzing ? '正在分析…' : options.segmented ? '重新分析多段音乐' : '重新分析整段音乐'}</button>
+        {onSupplement && <button type="button" disabled={busy || submitting} title="保留已有剧情分段与有效推荐，仅调用 API 补选缺失音乐" onClick={async () => {
+          if (busy || retryLock.current) return;
+          retryLock.current = true; setSubmitting(true); setTab('music'); setNotice('');
+          try { await onSupplement(task); setNotice('补选已结束，请查看各段结果；已有剧情分段保持不变。'); }
+          catch (err) { setError(err.message || '补选未完成，请重试。'); }
+          finally { retryLock.current = false; setSubmitting(false); }
+        }}>仅补缺失音乐</button>}
       </div>
       <div className="bos-batch-dialog-footer-meta"><small>仅分析本集 · {analyzerName} · {position} / {total} 集</small><button type="button" onClick={onClose}>完成</button></div>
     </footer></div>
@@ -231,7 +239,7 @@ export function BatchAnalysis({ active, providers, onNavigate }) {
     globalThis.blackObsidian.setBatchPunctuationEnabled(active && preserve).catch(err => { if (live) setError(`剪映标点组件未启用：${err.message}。复制时仍会尝试兼容保护。`); });
     return () => { live = false; };
   }, [active, preserve]);
-  i.useEffect(() => { if (!active) return; let live = true; Promise.resolve(globalThis.blackObsidian?.getMusicLibrary?.() || { tracks: [], directories: [] }).then(value => { if (live) setCatalog(value); }).catch(err => { if (live) setError(err.message); }); return () => { live = false; }; }, [active]);
+  i.useEffect(() => { if (active) return watchMusicCatalog(globalThis.blackObsidian, {onCatalog:setCatalog,onError:setError,onLoading:setScanning}); }, [active]);
   const newDrama = async () => {
     if (importLock.current || importBusy || !state.loaded) return;
     importLock.current = true; setProjectPending(true); setError('');
@@ -358,9 +366,9 @@ export function BatchAnalysis({ active, providers, onNavigate }) {
       </div>
     </section>);
     })}
-    <section className="bos-batch-library"><div><strong>本地音乐库</strong><p>{catalog.tracks.length} 首可用音乐 · {catalog.directories.length} 个文件夹</p><small>{catalog.directories.map(folder => `${folder.path}（${folder.count ?? 0} 首${folder.error ? `；${folder.error}` : ''}）`).join(' · ') || '未连接音乐时，先分析剧本关键词；连接后可重新匹配。'}</small>{catalog.warning && <p className="bos-script-warning" role="status">{catalog.warning}</p>}</div><div className="bos-script-actions"><button type="button" disabled={scanning || busy} onClick={() => libraryAction('connectMusicLibrary')}>{scanning ? '扫描中…' : '连接音乐文件夹'}</button><button type="button" disabled={scanning || busy || !catalog.directories.length} onClick={() => libraryAction('refreshMusicLibrary')}>刷新</button></div></section>
+    <section className="bos-batch-library"><div><strong>本地音乐库</strong><p role="status">{scanning ? '正在读取音乐库，请稍候…' : `${catalog.tracks.length} 首可用音乐 · ${catalog.directories.length} 个文件夹`}</p><small>{catalog.directories.map(folder => `${folder.path}（${folder.count ?? 0} 首${folder.error ? `；${folder.error}` : ''}）`).join(' · ') || (scanning ? '共享文件夹首次扫描可能需要一些时间，分析会等待曲库读取完成。' : '未连接音乐时，先分析剧本关键词；连接后可仅补缺失音乐。')}</small>{(catalog.warning || catalog.error) && <p className="bos-script-warning" role="status">{catalog.warning || catalog.error}</p>}</div><div className="bos-script-actions"><button type="button" disabled={scanning || busy} onClick={() => libraryAction('connectMusicLibrary')}>{scanning ? '扫描中…' : '连接音乐文件夹'}</button><button type="button" disabled={scanning || busy} onClick={() => libraryAction('refreshMusicLibrary')}>刷新</button></div></section>
     <MusicUsageHistory tracks={catalog.tracks} scope="batch" />
-    {current && <TaskDialog task={current} preserve={preserve} catalog={catalog} busy={busy} analyzerName={analysisName(model)} previousTask={currentTasks[currentIndex - 1]} nextTask={currentTasks[currentIndex + 1]} position={currentIndex + 1} total={currentTasks.length} onNavigate={setSelected} onClose={() => setSelected('')} onRetry={retry} />}
+    {current && <TaskDialog task={current} preserve={preserve} catalog={catalog} busy={busy} analyzerName={analysisName(model)} previousTask={currentTasks[currentIndex - 1]} nextTask={currentTasks[currentIndex + 1]} position={currentIndex + 1} total={currentTasks.length} onNavigate={setSelected} onClose={() => setSelected('')} onRetry={retry} onSupplement={canSupplement(current) ? async task => { await batchQueue.supplement(task.id); await batchQueue.start([task.id]); const latest=batchQueue.snapshot(); if(latest.error)throw new Error(latest.error); const result=latest.tasks.find(t=>t.id===task.id);if(result?.error)throw new Error(result.error); } : null} />}
     <BatchProgressCard state={state} providers={providers} onNavigate={onNavigate} />
   </section>;
 }

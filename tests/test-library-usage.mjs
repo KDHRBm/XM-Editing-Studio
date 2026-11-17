@@ -41,6 +41,7 @@ globalThis.localStorage = memory();
 const bundle = await build({ stdin: { contents: "export {MusicLibrary,clearCurrentLibraryMatch} from '../app/src/MusicLibrary.jsx'; export {musicUsage} from '../app/src/MusicUsage.mjs';", resolveDir: fileURLToPath(new URL('.', import.meta.url)) }, bundle: true, write: false, format: 'esm', jsxFactory: 'i.createElement', jsxFragment: 'i.Fragment', target: 'es2022' });
 const { MusicLibrary, musicUsage, clearCurrentLibraryMatch } = await import('data:text/javascript;base64,' + Buffer.from(bundle.outputFiles[0].text).toString('base64'));
 let slots = [], cursor = 0, catalog = { directories: [], tracks, revision: 'fixture' };
+globalThis.blackObsidian = { getMusicLibrary: async () => catalog };
 globalThis.i = {
   useRef: value => ({ current: value }),
   createElement: (type, props, ...children) => ({ type, props: props || {}, children }),

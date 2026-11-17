@@ -59,6 +59,10 @@ if ($LASTEXITCODE -ne 0) { throw 'C# host build failed' }
 $nativeResources = Join-Path $nativeStage 'resources'
 
 New-Item -ItemType Directory -Path $nativeResources -Force | Out-Null
+New-Item -ItemType Directory -Path (Join-Path $nativeResources 'voxcpm') -Force | Out-Null
+foreach ($file in @('worker.py','setup.ps1','model-files.json','NOTICE.txt')) {
+  Copy-Item -LiteralPath (Join-Path $projectRoot ('app/voxcpm/' + $file)) -Destination (Join-Path $nativeResources ('voxcpm/' + $file)) -Force
+}
 
 $oldCompanion = Join-Path $nativeResources 'companion'
 if (Test-Path -LiteralPath $oldCompanion) {

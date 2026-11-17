@@ -1,0 +1,47 @@
+[
+  {
+    "Path": ".gitattributes",
+    "Size": 2106,
+    "Sha256": "5b59e8a0d94eae3f04dbdaa6b9df0dc1840b4803abaf8738db141f4013e1ef34"
+  },
+  {
+    "Path": "README.md",
+    "Size": 7903,
+    "Sha256": "feb850b390aa5051b81cbdc73b048361273552f003dd386b4da9c39ec9b6f055"
+  },
+  {
+    "Path": "audiovae.pth",
+    "Size": 376951122,
+    "Sha256": "94b5d51e107e0507d4acc976cfdadb64edd6fd06d1f751dadbf2fd1594274bf1"
+  },
+  {
+    "Path": "config.json",
+    "Size": 4336,
+    "Sha256": "405f0dcd92f7feba6011ed4eac5c8d4f74cba9712f07fd5cfa3063bbdd95402c"
+  },
+  {
+    "Path": "model.safetensors",
+    "Size": 4580080592,
+    "Sha256": "f7f964cfa9da23653baec6e6f7750719977ad944ed9f95fe52fe3a620506891d"
+  },
+  {
+    "Path": "special_tokens_map.json",
+    "Size": 1632,
+    "Sha256": "068594063e37662c02b21acf42ebb334ef6a74fb810e68a2368f88f08351de76"
+  },
+  {
+    "Path": "tokenization_voxcpm2.py",
+    "Size": 2895,
+    "Sha256": "84489ea32b6ee0cae22ed5480cacb6df85c46624c3119be9a2021c3649a12729"
+  },
+  {
+    "Path": "tokenizer.json",
+    "Size": 3676772,
+    "Sha256": "f8984687e4a92a3503d521396d454b7d68e9fdaab2a0288eb3536c7c1aa4bc20"
+  },
+  {
+    "Path": "tokenizer_config.json",
+    "Size": 5059,
+    "Sha256": "e78a3ebb48a0b9437efd1823b6b726c823da89e49dd8bcc90c02419d9baa772b"
+  }
+]

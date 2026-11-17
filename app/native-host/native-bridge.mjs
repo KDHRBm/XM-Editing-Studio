@@ -147,6 +147,7 @@ window.blackObsidian = Object.freeze({
   reportBatchProgress: progress => invoke('batch-progress', { progress }),
   getUpdaterStatus: () => invoke('updater-status'), updaterAction: action => invoke('updater-action', { action }, 25 * 60000), onUpdaterState: fn => on('bos:updater-state', fn),
   localModelAction: (action, model = '', settings) => invoke('local-model-action', { action, model, ...(settings ? { settings } : {}) }, 60 * 60000), onLocalModelProgress: fn => on('bos:local-model-progress', fn),
+  voiceAction: (action, value) => invoke('voice-action', { action, value }, 121 * 60000), onVoiceProgress: fn => on('bos:voice-progress', fn),
   setTitlebarTheme: (theme, light = false) => invoke('titlebar-theme', { theme, light }), onTrayNavigate: fn => on('bos:tray-navigate', fn),
   companionAction: (action, value) => invoke('companion-action', { action, value }, 25 * 60000), onCompanionState: fn => on('bos:companion-state', fn), onCompanionTheme: fn => on('bos:companion-theme', fn), onCompanionPlay: fn => on('bos:companion-play', fn), onCompanionPreviewBubble: fn => on('bos:companion-preview-bubble', fn), windowControl: action => invoke('window-control', { action }),
   layoutWebAI: async input => {
@@ -178,7 +179,7 @@ window.blackObsidian = Object.freeze({
   getPeriodKeeperStatus: () => invoke('period-status'), probePeriodKeeper: () => invoke('period-probe'), setPeriodKeeperEnabled: (enabled, mode) => invoke('period-enabled', { enabled, mode }), setBatchPunctuationEnabled: enabled => invoke('period-batch-enabled', { enabled }), copySubtitleText: (text, options) => invoke('period-copy', { text, options }),
   jianyingAction, chooseJianyingFiles: () => invoke('jianying-files'), quickLaunch: (action, value) => invoke('quick-launch', { action, value }), addQuickFolders: files => invoke('quick-folders-drop', {}, 60000, files),
   chooseDirectory: (initialFolder = '') => invoke('choose-directory', { initialFolder }), writeCache: payload => invoke('write-cache', payload), readCache: payload => invoke('read-cache', payload), downloadAudio: payload => invoke('download-audio', payload, 240000), exportScriptMaterials: exportMaterials,
-  getMusicLibrary: () => invoke('music-library-list'), connectMusicLibrary: () => invoke('music-library-connect', {}, 180000), connectDroppedMusicFolders: files => invoke('music-library-drop', {}, 180000, files), refreshMusicLibrary: () => invoke('music-library-refresh', {}, 180000), disconnectMusicLibrary: id => invoke('music-library-disconnect', { id }, 180000),
+  getMusicLibrary: () => invoke('music-library-list', {}, 180000), onMusicLibraryChanged: fn => on('bos:music-library-changed', fn), connectMusicLibrary: () => invoke('music-library-connect', {}, 180000), connectDroppedMusicFolders: files => invoke('music-library-drop', {}, 180000, files), refreshMusicLibrary: () => invoke('music-library-refresh', {}, 180000), disconnectMusicLibrary: id => invoke('music-library-disconnect', { id }, 180000),
 });
 document.addEventListener('DOMContentLoaded', () => {
   if (location.pathname === '/jianying-scan/index.html') return;

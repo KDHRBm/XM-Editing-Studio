@@ -42,6 +42,7 @@ namespace XM.Native {
         private async Task StopServices() {
             aiInput.Invalidate();
             StopLocalModels();
+            StopVoice();
             foreach (var item in requests) item.Value.Cancel();
             browserWatermark.Dispose();
             updateClosing.Cancel();
@@ -69,10 +70,10 @@ namespace XM.Native {
                 case "write-cache": { string path = CachePath(p); J.Save(path, J.Get(p, "data")); return J.Obj("ok", true, "path", path); }
                 case "download-audio": return await DownloadAudio(p);
                 case "export-script-materials": return await ExportMaterials(p);
-                case "music-library-list": return libraryCatalog;
-                case "music-library-refresh": return await ScanLibrary();
-                case "music-library-connect": { string folder = ChooseFolder(); return folder.Length > 0 ? await ConnectMusicFolders(new[] { folder }) : libraryCatalog; }
-                case "music-library-disconnect": { musicRoots.RemoveAll(root => J.Hash(root.ToLowerInvariant()) == J.Str(p, "id")); SaveLibrary(); return await ScanLibrary(); }
+                case "music-library-list": return await ReadLibrary();
+                case "music-library-refresh": return await RefreshLibrary();
+                case "music-library-connect": { string folder = ChooseFolder(); return folder.Length > 0 ? await ConnectMusicFolders(new[] { folder }) : await ReadLibrary(); }
+                case "music-library-disconnect": { await ReadLibrary(); musicRoots.RemoveAll(root => J.Hash(root.ToLowerInvariant()) == J.Str(p, "id")); SaveLibrary(); return await RefreshLibrary(); }
                 case "prepare-music-drag": return PrepareDrag(p);
                 case "start-music-drag": { string path = ResolveDrag(J.Str(p, "token")); sender.DoDragDrop(new DataObject(DataFormats.FileDrop, new[] { path }), DragDropEffects.Copy); return null; }
                 case "period-status": return await PeriodStatus("status");
@@ -102,6 +103,7 @@ namespace XM.Native {
                 case "updater-status": return updater;
                 case "updater-action": return await UpdateAction(J.Str(p, "action"));
                 case "local-model-action": return await LocalModelAction(J.Str(p, "action"), J.Str(p, "model"), J.Get(p, "settings"));
+                case "voice-action": if (sender != MainView) throw new Exception("请在工作台音频克隆页面操作。"); return await VoiceAction(J.Str(p, "action"), J.Get(p, "value"));
                 default: throw new Exception("未知本机操作：" + command);
             }
         }
@@ -112,7 +114,10 @@ namespace XM.Native {
             string url = J.Str(p, "url"), id = J.Str(p, "requestId", Guid.NewGuid().ToString("N"));
             if (!Http(url)) throw new Exception("只支持 HTTP 或 HTTPS 请求。");
             Uri parsed = new Uri(url);
-            if (parsed.Host == "127.0.0.1" && parsed.Port == 11435) await StartLocalModelServer();
+            bool localRequest = parsed.Host == "127.0.0.1" && parsed.Port == 11435;
+            if (localRequest) BeginLocalInference();
+            try {
+            if (localRequest) await StartLocalModelServer();
             using (var cts = new CancellationTokenSource(Math.Min(900000, Math.Max(1000, (int)J.Num(p, "timeout", 240000))))) {
                 if (!requests.TryAdd(id, cts)) throw new Exception("重复的请求编号。");
                 try {
@@ -135,6 +140,7 @@ namespace XM.Native {
                 } catch (OperationCanceledException) { throw new Exception("请求已取消或超时。"); }
                 finally { CancellationTokenSource removed; requests.TryRemove(id, out removed); }
             }
+            } finally { if (localRequest) EndLocalInference(); }
         }
         private async Task<object> LayoutAI(object p) {
             int generation = ++aiLayoutGeneration;

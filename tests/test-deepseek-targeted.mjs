@@ -34,6 +34,57 @@ function service(mutate=()=>{}, calls=[]) {
 }
 const run = async(body,mutate,calls=[]) => (await service(mutate,calls)('/api/script/batch-library-match',body)).body;
 
+test('Flash copied input with malformed line quotes preserves all eight segment selections',async()=>{
+  // Synthetic 3/2/3-segment shape from the failure; no real script or music data.
+  const body={...input(3),episodes:[12,13,14].map(n=>({...episode(n),script:Array.from({length:24},(_,i)=>`第${i+1}行，母亲在电话中告知救父的希望。`).join('\n')}))};
+  const mutate=corrupt=>(data,payload)=>{
+    if(payload.phase==='segments'){
+      for(const e of data.episodes)e.segments=Array.from({length:e.id==='E13'?2:3},(_,i)=>({...e.segments[0],startLine:i*8+1,evidenceLine:i*8+2}));
+      return;
+    }
+    const echoed={episodes:payload.episodes.map((e,i)=>({...e,segments:e.segments.map((s,j)=>({...s,...data.episodes[i].segments[j]}))}))};
+    const json=JSON.stringify(echoed);
+    return corrupt?json.replace(/"line":(\d+)/g,'"line":$1"'):json;
+  };
+  const expected=await run(body,mutate(false)),calls=[],actual=await run(body,mutate(true),calls);
+  assert.deepEqual(actual.episodes,expected.episodes);
+  assert.equal(calls.length,2,'Exactly one planning and one selection request, no retry');
+  assert.equal(actual.episodes.flatMap(e=>e.value.segments).length,8);
+  assert.equal(actual.episodes.flatMap(e=>e.value.segments).reduce((n,s)=>n+s.matches.length,0),24);
+});
+
+test('repaired echoed metadata cannot validate invented refs, forged evidence or neighboring duplicates',async()=>{
+  const result=await run(input(2),(data,payload)=>{
+    if(payload.phase!=='music')return;
+    const first=data.episodes[0].segments[0],second=data.episodes[1].segments[0];
+    first.matches[1].ref='M999999';
+    first.matches[2].evidenceLine=99;
+    first.evidence=[{line:99,text:'模型抄写的虚构证据不得替代本地原文。'}];
+    second.matches[0].ref=first.matches[0].ref;
+    second.matches[1].evidenceLine='2';
+    return JSON.stringify(data).replace('"line":99','"line":99"');
+  });
+  assert.deepEqual(result.episodes.map(e=>e.value.matches.length),[1,1]);
+  assert.ok(result.episodes[0].value.matches.every(m=>m.evidenceQuote===episode(1).script.split('\n')[1]));
+  const rejected=result.episodes.flatMap(e=>e.value.segments.flatMap(s=>s.rejectedRecommendations.map(r=>r.error)));
+  assert.ok(rejected.some(e=>/编号/.test(e)));
+  assert.equal(rejected.filter(e=>/证据/.test(e)).length,2);
+  assert.ok(rejected.some(e=>/邻集/.test(e)));
+});
+
+test('repaired second group continues later selections without losing earlier successful music',async()=>{
+  const body=input(20),expected=await run(body),calls=[];
+  const actual=await run(body,(data,payload,index)=>{
+    if(payload.phase==='music'&&index===3){
+      data.episodes[0].segments[0].evidence=[{line:2,text:'这是仅供解析测试的资料。'}];
+      return JSON.stringify(data).replace('"line":2','"line":2"');
+    }
+  },calls);
+  assert.equal(calls.length,4,'One plan and three selection groups, no paid retry');
+  assert.deepEqual(actual.episodes,expected.episodes);
+  assert.ok(actual.episodes.every(e=>e.value.matches.length===3));
+});
+
 test('repro: supplement must reject a real track with evidence outside the scene',async()=>{
   const body=input(1), source=episode(1);
   const api=createApiService(async(_url,opts)=>{
@@ -78,6 +129,61 @@ test('whole episode ranges are derived locally even when the model skips the tit
     assert.equal(e.value.endLine, 4);
     assert.equal(e.value.matches.length, 3);
   }
+});
+
+test('twenty Flash plans can skip opening rows without discarding paid segmentation or moving transitions', async () => {
+  const calls=[], body={...input(20),tracks:[]};
+  body.episodes=body.episodes.map(e=>({...e,script:Array.from({length:24},(_,i)=>`原文第${i+1}行：母子通话讨论救父的希望。`).join('\n')}));
+  const result=await run(body,(data,payload)=>{
+    if(payload.phase!=='segments')return;
+    for(const e of data.episodes)e.segments=[
+      {...e.segments[0],startLine:5,evidenceLine:9},
+      {...e.segments[0],title:'赶往登机口',startLine:15,evidenceLine:19},
+    ];
+  },calls);
+  assert.equal(calls.length,1,'Do not resubmit segmentation');
+  assert.equal(result.episodes.length,20);
+  for(const e of result.episodes){
+    assert.ok(e.value,JSON.stringify(e));
+    assert.deepEqual(e.value.segments.map(s=>[s.startLine,s.endLine,s.evidenceLine]),[[1,14,9],[15,24,19]]);
+    assert.equal(e.value.segments[1].title,'赶往登机口');
+  }
+});
+
+test('repairing a skipped opening does not bypass line order, bounds or evidence validation', async () => {
+  const corruptions=[
+    [s=>{s[0].startLine=0;},/第1集第1段起点无效/],
+    [s=>{delete s[0].startLine;},/第1段起点无效/],
+    [s=>{s[0].startLine='2';},/第1段起点无效/],
+    [s=>{s[0].startLine=99;},/第1段起点无效/],
+    [s=>{s[1].startLine=2;},/第2段起点无效/],
+    [s=>{s[1].startLine=1;},/第2段起点无效/],
+    [s=>{s[1].startLine=99;},/第2段起点无效/],
+    [s=>{s[1].startLine=2.5;},/第2段起点无效/],
+    [s=>{s[0].evidenceLine=3;},/证据/],
+    [s=>{s[1].evidenceLine=2;},/证据/],
+  ];
+  for(const [corrupt,pattern] of corruptions){
+    const calls=[];
+    await assert.rejects(run(input(1),(data,payload)=>{
+      if(payload.phase!=='segments')return;
+      const first=data.episodes[0].segments[0];
+      data.episodes[0].segments=[{...first,startLine:2,evidenceLine:2},{...first,startLine:3,evidenceLine:3}];
+      corrupt(data.episodes[0].segments);
+    },calls),pattern);
+    assert.equal(calls.length,1,'Invalid boundaries must stop before paid music calls');
+  }
+});
+
+test('one invalid boundary preserves the other plans when their opening rows need extension',async()=>{
+  const result=await run({...input(3),tracks:[]},(data,payload)=>{
+    if(payload.phase!=='segments')return;
+    data.episodes.forEach(e=>{e.segments[0].startLine=2;});
+    data.episodes[1].segments[0].startLine=999;
+  });
+  assert.ok(result.episodes[0].value);
+  assert.match(result.episodes[1].error,/第2集第1段起点无效/);
+  assert.ok(result.episodes[2].value);
 });
 
 test('targeted batching and queue preserve the explicit trial mode',async()=>{
@@ -130,11 +236,29 @@ test('malformed selection saves segmentation and existing choices without automa
   assert.equal(calls.length,2);assert.equal(result.episodes[0].value.matches.length,0);
   assert.ok(result.episodes[0].value.analysis.summary);
   assert.match(result.episodes[0].value.segments[0].noMatchReason,/JSON|完整/);
+  assert.equal(result.episodes[0].value.segments[0].matchStatus,'invalid');
+  assert.equal(result.episodes[0].value.selectionFailure.rawAnalysis,'TRUNCATED');
+});
+
+test('Flash formatting defects are repaired locally and still produce validated music recommendations',async()=>{
+  const calls=[],result=await run(input(2),(data,payload)=>payload.phase==='music'?'以下是音乐推荐：\n```json\n'+JSON.stringify(data).slice(0,-1)+',}\n```':undefined,calls);
+  assert.equal(calls.length,2,'No paid repair request');
+  for(const episode of result.episodes)assert.equal(episode.value.matches.length,3);
+  assert.ok(calls.every(c=>c.request.response_format?.type==='json_object'));
+});
+
+test('large selections are split into at most eight segments and a later malformed response preserves earlier recommendations',async()=>{
+  const calls=[],body=input(20);
+  const result=await run(body,(_d,p,n)=>p.phase==='music'&&n===3?'BROKEN JSON':undefined,calls);
+  assert.equal(calls.length,3,'Stop on failure without hidden retries');
+  for(const call of calls.filter(c=>c.payload.phase==='music'))assert.ok(call.payload.episodes.reduce((n,e)=>n+e.segments.length,0)<=8);
+  for(const episode of result.episodes.slice(0,8))assert.ok(episode.value.matches.length>0,'Earlier recommendations retained');
+  for(const episode of result.episodes.slice(8))assert.equal(episode.value.segments[0].matchStatus,'invalid');
 });
 
 test('invalid segmentation stops before music calls; export reports three-choice shortfall',async()=>{
   const calls=[];
-  await assert.rejects(run(input(1),(d,p)=>{if(p.phase==='segments')d.episodes[0].segments[0].startLine=2;},calls));
+  await assert.rejects(run(input(1),(d,p)=>{if(p.phase==='segments')d.episodes[0].segments[0].startLine=0;},calls));
   assert.equal(calls.length,1);
   const result=await run(input(1),(d,p)=>{if(p.phase==='music')d.episodes[0].segments[0].matches.pop();});
   const task={...episode(1),status:'complete',settings:{analysisMode:'targeted'},result:result.episodes[0].value,usageHistory:[result.usage]};

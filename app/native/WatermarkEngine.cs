@@ -99,6 +99,18 @@ namespace XMWatermark
         void GetMaxLength(out uint pcbMaxLength);
     }
 
+    [ComImport, InterfaceType(ComInterfaceType.InterfaceIsIUnknown), Guid("7dc9d5f9-9ed9-44ec-9bbf-0600bb589fbb")]
+    internal interface IMF2DBuffer
+    {
+        void Lock2D(out IntPtr scanline0, out int pitch);
+        void Unlock2D();
+        void GetScanline0AndPitch(out IntPtr scanline0, out int pitch);
+        void IsContiguousFormat([MarshalAs(UnmanagedType.Bool)] out bool contiguous);
+        void GetContiguousLength(out uint length);
+        void ContiguousCopyTo(IntPtr destination, uint length);
+        void ContiguousCopyFrom(IntPtr source, uint length);
+    }
+
     [ComImport, InterfaceType(ComInterfaceType.InterfaceIsIUnknown), Guid("c40a00f2-b93a-4d80-ae8c-5a1c634f58e4")]
     internal interface IMFSample : IMFAttributes
     {
@@ -198,6 +210,8 @@ namespace XMWatermark
         public static Guid MF_MT_INTERLACE_MODE = new Guid("e2724bb8-e676-4806-b4b2-a8d6efb44ccd");
         public static Guid MF_MT_AVG_BITRATE = new Guid("20332624-fb0d-4d9e-bd0d-cbf6786c102e");
         public static Guid MF_MT_DEFAULT_STRIDE = new Guid("644b4e48-1e02-4516-b0eb-c01ca9d49ac6");
+        public static Guid MF_MT_MINIMUM_DISPLAY_APERTURE = new Guid("d7388766-18fe-48c6-a177-ee894867c8c4");
+        public static Guid MF_MT_GEOMETRIC_APERTURE = new Guid("66758743-7e5f-400d-980a-aa8596c85696");
         public static Guid MF_MT_AUDIO_NUM_CHANNELS = new Guid("37e48bf5-645e-4c5b-89de-ada9e29b696a");
         public static Guid MF_MT_AUDIO_SAMPLES_PER_SECOND = new Guid("5faeeae7-0290-4c31-9e8a-c534f68d9dba");
         public static Guid MF_MT_AUDIO_BITS_PER_SAMPLE = new Guid("f2deb57f-40fa-4764-aa33-ed4f2d1ff669");
@@ -231,6 +245,9 @@ namespace XMWatermark
 
         [DllImport("mfplat.dll", ExactSpelling = true, PreserveSig = false)]
         public static extern void MFCreateMemoryBuffer(uint cbMaxLength, out IMFMediaBuffer ppBuffer);
+
+        [DllImport("mfplat.dll", ExactSpelling = true, PreserveSig = false)]
+        public static extern void MFCopyImage(IntPtr destination, int destinationStride, IntPtr source, int sourceStride, uint widthBytes, uint lines);
 
         [DllImport("mfreadwrite.dll", ExactSpelling = true, PreserveSig = false)]
         public static extern void MFCreateSourceReaderFromURL([MarshalAs(UnmanagedType.LPWStr)] string pwszURL, IMFAttributes pAttributes, out IMFSourceReader ppSourceReader);
@@ -464,6 +481,132 @@ namespace XMWatermark
         }
     }
 
+    // The decoder can enlarge RGB frames to codec alignment on the FIRST sample.
+    // Keep its storage size/pitch separate from the visible and encoded frame sizes.
+    internal sealed class VideoFrameLayout
+    {
+        public int Width, Height, Stride;
+        public RectangleF Visible;
+
+        public static VideoFrameLayout Read(IMFSourceReader reader)
+        {
+            IMFMediaType type;
+            reader.GetCurrentMediaType(MFInterop.MF_SOURCE_READER_FIRST_VIDEO_STREAM, out type);
+            try
+            {
+                Guid subtype;
+                type.GetGUID(ref MFInterop.MF_MT_SUBTYPE, out subtype);
+                if (subtype != MFInterop.MFVideoFormat_RGB32) throw new InvalidDataException("视频解码格式发生变化，无法安全添加水印。");
+                ulong size;
+                type.GetUINT64(ref MFInterop.MF_MT_FRAME_SIZE, out size);
+                var layout = new VideoFrameLayout { Width = checked((int)(size >> 32)), Height = checked((int)(size & 0xFFFFFFFFUL)) };
+                if (layout.Width <= 0 || layout.Height <= 0) throw new InvalidDataException("视频帧尺寸无效。");
+                layout.Stride = checked(layout.Width * 4);
+                uint stride;
+                try { type.GetUINT32(ref MFInterop.MF_MT_DEFAULT_STRIDE, out stride); layout.Stride = unchecked((int)stride); }
+                catch (COMException) { }
+                layout.ValidatePitch(layout.Stride);
+                layout.Visible = new RectangleF(0, 0, layout.Width, layout.Height);
+                // MFVideoArea: two MFOffset values (USHORT fraction, SHORT value), SIZE.
+                foreach (Guid key in new[] { MFInterop.MF_MT_MINIMUM_DISPLAY_APERTURE, MFInterop.MF_MT_GEOMETRIC_APERTURE })
+                {
+                    Guid aperture = key;
+                    byte[] area = new byte[16];
+                    uint length;
+                    try { type.GetBlob(ref aperture, area, 16, out length); }
+                    catch (COMException) { continue; }
+                    if (length != 16) throw new InvalidDataException("视频可见区域信息无效。");
+                    float x = BitConverter.ToInt16(area, 2) + BitConverter.ToUInt16(area, 0) / 65536f;
+                    float y = BitConverter.ToInt16(area, 6) + BitConverter.ToUInt16(area, 4) / 65536f;
+                    int width = BitConverter.ToInt32(area, 8), height = BitConverter.ToInt32(area, 12);
+                    if (width == 0 && height == 0) continue;
+                    if (x < 0 || y < 0 || width <= 0 || height <= 0 || x + width > layout.Width || y + height > layout.Height)
+                        throw new InvalidDataException("视频可见区域超出解码帧范围。");
+                    layout.Visible = new RectangleF(x, y, width, height);
+                    break;
+                }
+                return layout;
+            }
+            finally { Marshal.ReleaseComObject(type); }
+        }
+
+        private void ValidatePitch(int pitch)
+        {
+            if (Math.Abs((long)pitch) < (long)Width * 4 || Math.Abs((long)pitch) * Height > int.MaxValue)
+                throw new InvalidDataException("视频帧行跨度无效。");
+        }
+
+        internal void CopyVisible(IntPtr top, int pitch, IntPtr destination, int width, int height)
+        {
+            ValidatePitch(pitch);
+            int destinationStride = checked(width * 4);
+            if (Visible.Width == width && Visible.Height == height && Visible.X == (int)Visible.X && Visible.Y == (int)Visible.Y)
+            {
+                IntPtr source = IntPtr.Add(top, checked((int)Visible.Y * pitch + (int)Visible.X * 4));
+                MFInterop.MFCopyImage(destination, destinationStride, source, pitch, (uint)destinationStride, (uint)height);
+            }
+            else
+            {
+                using (var source = new Bitmap(Width, Height, pitch, PixelFormat.Format32bppRgb, top))
+                using (var target = new Bitmap(width, height, destinationStride, PixelFormat.Format32bppRgb, destination))
+                using (var graphics = Graphics.FromImage(target))
+                {
+                    graphics.InterpolationMode = InterpolationMode.HighQualityBicubic;
+                    graphics.DrawImage(source, new RectangleF(0, 0, width, height), Visible, GraphicsUnit.Pixel);
+                }
+            }
+        }
+
+        public void NormalizeAndOverlay(IMFSample sample, WatermarkOverlay overlay)
+        {
+            IMFMediaBuffer source = null, target = null;
+            try
+            {
+                sample.ConvertToContiguousBuffer(out source);
+                uint length = checked((uint)(overlay.Width * overlay.Height * 4));
+                MFInterop.MFCreateMemoryBuffer(length, out target);
+                IntPtr destination;
+                uint maximum, current;
+                target.Lock(out destination, out maximum, out current);
+                try
+                {
+                    var surface = source as IMF2DBuffer;
+                    IntPtr top;
+                    int pitch;
+                    if (surface != null)
+                    {
+                        surface.Lock2D(out top, out pitch);
+                        try { CopyVisible(top, pitch, destination, overlay.Width, overlay.Height); }
+                        finally { surface.Unlock2D(); }
+                    }
+                    else
+                    {
+                        source.Lock(out top, out maximum, out current);
+                        try
+                        {
+                            long required = Math.Abs((long)Stride) * (Height - 1) + (long)Width * 4;
+                            if (required > current || current > maximum) throw new InvalidDataException("视频帧数据不完整，已停止生成，避免输出花屏视频。");
+                            if (Stride < 0) top = IntPtr.Add(top, checked((Height - 1) * -Stride));
+                            CopyVisible(top, Stride, destination, overlay.Width, overlay.Height);
+                        }
+                        finally { source.Unlock(); }
+                    }
+                    overlay.ApplyToBuffer(destination, length, false);
+                }
+                finally { target.Unlock(); }
+                target.SetCurrentLength(length);
+                // Retain the original sample's timestamps, duration and attributes.
+                sample.RemoveAllBuffers();
+                sample.AddBuffer(target);
+            }
+            finally
+            {
+                if (target != null) Marshal.ReleaseComObject(target);
+                if (source != null) Marshal.ReleaseComObject(source);
+            }
+        }
+    }
+
     internal static class VideoTranscoder
     {
         public static void ComputeOutputSize(uint inW, uint inH, string sizePreset, out uint outW, out uint outH)
@@ -566,24 +709,14 @@ namespace XMWatermark
                 }
                 catch
                 {
-                    outW = (inW / 2) * 2;
-                    outH = (inH / 2) * 2;
-                    decodeVideoType.SetUINT64(ref MFInterop.MF_MT_FRAME_SIZE, MFInterop.Pack2UInt32(outW, outH));
+                    // Basic source-reader processing may reject scaling. Decode at
+                    // source size and normalize below without losing the chosen output size.
+                    decodeVideoType.SetUINT64(ref MFInterop.MF_MT_FRAME_SIZE, MFInterop.Pack2UInt32(inW, inH));
                     reader.SetCurrentMediaType(MFInterop.MF_SOURCE_READER_FIRST_VIDEO_STREAM, IntPtr.Zero, decodeVideoType);
                 }
                 Marshal.ReleaseComObject(decodeVideoType);
 
-                IMFMediaType actualVideoIn;
-                reader.GetCurrentMediaType(MFInterop.MF_SOURCE_READER_FIRST_VIDEO_STREAM, out actualVideoIn);
-                int defaultStride = (int)(outW * 4);
-                try
-                {
-                    uint uStride;
-                    actualVideoIn.GetUINT32(ref MFInterop.MF_MT_DEFAULT_STRIDE, out uStride);
-                    defaultStride = (int)uStride;
-                }
-                catch { }
-                bool bottomUp = defaultStride < 0;
+                VideoFrameLayout frameLayout = VideoFrameLayout.Read(reader);
 
                 MFInterop.MFCreateAttributes(out writerAttr, 2);
                 writerAttr.SetUINT32(ref MFInterop.MF_READWRITE_ENABLE_HARDWARE_TRANSFORMS, 1);
@@ -605,9 +738,21 @@ namespace XMWatermark
 
                 uint videoSinkStream;
                 writer.AddStream(videoOut, out videoSinkStream);
-                writer.SetInputMediaType(videoSinkStream, actualVideoIn, null);
+                IMFMediaType packedVideoIn;
+                MFInterop.MFCreateMediaType(out packedVideoIn);
+                try
+                {
+                    packedVideoIn.SetGUID(ref MFInterop.MF_MT_MAJOR_TYPE, ref MFInterop.MFMediaType_Video);
+                    packedVideoIn.SetGUID(ref MFInterop.MF_MT_SUBTYPE, ref MFInterop.MFVideoFormat_RGB32);
+                    packedVideoIn.SetUINT64(ref MFInterop.MF_MT_FRAME_SIZE, MFInterop.Pack2UInt32(outW, outH));
+                    packedVideoIn.SetUINT32(ref MFInterop.MF_MT_DEFAULT_STRIDE, checked(outW * 4));
+                    packedVideoIn.SetUINT32(ref MFInterop.MF_MT_INTERLACE_MODE, 2);
+                    packedVideoIn.SetUINT64(ref MFInterop.MF_MT_FRAME_RATE, packedRate);
+                    packedVideoIn.SetUINT64(ref MFInterop.MF_MT_PIXEL_ASPECT_RATIO, MFInterop.Pack2UInt32(1, 1));
+                    writer.SetInputMediaType(videoSinkStream, packedVideoIn, null);
+                }
+                finally { Marshal.ReleaseComObject(packedVideoIn); }
                 Marshal.ReleaseComObject(videoOut);
-                Marshal.ReleaseComObject(actualVideoIn);
 
                 // Configure Optional Audio Stream
                 bool hasAudio = false;
@@ -689,33 +834,16 @@ namespace XMWatermark
                         continue;
                     }
 
-                    if (sample == null) continue;
-
                     try
                     {
+                        // A format-change notification may arrive with or without a sample.
+                        if (readVideo && (flags & MFInterop.MF_SOURCE_READERF_CURRENTMEDIATYPECHANGED) != 0)
+                            frameLayout = VideoFrameLayout.Read(reader);
+                        if (sample == null) continue;
                         if (readVideo)
                         {
                             nextVideoPts = timestamp;
-                            IMFMediaBuffer buf;
-                            sample.ConvertToContiguousBuffer(out buf);
-                            try
-                            {
-                                IntPtr ptr;
-                                uint maxLen, curLen;
-                                buf.Lock(out ptr, out maxLen, out curLen);
-                                try
-                                {
-                                    overlay.ApplyToBuffer(ptr, curLen, bottomUp);
-                                }
-                                finally
-                                {
-                                    buf.Unlock();
-                                }
-                            }
-                            finally
-                            {
-                                Marshal.ReleaseComObject(buf);
-                            }
+                            frameLayout.NormalizeAndOverlay(sample, overlay);
                             writer.WriteSample(videoSinkStream, sample);
 
                             if (duration > 0)
@@ -736,7 +864,7 @@ namespace XMWatermark
                     }
                     finally
                     {
-                        Marshal.ReleaseComObject(sample);
+                        if (sample != null) Marshal.ReleaseComObject(sample);
                     }
                 }
 

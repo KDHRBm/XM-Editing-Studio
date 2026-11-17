@@ -1,12 +1,12 @@
 # XM剪辑台
 
-**1.6.3** 修复新电脑千问下载入口，支持自动安装运行环境，累计包含千问代理下载修复、AMD / Vulkan 兼容、DS 目录优选试验模式和 Gemini 结构化结果兼容。提供完整安装包及原版 **1.6.1 / 1.6.2 → 1.6.3** 累计增量更新，包含 1.6.2 的补充修复。详见 [1.6.3 更新说明](CHANGELOG-1.6.3.md)。
+**1.6.4** 新增音频克隆选项卡与本地模型管理，修复水印画面错位、DS Flash 分段、音乐库加载与 JSON 返回兼容。音频模型和运行环境由用户在页面中按需下载，不随安装包携带。提供完整安装包及原版 **1.6.1 / 1.6.2 / 1.6.3 → 1.6.4** 累计增量更新。详见 [1.6.4 更新说明](CHANGELOG-1.6.4.md)。
 
 **把剧本、字幕、音乐和剪映常用工具放进一个工作台。**
 
 XM剪辑台面向短剧剪辑与批量制作：粘贴剧本，整理中文／英文／西语台词，按整篇或不同情节分析配乐，在本地音乐库里找合适的音乐，或交给 Suno 生成，再继续完成样片水印和剪映工程处理。
 
-[下载安装](https://kdhrbm.github.io/XM-Editing-Studio-Website/) · [更新说明](CHANGELOG-1.6.3.md) · [查看源码](app) · [参与开发](CONTRIBUTING.md) · [反馈问题](https://github.com/KDHRBm/XM-Editing-Studio/issues)
+[下载安装](https://kdhrbm.github.io/XM-Editing-Studio-Website/) · [更新说明](CHANGELOG-1.6.4.md) · [查看源码](app) · [参与开发](CONTRIBUTING.md) · [反馈问题](https://github.com/KDHRBm/XM-Editing-Studio/issues)
 
 ## 剪辑台能做什么
 
@@ -33,6 +33,14 @@ XM剪辑台面向短剧剪辑与批量制作：粘贴剧本，整理中文／英
 - 支持整篇分析，也可按不同情节分段，为每段提供独立推荐或生成提示词。
 - 本地匹配与 Suno 生成分区操作，两个分析模型独立选择、分别保存，切换互不影响。模型菜单显示完整名称，进度和按钮使用简短名称。
 - 支持中断、超时提示和异常处理；网页自动读取失败时可粘贴完整分析结果继续。网页服务仍受官方登录、验证码、限流和额度规则约束。
+
+### 音频克隆与本地模型管理
+
+- 左侧“音频克隆”支持声音设计、音频克隆和极致克隆，提供参考音频、文本、音色描述、生成参数及试听保存。
+- 首次进入只检查本机状态；点击“下载安装模型”后才部署隔离运行环境和 VoxCPM2，安装包不携带模型权重。
+- 显示下载进度、速度、当前文件剩余时间；支持停止与重试续传。生成时显示已合成音频时长。
+- “本地部署”展示已下载 Ollama 模型的实际名称、大小、加载和显存状态，支持加入分析、释放显存、打开目录和确认删除。
+- 详见 [音频克隆说明](docs/VOICE-STUDIO.md) 与 [本地模型管理](docs/LOCAL-MODEL-MANAGEMENT.md)。
 
 ### 本地音乐库
 
@@ -95,17 +103,17 @@ XM剪辑台面向短剧剪辑与批量制作：粘贴剧本，整理中文／英
 
 ## 下载与升级
 
-适用于 **Windows 10 / Windows 11 x64**，安装包内置运行组件，使用软件无需另外安装 Node.js 或 Python。
+适用于 **Windows 10 / Windows 11 x64**，主程序无需另外安装 Node.js 或 Python；可选音频克隆功能会在用户点击部署后下载独立 Python 运行环境及模型。
 
 | 下载 | 适用情况 |
 | --- | --- |
-| [1.6.3 完整安装包](https://github.com/KDHRBm/XM-Editing-Studio/releases/download/v1.6.3/XM-Editing-Studio-1.6.3-Windows-x64-Setup.exe) | 首次安装；包含当前全部功能 |
-| [1.6.1 → 1.6.3 增量包](https://github.com/KDHRBm/XM-Editing-Studio/releases/download/v1.6.3/XM-Editing-Studio-1.6.1-to-1.6.3-Incremental-20261116.zip) | 已安装原版 1.6.1 / 1.6.2（含补充版）时使用 |
-| [1.6.3 更新说明](CHANGELOG-1.6.3.md) | 千问首次部署、AMD 加速、DS / Gemini 分析修复 |
+| [1.6.4 完整安装包](https://github.com/KDHRBm/XM-Editing-Studio/releases/download/v1.6.4/XM-Editing-Studio-1.6.4-Windows-x64-Setup.exe) | 首次安装；包含当前全部功能 |
+| [1.6.1 → 1.6.4 增量包](https://github.com/KDHRBm/XM-Editing-Studio/releases/download/v1.6.4/XM-Editing-Studio-1.6.1-to-1.6.4-Incremental-20261117.zip) | 已安装原版 1.6.1 / 1.6.2 / 1.6.3（含补充版）时使用 |
+| [1.6.4 更新说明](CHANGELOG-1.6.4.md) | 音频克隆、本地模型管理、水印及 DS 分析修复 |
 | [1.2 → 1.3 历史更新说明](CHANGELOG-1.3.0.md) | 查看此前功能变化 |
 | [文件校验](SHA256SUMS.txt) | 校验发布附件完整性 |
 
-首次安装选择专用空目录；已有原版 1.6.1 / 1.6.2 时，完整解压增量 ZIP，运行外层更新器并选择原安装目录。更新前请从托盘彻底退出软件及桌宠；更新会校验和备份程序文件，保留配置、任务、音乐及本地模型。数据保存在安装目录的 `data`，备份保存在 `.xiaoma-update-backups`。旧版便携目录建议保留，另选空目录安装完整包。需要系统已安装 Microsoft Edge WebView2 运行时。
+首次安装选择专用空目录；已有原版 1.6.1 / 1.6.2 / 1.6.3 时，完整解压增量 ZIP，运行外层更新器并选择原安装目录。更新前请从托盘彻底退出软件及桌宠；更新会校验和备份程序文件，保留配置、任务、音乐及本地模型。数据保存在安装目录的 `data`，备份保存在 `.xiaoma-update-backups`。旧版便携目录建议保留，另选空目录安装完整包。需要系统已安装 Microsoft Edge WebView2 运行时。
 
 ## 源码与协作
 
@@ -128,10 +136,10 @@ XM剪辑台面向短剧剪辑与批量制作：粘贴剧本，整理中文／英
 
 历史 `v1.3.0` 标签保留原始发布记录，`v1.3.0-source` 标签对应首次公开源码快照；后续源码修订请使用 `main` 分支。程序安装包与源码是不同交付物。
 
-**1.6.3 完整安装包**包含此前累计改进，安装后无需再叠加旧更新包。`v1.6.3` 标签对应本次发布源码。
+**1.6.4 完整安装包**包含此前累计改进，安装后无需再叠加旧更新包。`v1.6.4` 标签对应本次发布源码。
 
 ## 验证与来源
 
-本次发布检查见 [1.6.3 验证记录](VERIFICATION-1.6.3.md)，开发构建步骤见 [开发说明](docs/DEVELOPMENT.md)。未分别在 Windows 10、Windows 11 两台实机验证，也未消耗付费额度测试真实生成。
+本次发布检查见 [1.6.4 验证记录](VERIFICATION-1.6.4.md)，开发构建步骤见 [开发说明](docs/DEVELOPMENT.md)。未分别在 Windows 10、Windows 11 两台实机验证，也未消耗付费额度测试真实生成。
 
 第三方来源与许可见 [THIRD_PARTY_NOTICES.txt](THIRD_PARTY_NOTICES.txt) 和 [源码来源说明](docs/SOURCE-PROVENANCE.md)。源码公开不改变第三方组件原有许可，也不代表官方平台背书。仓库不包含个人 API 密钥、登录数据、剧本或音乐素材。

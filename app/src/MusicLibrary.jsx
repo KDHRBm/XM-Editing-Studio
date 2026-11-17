@@ -8,6 +8,7 @@ import { excludeUsedMusic, shuffleMusicResults, MUSIC_USAGE_LIMIT } from '../sha
 import { musicUsage } from './MusicUsage.mjs';
 import { analysisName, analysisReady, webAnalyzer } from '../shared/script-analyzers.mjs';
 import { requestScriptAnalysis } from './AnalysisRequest.mjs';
+import { requireMusicCatalog, watchMusicCatalog } from '../shared/music-catalog-state.mjs';
 const RESULT_KEY = 'black-obsidian.library-match.v1';
 const emptyCatalog = { directories: [], tracks: [], revision: '', warning: '' };
 let matchState = { busy: false, record: null, error: '' };
@@ -71,11 +72,7 @@ export function MusicLibrary({ input, projectId, savedRecommendation, onAnalysis
       setAnalysisError(''); setAnalysisNotice(`已将「${word}」加入本地检索关键词。`);
     } catch (err) { setAnalysisError(err.message); }
   };
-  i.useEffect(() => {
-    let active = true;
-    if (ready) api.getMusicLibrary().then(value => { if (active) setCatalog(value); }).catch(err => { if (active) setError(err.message); });
-    return () => { active = false; };
-  }, []);
+  i.useEffect(() => watchMusicCatalog(api, {onCatalog:setCatalog,onError:setError,onLoading:setScanning}), [api]);
   const changeCatalog = async operation => {
     if (!ready) { setError('连接本地盘需要使用更新后的桌面程序。'); return; }
     if (scanPending.current) return;
@@ -103,6 +100,9 @@ export function MusicLibrary({ input, projectId, savedRecommendation, onAnalysis
     activeRequest = request;
     const captured = { script: input.script, title: input.title, hint: input.hint, customKeywords: keywordText, segmented: !!input.segmented, segmentCount: Number(input.segmentCount || 3), analyzer: analyzerName, libraryGeminiKey: gemini.key || input.libraryGeminiKey || '' };
     try {
+      const catalog = requireMusicCatalog(await api?.getMusicLibrary?.());
+      request.controller.signal.throwIfAborted();
+      setCatalog(catalog);
       const value = await requestScriptAnalysis('library-match', { ...captured, provider: gemini.provider, model: gemini.model, tracks: excludeUsedMusic(catalog.tracks, musicUsage.snapshot().history).map(({ id, title }) => ({ id, title })) }, webAnalyzer(gemini) ? request.controller.signal : AbortSignal.any([request.controller.signal, AbortSignal.timeout(730000)]));
       if (activeRequest !== request) return;
       if (value.segments) value.segments = value.segments.map(segment => ({ ...segment, matches: segment.matches.map(match => ({ ...match, title: catalog.tracks.find(track => track.id === match.id)?.title || match.id })) }));

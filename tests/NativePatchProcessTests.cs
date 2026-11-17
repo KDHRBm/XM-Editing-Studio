@@ -12,7 +12,7 @@ internal static class NativePatchProcessTests {
     static object Call(string name,params object[] args) {
         var method=typeof(NativePatchUpdater).GetMethod(name,BindingFlags.Static|BindingFlags.NonPublic|BindingFlags.Public);
         Check(method!=null,"Updater must provide "+name);
-        try {return method.Invoke(null,args);}catch(TargetInvocationException e){throw e.InnerException;}
+        try {return method.Invoke(null,args);}catch(TargetInvocationException e){System.Runtime.ExceptionServices.ExceptionDispatchInfo.Capture(e.InnerException).Throw();throw;}
     }
     static void Reject(Action action,string text) {
         try {action();}catch(Exception e){Check(e.Message.Contains(text),"Expected rejection: "+text+"; got "+e.Message);return;}

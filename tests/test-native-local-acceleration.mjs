@@ -9,7 +9,7 @@ test('native local deployment distinguishes AMD hardware from actual GPU model r
   await fs.mkdir(folder, { recursive: true });
   const exe = path.join(folder, 'LocalAccelerationTests.exe');
   const sources = ['app/native-host/Infrastructure.cs', 'app/native-host/LocalModels.cs', 'app/native-host/LocalHardware.cs', 'tests/NativeLocalAccelerationTests.cs'];
-  for (const extra of ['app/native-host/LocalAcceleration.cs', 'app/native-host/LocalGpuHardware.cs', 'app/native-host/LocalModelNetwork.cs']) {
+  for (const extra of ['app/native-host/LocalAcceleration.cs', 'app/native-host/LocalGpuHardware.cs', 'app/native-host/LocalModelNetwork.cs', 'app/native-host/LocalModelInventory.cs', 'app/native-host/LocalModelManagement.cs']) {
     try { await fs.access(extra); sources.push(extra); } catch {}
   }
   const refs = ['System.Core.dll', 'System.Web.Extensions.dll', 'System.Net.Http.dll', 'System.Management.dll', 'System.IO.Compression.dll', 'System.IO.Compression.FileSystem.dll'];

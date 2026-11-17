@@ -1,0 +1,12 @@
+XM 音频克隆通过用户主动下载安装以下独立组件；程序安装包不包含模型权重和 Python/PyTorch 运行环境。
+
+VoxCPM 2.0.3 / VoxCPM2 — OpenBMB / ModelBest
+Code: https://github.com/OpenBMB/VoxCPM
+Model: https://modelscope.cn/models/OpenBMB/VoxCPM2
+License: Apache License 2.0 (upstream package/model contains original notices).
+
+Optional: SenseVoiceSmall and speech_zipenhancer_ans_multiloss_16k_base from ModelScope.
+Their model files are downloaded only when users request transcription or reference denoising.
+uv (Astral), Python, PyTorch and other Python dependencies retain their upstream licenses in the downloaded runtime.
+
+The UI and local-process adapter in this folder are XM integration code. No third-party demo page is copied or proxied. Audio/text inference is performed on the local computer.

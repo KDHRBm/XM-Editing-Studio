@@ -29,7 +29,9 @@ namespace XM.Native {
             Emit("bos:local-model-progress", localModelProgress);
         }
         private async Task<object> LocalModelStatus() {
-            object[] models = LocalModelNames.Where(name => File.Exists(Path.Combine(LocalModelsPath, "manifests", "registry.ollama.ai", "library", name.Split(':')[0], name.Split(':')[1]))).Cast<object>().ToArray();
+            object inventory = await Task.Run(() => LocalModelInventory.Read(LocalModelsPath));
+            object[] details = J.Arr(J.Get(inventory, "models"));
+            object[] models = details.Where(item => J.Bool(item, "complete")).Select(item => (object)J.Str(item, "name")).ToArray();
             bool running = false;
             try {
                 using (var cts = new CancellationTokenSource(1500))
@@ -43,10 +45,12 @@ namespace XM.Native {
             } catch { /* The local service is not running yet. */ }
             object hardware = localHardware ?? (localHardware = await Task.Run(() => DetectLocalHardware()));
             return J.Obj("runtimeInstalled", File.Exists(LocalOllamaExe), "running", running,
-                "models", models, "root", LocalModelRoot, "endpoint", LocalModelHost + "/v1",
+                "models", models, "modelDetails", details, "modelStorageBytes", J.Get(inventory, "bytes"), "modelWarning", J.Get(inventory, "warning"),
+                "modelsPath", LocalModelsPath, "analysisActive", LocalInferenceActive, "root", LocalModelRoot, "endpoint", LocalModelHost + "/v1",
                 "progress", localModelProgress, "hardware", hardware, "acceleration", await LocalAccelerationStatus(running, hardware));
         }
         private async Task<object> LocalModelAction(string action, string model, object settings = null) {
+            if (action == "delete-model" || action == "unload-model" || action == "open-model-folder") return await ManageLocalModel(action, model, settings);
             if (action == "acceleration") return await SaveLocalAcceleration(settings);
             if (action == "detect") { localHardware = null; return await LocalModelStatus(); }
             if (action == "status") return await LocalModelStatus();
@@ -281,6 +285,8 @@ namespace XM.Native {
         private async Task StopLocalModelServer() {
             await localStartGate.WaitAsync();
             try {
+                if (LocalInferenceActive) throw new Exception("本地模型正在分析，请等待分析完成再停止服务。");
+                lock (localInferenceSync) if (localModelMutating) throw new Exception("模型管理操作正在进行，请完成后再停止服务。");
                 if (localModelCancel != null) throw new Exception("请先取消当前模型下载，再停止本地服务。");
                 if (localModelServer == null) {
                     if (J.Bool(await LocalModelStatus(), "running")) throw new Exception("本地服务不是由剪辑台启动，请在启动它的程序中停止。");

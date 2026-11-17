@@ -27,6 +27,7 @@ replaceOnce('const y3=[{id:"providers",label:"模型与连接",sub:"配置供应
   {id:"batch",label:"跑量剪辑流",sub:"多集字幕与本地配乐",Icon:props=>i.createElement(BOSMusicUpgrade.BatchNavIcon,props)},
   {id:"workspace",label:"工作空间",sub:"我的创作与灵感",Icon:P8},
   {id:"music",label:"音乐",sub:"用 AI 模型生成音乐",Icon:K1},
+  {id:"voice",label:"音频克隆",sub:"本地配音与声音克隆",Icon:props=>i.createElement(BOSMusicUpgrade.VoiceNavIcon,props)},
   {id:"jianying",label:"JianYing-Ai-Pro",sub:"剪映批量生产工具",Icon:props=>i.createElement(BOSMusicUpgrade.JianyingNavIcon,props)},
   {id:"chat",label:"对话",sub:"与 AI 深度交流",Icon:Sc},
   {id:"webai",label:"国内 AI",sub:"DeepSeek · 豆包 · 千问 · Kimi",Icon:props=>i.createElement(BOSMusicUpgrade.WebAiNavIcon,props)},
@@ -36,6 +37,8 @@ replaceOnce('const y3=[{id:"providers",label:"模型与连接",sub:"配置供应
 ];`);
 replaceOnce('workspace:{eyebrow:"工作空间"', 'batch:{eyebrow:"跑量剪辑流",title:"多集剧本，一起整理。",description:"自动识别集数，批量分析剧情；字幕与本地音乐按集保存。"},workspace:{eyebrow:"工作空间"');
 replaceOnce('workspace:{eyebrow:"工作空间"', 'companion:{eyebrow:"动画设置",title:"大肥鱼桌面动画",description:"选择动画与显示大小。"},workspace:{eyebrow:"工作空间"');
+replaceOnce('workspace:{eyebrow:"工作空间"', 'voice:{eyebrow:"音频克隆",title:"为故事，赋予声音。",description:"按需部署 VoxCPM2，在本机完成声音设计与音频克隆。"},workspace:{eyebrow:"工作空间"');
+replaceOnce('d==="providers"&&s.jsx(BOSMusicUpgrade.GlobalThemePicker,{})', 's.jsx(BOSMusicUpgrade.VoiceStudio,{active:d==="voice"}),d==="providers"&&s.jsx(BOSMusicUpgrade.GlobalThemePicker,{})');
 replaceOnce('d==="providers"&&s.jsx(BOSMusicUpgrade.GlobalThemePicker,{})', 'd==="companion"&&s.jsx(BOSMusicUpgrade.CompanionSettings,{}),d==="localai"&&s.jsx(BOSMusicUpgrade.LocalModels,{}),d==="providers"&&s.jsx(BOSMusicUpgrade.GlobalThemePicker,{})');
 replaceOnce('workspace:{eyebrow:"工作空间"', 'webai:{eyebrow:"国内 AI",title:"官方网页，直接使用。",description:"内嵌 DeepSeek、豆包、千问与 Kimi，使用自己的账号登录，无需配置 API。"},jianying:{eyebrow:"JianYing-Ai-Pro",title:"剪映自动化工作台",description:"批量导出、字幕工程与智能命名，复用已配置的 AI 连接。"},watermark:{eyebrow:"加样片水印",title:"让样片，带上你的标记。",description:"选择视频，批量叠加样片水印。处理在本机完成，支持离线使用。"},localai:{eyebrow:"本地部署",title:"本地 AI 模型",description:"检测本机配置，下载免费的千问或 DeepSeek 本地模型。"},workspace:{eyebrow:"工作空间"');
 replaceOnce('d==="workspace"&&s.jsx(z3,{models:Zl,onNavigate:T,providers:x,automation:bosAutomation})', 'd==="workspace"&&s.jsx(z3,{models:Zl,onNavigate:T,providers:x,automation:bosAutomation}),s.jsx(BOSMusicUpgrade.JianyingStudio,{active:d==="jianying"||d==="watermark",providers:x,onNavigate:T}),s.jsx(BOSMusicUpgrade.WebAIStudio,{active:d==="webai",providers:x,automation:bosAutomation,onNavigate:T}),s.jsx(BOSMusicUpgrade.BatchAnalysis,{active:d==="batch",providers:x,onNavigate:T})');
@@ -124,13 +127,13 @@ if (railStart < 0 || railEnd < 0) throw new Error('Right sidebar patch location 
 code = code.slice(0, railStart) + 's.jsx(BOSMusicUpgrade.QuickRail,{}),s.jsx(BOSMusicUpgrade.SidebarResizer,{})' + code.slice(railEnd);
 fs.writeFileSync(path.join(root, 'dist/client/assets/music-studio.js'), code);
 const css = [fs.readFileSync(path.join(original, cssName), 'utf8'), fs.readFileSync(path.join(root, 'src/music-studio.css'), 'utf8'), fs.readFileSync(path.join(root, 'src/global-themes.css'), 'utf8'), fs.readFileSync(path.join(root, 'src/script-automation.css'), 'utf8'), fs.readFileSync(path.join(root, 'src/batch-analysis.css'), 'utf8'), fs.readFileSync(path.join(root, 'src/watermark-studio.css'), 'utf8'), fs.readFileSync(path.join(root, 'src/release-140.css'), 'utf8'), fs.readFileSync(path.join(root, 'src/companion-settings.css'), 'utf8'), fs.readFileSync(path.join(root, 'src/local-models.css'), 'utf8')].join('\n');
-fs.writeFileSync(path.join(root, 'dist/client/assets/music-studio.css'), css);
+fs.writeFileSync(path.join(root, 'dist/client/assets/music-studio.css'), css + '\n' + fs.readFileSync(path.join(root, 'src/voice-studio.css'), 'utf8'));
 // Auxiliary windows share exactly the same eleven palettes, without main-page styles.
 const themeSource = fs.readFileSync(path.join(root, 'src/global-themes.css'), 'utf8');
 const themeEnd = themeSource.indexOf('.app-shell[data-bos-theme]');
 if (themeEnd < 0) throw new Error('Theme palette boundary changed.');
 fs.writeFileSync(path.join(root, 'dist/client/theme-tokens.css'), themeSource.slice(0, themeEnd));
-const version = createHash('sha256').update(code).update(css).digest('hex').slice(0, 12);
+const version = createHash('sha256').update(code).update(css).update(fs.readFileSync(path.join(root, 'src/voice-studio.css'))).digest('hex').slice(0, 12);
 let html = fs.readFileSync(path.join(original, 'index.html'), 'utf8').replace(jsName, `music-studio.js?v=${version}`).replace(cssName, `music-studio.css?v=${version}`).replaceAll('黑曜信号台', 'XM剪辑台');
 fs.writeFileSync(path.join(root, 'dist/client/index.html'), html);
 console.log('Built music-studio.js and music-studio.css');

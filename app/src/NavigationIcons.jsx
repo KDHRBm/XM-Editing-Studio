@@ -2,6 +2,8 @@ function NavGlyph({ size = 23, weight = 'regular', children, ...props }) {
   return <svg {...props} width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={weight === 'fill' ? 2.2 : 1.8} strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" focusable="false">{children}</svg>;
 }
 
+export function VoiceNavIcon(props) { return <NavGlyph {...props}><rect x="9" y="2" width="6" height="12" rx="3"/><path d="M5 10v2a7 7 0 0 0 14 0v-2M12 19v3M8 22h8"/></NavGlyph>; }
+
 export function BatchNavIcon(props) {
   return <NavGlyph {...props}><path d="M4 4v16h16M8 16v-5m5 5V7m5 9v-8" /><path d="m7 7 5-4 5 2 3-3" /></NavGlyph>;
 }

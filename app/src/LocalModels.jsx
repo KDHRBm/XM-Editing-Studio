@@ -3,12 +3,15 @@ import { LOCAL_MODEL_OPTIONS as OPTIONS, recommendLocalModel } from './LocalMode
 import { createDownloadRateTracker, formatDownloadRate, formatRemainingTime } from './LocalDownloadRate.mjs';
 import { LOCAL_CONTEXT_OPTIONS, LOCAL_OUTPUT_OPTIONS, readLocalModelSettings, saveLocalModelSettings } from '../shared/local-model-settings.mjs';
 import { LOCAL_ACCELERATION_OPTIONS, localAccelerationMessage, localVramText } from './LocalAccelerationStatus.mjs';
+import { LocalModelManager } from './LocalModelManager.jsx';
+import { isLocalModelName, removeLocalProviderModel } from './LocalModelManagement.mjs';
 
 export function useLocalProvider(setProviders) {
   i.useEffect(() => {
+    const removedDuringLoad = new Set();
     const add = event => {
       const model = event.detail;
-      if (!OPTIONS.some(item => item.id === model)) return;
+      if (!isLocalModelName(model)) return;
       setProviders(items => {
         const existing = items.find(item => item.id === 'provider-ollama-local');
         if (existing) return items.map(item => item.id === existing.id
@@ -17,11 +20,13 @@ export function useLocalProvider(setProviders) {
       });
     };
     window.addEventListener('bos:add-local-provider', add);
+    const remove = event => { if (isLocalModelName(event.detail)) { removedDuringLoad.add(event.detail); setProviders(items => removeLocalProviderModel(items, event.detail)); } };
+    window.addEventListener('bos:remove-local-provider-model', remove);
     let live = true;
     globalThis.blackObsidian?.localModelAction?.('status').then(state => {
-      if (live) for (const model of state.models || []) if (/^qwen3\.5:/.test(model)) add({ detail: model });
+      if (live) for (const model of state.models || []) if (/^qwen3\.5:/.test(model) && !removedDuringLoad.has(model)) add({ detail: model });
     }).catch(() => {});
-    return () => { live = false; window.removeEventListener('bos:add-local-provider', add); };
+    return () => { live = false; window.removeEventListener('bos:add-local-provider', add); window.removeEventListener('bos:remove-local-provider-model', remove); };
   }, [setProviders]);
 }
 
@@ -69,16 +74,18 @@ export function LocalModels() {
     const timer = setInterval(() => setClock(Date.now()), 1000);
     return () => clearInterval(timer);
   }, [busy]);
-  const act = async (action, model = '') => {
+  const act = async (action, model = '', settings) => {
     statusRevision.current++;
     rateTracker.current.reset(); setProgress(null);
     setBusy(action === 'pull' ? model : action); setError('');
     try {
-      const next = await api.localModelAction(action, model);
+      const next = await api.localModelAction(action, model, ...(settings ? [settings] : []));
       setState(next);
       if (action === 'pull' && next.models?.includes(model)) window.dispatchEvent(new CustomEvent('bos:add-local-provider', { detail: model }));
+      if (action === 'delete-model' && !next.models?.includes(model)) window.dispatchEvent(new CustomEvent('bos:remove-local-provider-model', { detail: model }));
+      return true;
     }
-    catch (failure) { setError(failure.message); }
+    catch (failure) { setError(failure.message); return false; }
     finally { setBusy(''); await refresh(); }
   };
   const checkSources = async () => {
@@ -88,6 +95,7 @@ export function LocalModels() {
     finally { setBusy(''); }
   };
   const installed = new Set(state?.models || []);
+  for (const model of state?.modelDetails || []) if (!model.complete) installed.delete(model.name);
   const recommendation = recommendLocalModel(state?.hardware, 'qwen');
   const hardware = state?.hardware;
   const acceleration = state?.acceleration;
@@ -108,6 +116,8 @@ export function LocalModels() {
   return <section className="bos-local-models" aria-labelledby="bos-local-models-title">
     <div className="bos-local-models-heading"><div><h2 id="bos-local-models-title">本地千问 / DeepSeek</h2><p>运行环境与模型保存在 {state?.root || '安装目录的数据文件夹'}。模型推理在本机完成，无 API 费用。</p></div><button type="button" className="bos-local-refresh" onClick={refresh} title="重新检测设备和模型状态"><UpdateNavIcon size={17} /> 刷新状态</button></div>
     <p>新电脑可直接下载千问；缺少运行环境时自动安装，完成后自动加入分析模型。</p>
+    <LocalModelManager state={state} busy={busy} onAction={act} />
+    <h3 className="bos-local-download-heading">下载模型</h3>
     <div className="bos-local-model-list">{OPTIONS.map(option => <div className="bos-local-model-row" key={option.id}><div><strong>{option.label}{recommendation.id === option.id && <span className="bos-local-recommended">推荐</span>}</strong><span>{option.id} · {option.size}</span><small>{option.detail}</small></div><div className="bos-local-model-actions">{installed.has(option.id) ? <><span className="bos-local-installed"><CheckNavIcon size={15} /> 已下载</span><button type="button" onClick={() => window.dispatchEvent(new CustomEvent('bos:add-local-provider', { detail: option.id }))}>加入分析模型</button></> : <button type="button" disabled={!!busy || !api?.localModelAction} onClick={() => act('pull', option.id)}><DownloadNavIcon size={16} /> {state?.runtimeInstalled ? '下载模型' : '一键下载部署'}</button>}</div></div>)}</div>
     {hardware && <div className="bos-local-hardware"><strong>当前设备</strong><span>{hardware.gpuName || '未检测到显卡'} · 显存 {hardware.vramGB || 0} GB · 内存 {hardware.ramGB || 0} GB</span><span>{recommendation.id ? `推荐 ${recommendation.id}：${recommendation.reason}` : recommendation.reason}</span></div>}
     <div className="bos-local-sources"><button type="button" disabled={!!busy || !api?.localModelAction} onClick={checkSources}><UpdateNavIcon size={15} /> {busy === 'sources' ? '正在检测下载源…' : '检测下载源'}</button>{sources && <span role="status">{sources.runtime.message}；{sources.model.message}</span>}</div>

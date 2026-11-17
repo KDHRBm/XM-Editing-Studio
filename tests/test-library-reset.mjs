@@ -3,6 +3,7 @@ import test from 'node:test';
 import { build } from 'esbuild';
 const saved = new Map();
 let injectedCatalog;
+globalThis.blackObsidian = { getMusicLibrary: async () => injectedCatalog || { directories: [], tracks: [], revision: 'ready' } };
 globalThis.localStorage = { getItem: key => saved.get(key) || null, setItem: (key, value) => saved.set(key, value), removeItem: key => saved.delete(key) };
 globalThis.i = {
   useRef: value => ({ current: value }),
@@ -26,9 +27,10 @@ test('clearing a project cancels its pending request and ignores a late Gemini r
   globalThis.fetch = (_url, options) => { signal = options.signal; return new Promise(resolve => { finish = resolve; }); };
   const tree = MusicLibrary({ input, projectId:'cleared-project', lines:[], gemini:{provider:{apiKey:'fixture'},model:'fixture'}, onAnalysis:()=>remembered++ });
   const task = findButton(tree).props.onClick();
+  await new Promise(resolve => setImmediate(resolve));
   clearCurrentLibraryMatch('cleared-project', input);
   assert.equal(signal.aborted, true);
-  finish({ok:true,json:async()=>({analysis:{summary:'late result'},matches:[]})});
+  finish({ok:true,json:async()=>({analysis:{summary:'late result',keywords:[]},matches:[]})});
   await task;
   assert.equal(remembered, 0);
   assert.equal(saved.has('black-obsidian.library-match.v1'), false);
@@ -63,11 +65,28 @@ test('clearing a different project leaves the in-flight recommendation intact', 
   globalThis.fetch = (_url, options) => { signal = options.signal; return new Promise(resolve => { finish = resolve; }); };
   const tree = MusicLibrary({ input, projectId:'running-project', lines:[], gemini:{provider:{apiKey:'fixture'},model:'fixture'}, onAnalysis:()=>remembered++ });
   const task = findButton(tree).props.onClick();
+  await new Promise(resolve => setImmediate(resolve));
   clearCurrentLibraryMatch('other-project', {script:'different',hint:''});
   assert.equal(signal.aborted, false);
-  finish({ok:true,json:async()=>({analysis:{summary:'kept result'},matches:[]})});
+  finish({ok:true,json:async()=>({analysis:{summary:'kept result',keywords:[]},matches:[]})});
   await task;
   assert.equal(remembered, 1);
+});
+
+test('clearing while the music library is scanning prevents the subsequent model request', async () => {
+  const previous = globalThis.blackObsidian;
+  let finishScan, requests = 0, remembered = 0;
+  globalThis.blackObsidian = { getMusicLibrary: () => new Promise(resolve => { finishScan = resolve; }) };
+  globalThis.fetch = async () => { requests++; throw new Error('Cancelled task must not call the model'); };
+  try {
+    const tree = MusicLibrary({ input, projectId:'cancel-during-scan', lines:[], gemini:{provider:{apiKey:'fixture'},model:'fixture'}, onAnalysis:()=>remembered++ });
+    const task = findButton(tree).props.onClick();
+    clearCurrentLibraryMatch('cancel-during-scan', input);
+    finishScan({directories:[],tracks:[],revision:'loaded'});
+    await task;
+    assert.equal(requests, 0);
+    assert.equal(remembered, 0);
+  } finally { globalThis.blackObsidian = previous; }
 });
 
 test('clear history persists an empty list, preserves open scripts and ignores late history writes', async () => {

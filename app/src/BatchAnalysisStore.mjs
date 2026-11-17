@@ -4,6 +4,7 @@ import { WEB_ANALYZERS, analysisName, analysisReady, webAnalyzer } from '../shar
 import { excludeUsedMusic } from '../shared/library-usage.mjs';
 import { musicUsage } from './MusicUsage.mjs';
 import { requestScriptAnalysis } from './AnalysisRequest.mjs';
+import { requireMusicCatalog } from '../shared/music-catalog-state.mjs';
 
 let providers = [], database;
 export function batchAnalyzers(items = providers) {
@@ -62,7 +63,7 @@ export const batchQueue = createBatchAnalysisQueue({
     const model = batchAnalyzers().find(item => item.key === tasks[0].settings.analyzerKey);
     if (!model || !analysisReady(model)) throw new Error('此任务所选模型已移除或缺少密钥，请检查工作空间中的模型连接。');
     onStage('library');
-    const catalog = await globalThis.blackObsidian?.getMusicLibrary?.() || { tracks: [], revision: '' };
+    const catalog = requireMusicCatalog(await globalThis.blackObsidian?.getMusicLibrary?.());
     signal.throwIfAborted();
     const tracks = excludeUsedMusic(catalog.tracks, musicUsage.snapshot().history);
     const value = await requestScriptAnalysis('batch-library-match', { analysisMode:tasks[0].settings.analysisMode || 'standard', operation:tasks[0].operation || 'analyze', ...(tasks[0].operation==='supplement'?{previousEpisodes:tasks.map(t=>({id:t.id,...t.result}))}:{}), segmented: !!tasks[0].settings.segmented, segmentCount: tasks[0].settings.segmentCount || 3, manualWeb: !!tasks[0].settings.manualWeb, episodes: tasks.map(({ id, episodeNumber, title, script }) => ({ id, episodeNumber, title, script })), recentEpisodes, provider: model.provider, model: model.model, tracks: tracks.map(({ id, title,relativePath,libraryId }) => ({ id, title,relativePath,libraryId })) }, webAnalyzer(model) ? signal : AbortSignal.any([signal, AbortSignal.timeout(730000)]), onStage);

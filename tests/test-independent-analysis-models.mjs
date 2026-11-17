@@ -70,7 +70,7 @@ test('both selectors change independently and their selections survive storage r
 test('local analysis uses its own selected web model while segment and whole Suno planning use the generation model', async () => {
   const oldApi = globalThis.blackObsidian;
   const requests = [];
-  globalThis.blackObsidian = { analyzeWebScript: async request => { requests.push(request); return { analysis: { summary: '温暖重逢', keywords: ['温暖'] }, matches: [], total: 0, evaluated: 0 }; } };
+  globalThis.blackObsidian = { getMusicLibrary: async () => ({ directories: [], tracks: [], revision: 'ready' }), analyzeWebScript: async request => { requests.push(request); return { analysis: { summary: '温暖重逢', keywords: ['温暖'] }, matches: [], total: 0, evaluated: 0 }; } };
   try {
     let tree = render(), node = library(tree);
     const panel = node.type(node.props);
