@@ -12,7 +12,7 @@ test('runtime source detection and downloads recover from timeouts without bypas
   const compiled = spawnSync(path.join(process.env.WINDIR, 'Microsoft.NET/Framework64/v4.0.30319/csc.exe'), ['/nologo', '/utf8output', '/codepage:65001', '/platform:x64', '/out:' + exe,
     '/r:System.Core.dll', '/r:System.Net.Http.dll', '/r:System.Web.Extensions.dll', ...sources.map(s => path.resolve(s))], { encoding: 'utf8', windowsHide: true });
   assert.equal(compiled.status, 0, compiled.stdout + compiled.stderr);
-  const run = spawnSync(exe, [], { encoding: 'utf8', windowsHide: true, timeout: 20000 });
+  const run = spawnSync(exe, [], { encoding: 'utf8', windowsHide: true, timeout: 60000 });
   assert.equal(run.status, 0, run.stdout + run.stderr);
   assert.match(run.stdout, /PASS: 16 runtime download scenarios/);
 });

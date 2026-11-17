@@ -50,11 +50,12 @@ internal static class NativeLocalRuntimeDownloadTests {
         // Model a .NET network stream whose ReadAsync ignores the token: disposing
         // the HTTP response must still release a stalled read.
         private readonly TaskCompletionSource<int> stalled = new TaskCompletionSource<int>();
-        public override Task<int> ReadAsync(byte[] buffer, int offset, int count, CancellationToken token) { return stalled.Task; }
+        internal Action OnRead;
+        public override Task<int> ReadAsync(byte[] buffer, int offset, int count, CancellationToken token) { if (OnRead != null) OnRead(); return stalled.Task; }
         protected override void Dispose(bool disposing) { if (disposing) stalled.TrySetException(new IOException("disposed stalled stream")); base.Dispose(disposing); }
     }
-    private static HttpResponseMessage StalledResponse() {
-        var response = new HttpResponseMessage(HttpStatusCode.OK) { Content = new StreamContent(new StalledStream()) };
+    private static HttpResponseMessage StalledResponse(Action onRead = null) {
+        var response = new HttpResponseMessage(HttpStatusCode.OK) { Content = new StreamContent(new StalledStream { OnRead = onRead }) };
         response.Content.Headers.ContentLength = Zip.Length; return response;
     }
     private static async Task<HttpResponseMessage> Stall(CancellationToken token) { await Task.Delay(Timeout.Infinite, token); throw new Exception("unreachable"); }
@@ -65,7 +66,7 @@ internal static class NativeLocalRuntimeDownloadTests {
     private static async Task Run(string root) {
         var handler = new Handler { Route = (r, t) => Task.FromResult(Metadata()) };
         using (var client = new HttpClient(handler) { Timeout = Timeout.InfiniteTimeSpan }) {
-            var asset = await LocalRuntimeDownload.GetAsset(client, CancellationToken.None, 100);
+            var asset = await LocalRuntimeDownload.GetAsset(client, CancellationToken.None, 5000);
             Check(asset.Size == Zip.Length && asset.Sha256 == J.Hash(Zip) && handler.Hosts.SequenceEqual(new[] { "api.github.com" }), "checksum must come from official API"); Pass();
             foreach (var invalid in new[] { Metadata("https://evil.example/ollama.zip"), Metadata(Url + "?redirect=evil"), Metadata(digest: "sha256:bad") }) {
                 handler.Route = (r, t) => Task.FromResult(invalid);
@@ -77,9 +78,11 @@ internal static class NativeLocalRuntimeDownloadTests {
                 Check(r.Method == HttpMethod.Get && r.Headers.Range.ToString() == "bytes=0-3", "probe uses bounded range, not HEAD");
                 return Task.FromResult(Partial());
             };
-            Check(await LocalRuntimeDownload.Probe(client, asset, CancellationToken.None, 100) == "官方地址", "official probe succeeds"); Pass();
+            // Do not measure cold CLR/JIT speed on shared CI runners. Short clocks
+            // below are reserved for deliberately blocked requests, never success.
+            Check(await LocalRuntimeDownload.Probe(client, asset, CancellationToken.None, 5000) == "官方地址", "official probe succeeds"); Pass();
             handler.Hosts.Clear(); handler.Route = (r, t) => r.RequestUri.Host == "github.com" ? Stall(t) : Task.FromResult(Partial());
-            Check(await LocalRuntimeDownload.Probe(client, asset, CancellationToken.None, 30) == "国内镜像" && handler.Hosts.Count == 2, "fresh timeout budget for fallback"); Pass();
+            Check(await LocalRuntimeDownload.Probe(client, asset, CancellationToken.None, 1000) == "国内镜像" && handler.Hosts.Count == 2, "fresh timeout budget for fallback"); Pass();
             var stream = new CountingStream(Zip);
             handler.Route = (r, t) => Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK) { Content = new StreamContent(stream) });
             Check(await LocalRuntimeDownload.Probe(client, asset, CancellationToken.None) == "官方地址" && stream.ReadBytes == 4, "server ignoring range must not cause full download"); Pass();
@@ -96,14 +99,15 @@ internal static class NativeLocalRuntimeDownloadTests {
             Exception error = await Failure(async () => { await LocalRuntimeDownload.Probe(client, asset, CancellationToken.None, 30); });
             Check(error is TimeoutException && error.Message.Contains("官方地址连接超时") && error.Message.Contains("国内镜像连接超时") && !error.Message.Contains("已取消"), "all-source timeout has actionable diagnostics"); Pass();
             handler.Hosts.Clear();
-            using (var cts = new CancellationTokenSource(30)) {
+            using (var cts = new CancellationTokenSource()) {
+                handler.Route = (r, t) => { cts.Cancel(); return Stall(t); };
                 error = await Failure(async () => { await LocalRuntimeDownload.Probe(client, asset, cts.Token, 1000); });
                 Check(error is OperationCanceledException && handler.Hosts.Count == 1, "user cancellation must not try mirror");
             } Pass();
             string target = Path.Combine(root, "runtime.zip");
             var phases = new List<string>();
             handler.Route = (r, t) => r.RequestUri.Host == "github.com" ? Stall(t) : Task.FromResult(Response(Zip));
-            await LocalRuntimeDownload.Download(client, asset, target, CancellationToken.None, (p, m, c, total) => phases.Add(p + " " + m), 30, 100);
+            await LocalRuntimeDownload.Download(client, asset, target, CancellationToken.None, (p, m, c, total) => phases.Add(p + " " + m), 1000, 5000);
             Check(J.FileHash(target) == asset.Sha256 && phases.Any(p => p.Contains("国内镜像")) && phases.Any(p => p.StartsWith("verify")), "actual download uses fallback and checksum"); Pass();
             handler.Route = (r, t) => Task.FromResult(Response(r.RequestUri.Host == "github.com" ? Zip.Take(4).ToArray() : Zip));
             await LocalRuntimeDownload.Download(client, asset, target, CancellationToken.None, null);
@@ -115,15 +119,16 @@ internal static class NativeLocalRuntimeDownloadTests {
                 if (r.RequestUri.Host == "gh-proxy.com") return Task.FromResult(Response(Zip));
                 return Task.FromResult(StalledResponse());
             };
-            await LocalRuntimeDownload.Download(client, asset, target, CancellationToken.None, null, 100, 30);
+            await LocalRuntimeDownload.Download(client, asset, target, CancellationToken.None, null, 5000, 1000);
             Check(J.FileHash(target) == asset.Sha256, "idle timeout closes stream and moves to mirror"); Pass();
             handler.Hosts.Clear(); handler.Route = (r, t) => Task.FromResult(StalledResponse());
-            using (var cts = new CancellationTokenSource(30)) {
-                error = await Failure(() => LocalRuntimeDownload.Download(client, asset, target, cts.Token, null, 1000, 1000));
+            using (var cts = new CancellationTokenSource()) {
+                handler.Route = (r, t) => Task.FromResult(StalledResponse(() => cts.Cancel()));
+                error = await Failure(() => LocalRuntimeDownload.Download(client, asset, target, cts.Token, null, 5000, 5000));
                 Check(error is OperationCanceledException && handler.Hosts.Count == 1 && !File.Exists(target), "cancelled body read cleans partial file without fallback");
             } Pass();
             handler.Route = (r, t) => r.RequestUri.Host == "github.com" ? Task.FromResult(StalledResponse()) : Task.FromResult(Partial());
-            Check(await LocalRuntimeDownload.Probe(client, asset, CancellationToken.None, 30) == "国内镜像", "probe idle body also bounded"); Pass();
+            Check(await LocalRuntimeDownload.Probe(client, asset, CancellationToken.None, 1000) == "国内镜像", "probe idle body also bounded"); Pass();
             handler.Route = (r, t) => Task.FromResult(new HttpResponseMessage((HttpStatusCode)429));
             error = await Failure(async () => { await LocalRuntimeDownload.GetAsset(client, CancellationToken.None); });
             Check(error.Message.Contains("HTTP 429") && !error.Message.Contains("已取消"), "rate limiting must not be labeled cancellation"); Pass();
