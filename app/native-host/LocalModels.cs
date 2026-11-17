@@ -3,7 +3,6 @@ using System.IO;
 using System.IO.Compression;
 using System.Linq;
 using System.Net.Http;
-using System.Security.Cryptography;
 using System.Diagnostics;
 using System.Text;
 using System.Threading;
@@ -98,34 +97,16 @@ namespace XM.Native {
         }
         private async Task<object> CheckRuntimeSource() {
             try {
-                using (var cts = new CancellationTokenSource(30000))
-                using (var release = await http.GetAsync("https://api.github.com/repos/ollama/ollama/releases/latest", cts.Token)) {
-                    release.EnsureSuccessStatusCode();
-                    var payload = J.Decode(await release.Content.ReadAsStringAsync());
-                    var asset = J.Arr(J.Get(payload, "assets")).FirstOrDefault(item => J.Str(item, "name") == "ollama-windows-amd64.zip");
-                    if (asset == null) throw new Exception("官方发布中没有 Windows x64 文件。");
-                    string url = J.Str(asset, "browser_download_url"); Uri address;
-                    if (!Uri.TryCreate(url, UriKind.Absolute, out address) || address.Scheme != "https" || address.Host != "github.com") throw new Exception("下载地址无效。");
-                    bool headAvailable = false;
-                    try {
-                        using (var request = new HttpRequestMessage(HttpMethod.Head, address))
-                        using (var response = await http.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, cts.Token)) {
-                            response.EnsureSuccessStatusCode();
-                            headAvailable = true;
-                        }
-                    } catch (OperationCanceledException) { throw; }
-                    catch { /* Some release CDNs reject HEAD; probe one byte below. */ }
-                    if (!headAvailable) {
-                        using (var request = new HttpRequestMessage(HttpMethod.Get, address)) {
-                            request.Headers.Range = new System.Net.Http.Headers.RangeHeaderValue(0, 0);
-                            using (var response = await http.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, cts.Token)) {
-                                if (response.StatusCode != System.Net.HttpStatusCode.PartialContent) throw new Exception("下载服务器未提供文件分段检测。");
-                            }
-                        }
-                    }
-                    return J.Obj("ok", true, "message", "Windows 运行环境文件可连接");
-                }
-            } catch (Exception error) { return J.Obj("ok", false, "message", "运行环境下载源不可用：" + error.Message); }
+                var asset = await LocalRuntimeDownload.GetAsset(http, CancellationToken.None);
+                string source = await LocalRuntimeDownload.Probe(http, asset, CancellationToken.None);
+                return J.Obj("ok", true, "source", source, "message", "Windows 运行环境文件可连接（" + source + "，安装时校验官方 SHA-256）");
+            } catch (Exception error) {
+                bool timeout = error is TimeoutException || error is OperationCanceledException;
+                string message = timeout ? "运行环境下载源检测超时，尚不能确认是否可用。请稍后重试。" : "运行环境下载源暂时无法连接：" + error.Message;
+                if (File.Exists(LocalOllamaExe)) message += " 已安装的运行环境仍可使用，无需重新下载。";
+                Log("local-runtime-source " + (timeout ? "timeout" : "failed") + " " + LocalModelNetwork.RedactLog(error.Message));
+                return J.Obj("ok", false, "status", timeout ? "timeout" : "unavailable", "message", message);
+            }
         }
         private async Task<object> CheckModelSource(string model) {
             try {
@@ -144,43 +125,21 @@ namespace XM.Native {
                         }
                     }
                 }
-            } catch (Exception error) { return J.Obj("ok", false, "message", "模型下载源不可用：" + error.Message); }
+            } catch (OperationCanceledException) { return J.Obj("ok", false, "status", "timeout", "message", model + " 模型下载源检测超时，尚不能确认是否可用，请稍后重试。"); }
+            catch (Exception error) { return J.Obj("ok", false, "message", "模型下载源暂时无法连接：" + LocalModelNetwork.RedactLog(error.Message)); }
         }
         private async Task InstallLocalRuntime(CancellationToken token, bool upgrade = false) {
             if (File.Exists(LocalOllamaExe) && !upgrade) return;
             if (Directory.Exists(LocalRuntime) && !upgrade) throw new Exception("运行环境目录已存在但缺少 ollama.exe，请更新运行环境修复 " + LocalRuntime);
             Directory.CreateDirectory(LocalModelRoot);
             ReportLocalModel("runtime", "正在查询 Ollama 官方 Windows 运行环境…");
-            object release;
-            using (var response = await http.GetAsync("https://api.github.com/repos/ollama/ollama/releases/latest", token)) {
-                response.EnsureSuccessStatusCode();
-                release = J.Decode(await response.Content.ReadAsStringAsync());
-            }
-            var asset = J.Arr(J.Get(release, "assets")).FirstOrDefault(item => J.Str(item, "name") == "ollama-windows-amd64.zip");
-            if (asset == null) throw new Exception("官方发布中没有 Windows x64 运行环境。");
-            string url = J.Str(asset, "browser_download_url"), digest = J.Str(asset, "digest");
-            Uri address;
-            if (!Uri.TryCreate(url, UriKind.Absolute, out address) || address.Scheme != "https" || address.Host != "github.com" || !address.AbsolutePath.Contains("/ollama/ollama/releases/download/") || !digest.StartsWith("sha256:", StringComparison.OrdinalIgnoreCase)) throw new Exception("官方运行环境下载信息无效。");
-            long size = (long)J.Num(asset, "size");
+            var asset = await LocalRuntimeDownload.GetAsset(http, token);
+            long size = asset.Size;
             if (new DriveInfo(Path.GetPathRoot(LocalModelRoot)).AvailableFreeSpace < Math.Max(size * 4, 7L * 1024 * 1024 * 1024)) throw new Exception("E 盘空间不足，运行环境需要至少 7 GB 可用空间。");
             string archive = Path.Combine(LocalModelRoot, "ollama-windows-amd64.zip");
             string stage = Path.Combine(LocalModelRoot, "runtime-stage-" + Guid.NewGuid().ToString("N"));
             try {
-                using (var response = await http.GetAsync(url, HttpCompletionOption.ResponseHeadersRead, token)) {
-                    response.EnsureSuccessStatusCode();
-                    long total = response.Content.Headers.ContentLength ?? size, completed = 0;
-                    using (var input = await response.Content.ReadAsStreamAsync())
-                    using (var output = new FileStream(archive, FileMode.Create, FileAccess.Write, FileShare.None, 1024 * 1024, true)) {
-                        var buffer = new byte[1024 * 1024]; int count;
-                        while ((count = await input.ReadAsync(buffer, 0, buffer.Length, token)) > 0) {
-                            await output.WriteAsync(buffer, 0, count, token); completed += count;
-                            if (completed == count || completed % (16 * 1024 * 1024) < count) ReportLocalModel("runtime", "正在下载运行环境", completed, total);
-                        }
-                    }
-                }
-                ReportLocalModel("verify", "正在校验官方文件…");
-                string hash = await Task.Run(() => { using (var sha = SHA256.Create()) using (var file = File.OpenRead(archive)) return BitConverter.ToString(sha.ComputeHash(file)).Replace("-", "").ToLowerInvariant(); }, token);
-                if (!hash.Equals(digest.Substring(7), StringComparison.OrdinalIgnoreCase)) throw new Exception("运行环境校验失败，请重试下载。");
+                await LocalRuntimeDownload.Download(http, asset, archive, token, (phase, message, completed, total) => ReportLocalModel(phase, message, completed, total));
                 ReportLocalModel("extract", "正在解压运行环境到 E 盘…");
                 await Task.Run(() => {
                     Directory.CreateDirectory(stage);

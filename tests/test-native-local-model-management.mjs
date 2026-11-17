@@ -8,7 +8,7 @@ test('native model management preserves shared files and guards live analysis an
   const folder=path.resolve('.generated/tests/local-model-management');
   await fs.mkdir(folder,{recursive:true});
   const exe=path.join(folder,'LocalModelManagementTests.exe');
-  const sources=['Infrastructure','LocalModels','LocalHardware','LocalAcceleration','LocalModelNetwork','LocalModelInventory','LocalModelManagement'].map(name=>`app/native-host/${name}.cs`);
+  const sources=['Infrastructure','LocalModels','LocalHardware','LocalAcceleration','LocalModelNetwork','LocalRuntimeDownload','LocalModelInventory','LocalModelManagement'].map(name=>`app/native-host/${name}.cs`);
   sources.push('tests/NativeLocalModelManagementTests.cs');
   const refs=['System.Core.dll','System.Web.Extensions.dll','System.Net.Http.dll','System.Management.dll','System.IO.Compression.dll','System.IO.Compression.FileSystem.dll'];
   const built=spawnSync(path.join(process.env.WINDIR,'Microsoft.NET/Framework64/v4.0.30319/csc.exe'),['/nologo','/utf8output','/codepage:65001','/platform:x64','/out:'+exe,...refs.map(r=>'/r:'+r),...sources.map(s=>path.resolve(s))],{encoding:'utf8',windowsHide:true});

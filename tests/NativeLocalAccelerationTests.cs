@@ -20,17 +20,19 @@ namespace XM.Native {
             public bool FailPs;
             public bool Running = true;
             public bool BadDigest;
+            public bool SourceTimeout;
             public byte[] RuntimeZip;
             public int RuntimeRequests;
             public Func<bool> ProcessRunning;
             public bool Downloaded;
             public string Models = "[]";
             protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken token) {
+                if (SourceTimeout && request.RequestUri.Host == "api.github.com") throw new TaskCanceledException();
                 if (request.RequestUri.Host == "api.github.com") { RuntimeRequests++; return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent(J.Encode(J.Obj("assets", new[] { J.Obj(
                     "name", "ollama-windows-amd64.zip", "size", RuntimeZip.Length,
                     "browser_download_url", "https://github.com/ollama/ollama/releases/download/v-test/ollama-windows-amd64.zip",
                     "digest", "sha256:" + (BadDigest ? new string('0', 64) : J.Hash(RuntimeZip))) }))) }); }
-                if (request.RequestUri.Host == "github.com") return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK) { Content = new ByteArrayContent(RuntimeZip) });
+                if (request.RequestUri.Host == "github.com" || request.RequestUri.Host == "gh-proxy.com") return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK) { Content = new ByteArrayContent(RuntimeZip) });
                 string path = request.RequestUri.AbsolutePath;
                 if (!Running && !(ProcessRunning != null && ProcessRunning())) return Task.FromResult(new HttpResponseMessage(HttpStatusCode.ServiceUnavailable));
                 if (path == "/api/pull") {
@@ -101,6 +103,14 @@ namespace XM.Native {
                     }
                     fake.RuntimeZip = memory.ToArray();
                 }
+                fake.SourceTimeout = true;
+                object sourceCheck = host.CheckRuntimeSource().GetAwaiter().GetResult();
+                Check(!J.Bool(sourceCheck, "ok") && J.Str(sourceCheck, "status") == "timeout"
+                    && J.Str(sourceCheck, "message").Contains("已安装的运行环境仍可使用")
+                    && !J.Str(sourceCheck, "message").Contains("已取消"), "An installed runtime remains usable when its source check times out.");
+                fake.SourceTimeout = false;
+                sourceCheck = host.CheckRuntimeSource().GetAwaiter().GetResult();
+                Check(J.Bool(sourceCheck, "ok") && J.Str(sourceCheck, "source") == "官方地址", "Source status is based on a real ZIP probe.");
                 fake.BadDigest = true; rejected = false;
                 try { host.LocalModelAction("upgrade-runtime", "").GetAwaiter().GetResult(); } catch { rejected = true; }
                 Check(rejected && File.ReadAllText(host.LocalOllamaExe) == "old runtime", "A bad download must preserve the installed runtime.");
@@ -140,7 +150,15 @@ namespace XM.Native {
                 Console.WriteLine("PASS: GPU / CPU / idle / unknown are distinct.");
                 return 0;
             } catch (Exception error) { Console.Error.WriteLine(error.Message); return 1; }
-            finally { if (Directory.Exists(root)) Directory.Delete(root, true); }
+            finally {
+                string tempRoot = Path.GetFullPath(Path.GetTempPath()).TrimEnd(Path.DirectorySeparatorChar) + Path.DirectorySeparatorChar;
+                if (!Path.GetFullPath(root).StartsWith(tempRoot + "xm-amd-test-", StringComparison.OrdinalIgnoreCase)) throw new Exception("Fixture cleanup escaped temp folder");
+                for (int attempt = 0; Directory.Exists(root); attempt++) {
+                    try { Directory.Delete(root, true); break; }
+                    catch (IOException) { if (attempt >= 5) throw; Thread.Sleep(100); }
+                    catch (UnauthorizedAccessException) { if (attempt >= 5) throw; Thread.Sleep(100); }
+                }
+            }
         }
     }
 }
