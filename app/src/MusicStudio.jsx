@@ -157,9 +157,12 @@ export function MusicStudio({ providers, onGoProviders }) {
         if (Date.now() - (job.monitoringSince || job.createdAt) > 15 * 60 * 1000) issue = '已暂停自动查询。任务可能仍在生成，可手动继续查询。';
         if (issue) { updateJobs(list => list.map(j => j.id === job.id ? { ...j, status: 'paused', error: issue } : j)); continue; }
         try {
-          const response = await fetch('/api/music/query', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ provider, model: job.model, ids: job.taskIds }), signal: AbortSignal.any([controller.signal, AbortSignal.timeout(60000)]) });
-          const data = await response.json();
-          if (!response.ok) throw new Error(data.error || `查询失败（${response.status}）`);
+          const data = await withAbortScope({ timeoutMs: 60000, signals: [controller.signal] }, async signal => {
+            const response = await fetch('/api/music/query', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ provider, model: job.model, ids: job.taskIds }), signal });
+            const data = await response.json();
+            if (!response.ok) throw new Error(data.error || `查询失败（${response.status}）`);
+            return data;
+          });
           if (stopped) return;
           updateJobs(list => list.map(j => {
             if (j.id !== job.id) return j;
@@ -191,9 +194,12 @@ export function MusicStudio({ providers, onGoProviders }) {
     } catch (err) { setError(err.message); return; }
     setSubmitting(true);
     try {
-      const response = await fetch('/api/music/generate', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ...options, provider, model: selected.model }), signal: AbortSignal.timeout(195000) });
-      const data = await response.json();
-      if (!response.ok) throw new Error(data.error || `生成请求失败（${response.status}）`);
+      const data = await withAbortScope({ timeoutMs: 195000 }, async signal => {
+        const response = await fetch('/api/music/generate', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ...options, provider, model: selected.model }), signal });
+        const data = await response.json();
+        if (!response.ok) throw new Error(data.error || `生成请求失败（${response.status}）`);
+        return data;
+      });
       if (!Array.isArray(data.tracks) || !data.tracks.length) throw new Error('接口没有返回任务 ID 或音频，请先查看服务商记录，避免重复生成。');
       const job = { id: uid(), providerId: selected.providerId, baseUrl: provider.baseUrl, model: selected.model, title: options.title, style: options.style, createdAt: Date.now(), monitoringSince: Date.now(), tracks: data.tracks, taskIds: [...new Set(data.tracks.map(t => t.taskId || t.id).filter(Boolean))], status: resultState(data.tracks), error: '' };
       job.prompt = options.prompt;
@@ -318,3 +324,4 @@ export function MusicStudio({ providers, onGoProviders }) {
     </div></section>
   </section>;
 }
+import { withAbortScope } from '../shared/request-abort.mjs';

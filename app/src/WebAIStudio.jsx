@@ -11,15 +11,19 @@ export function WebAIStudio({ active, onNavigate }) {
   const [status, setStatus] = i.useState(null);
   const [error, setError] = i.useState('');
   const [notice, setNotice] = i.useState('');
+  const [companyEntry, setCompanyEntry] = i.useState(''), [companyInput, setCompanyInput] = i.useState('');
+  const [companySaving, setCompanySaving] = i.useState(false);
   const projects = useScriptProjects();
   const slot = i.useRef(null);
   const api = globalThis.blackObsidian;
   const ready = typeof api?.layoutWebAI === 'function' && typeof api?.webAIAction === 'function';
   const current = WEB_AI_PROVIDERS.find(item => item.id === provider);
+  const company = provider === 'dsh', pageName = company ? '公司工作区' : '官方网页';
   const changeProvider = value => { setProvider(value); if (opened) setOpened(value); setStatus(null); setError(''); try { localStorage.setItem('xm.web-ai.provider', value); } catch { /* selection works for this session */ } };
   i.useEffect(() => {
     if (!ready || floating) return;
     if (!visible) { void api.layoutWebAI({ visible: false }).catch(() => {}); return; }
+    if (company && !companyEntry) { void api.layoutWebAI({ visible: false }).catch(() => {}); return; }
     let live = true, frame = 0, last = '', polling = false;
     setStatus(null); setError(''); setNotice('');
     const sync = () => {
@@ -47,7 +51,7 @@ export function WebAIStudio({ active, onNavigate }) {
     const poll = setInterval(() => { if (live) { schedule(); if (!polling) { polling = true; void api.webAIAction(provider, 'page-status').then(value => { if (live) { setStatus(value); setError(''); } }).catch(err => { if (live) setError(err.message); }).finally(() => { polling = false; }); } } }, 1500);
     schedule();
     return () => { live = false; cancelAnimationFrame(frame); clearInterval(poll); resize.disconnect(); mutation.disconnect(); window.removeEventListener('resize', schedule); window.removeEventListener('scroll', schedule, true); void api.layoutWebAI({ visible: false }).catch(() => {}); };
-  }, [visible, provider, ready, floating]);
+  }, [visible, provider, ready, floating, companyEntry]);
   i.useEffect(() => {
     if (!api?.onWebAnalysisTask) return;
     let live = true, receivedEvent = false;
@@ -58,6 +62,22 @@ export function WebAIStudio({ active, onNavigate }) {
     window.addEventListener('xm-open-web-ai', open);
     return () => { live = false; unsubscribe(); window.removeEventListener('xm-open-web-ai', open); };
   }, []);
+  i.useEffect(() => {
+    if (!company || !api?.companyDSHConfig) return;
+    let live = true;
+    void api.companyDSHConfig().then(value => { if (live) { setCompanyEntry(value.entryUrl || ''); setCompanyInput(value.entryUrl || ''); } }).catch(err => { if (live) setError(err.message); });
+    return () => { live = false; };
+  }, [company]);
+  const saveCompany = async () => {
+    setError(''); setCompanySaving(true);
+    try {
+      if (!api?.companyDSHConfig) throw new Error('请更新 WebView2 原生程序后配置公司 DSH。');
+      const value = await api.companyDSHConfig('configure', companyInput);
+      setCompanyEntry(value.entryUrl); setCompanyInput(value.entryUrl);
+      setNotice('入口已保存。请在下方完成飞书登录，进入工作区后即可自动分析。');
+    } catch (err) { setError(err.message); }
+    finally { setCompanySaving(false); }
+  };
   const taskAction = async name => { try { setError(''); await api.webAnalysisAction(task.id, name, manualReply); if (name === 'copy') setNotice('任务已完整复制。请在网页粘贴并发送。'); } catch (err) { setError(err.message); } };
   const action = async name => { setError(''); try { const value = await api.webAIAction(provider, name); if (!value.external) setStatus(value); } catch (err) { setError(err.message); } };
   const copyTask = async purpose => {
@@ -65,21 +85,22 @@ export function WebAIStudio({ active, onNavigate }) {
     try { if (!api?.copyWebAITask) throw new Error('请更新桌面程序后使用剧本复制。'); await api.copyWebAITask(projects.project.draft, purpose); setNotice('已完整复制当前剧本和任务指令，保留原始标点。请粘贴到下方网页，确认后发送。'); }
     catch (err) { setError(err.message || '复制失败，请重试。'); }
   };
-  return <section className={`bos-script bos-web-ai${task || opened ? ' bos-web-ai-overlay' : ''}`} hidden={!visible} aria-label="国内 AI 官方网页版">
-    {(task || opened) && <div className="bos-web-ai-task-heading"><strong>{task ? `${current.name} · ${task.stage}` : `${current.name} · 官方网页登录`}</strong><div className="bos-script-actions">{task?.manualWeb && <button type="button" onClick={() => onNavigate('batch')}>前往 DeepSeek 分析结果</button>}<button type="button" onClick={() => task ? taskAction('cancel') : setOpened('')}>{task?.kind === 'draft-scan' ? '中断扫描 · F10' : task ? '中断分析' : '返回工作空间'}</button></div></div>}
+  return <section className={`bos-script bos-web-ai${task || opened ? ' bos-web-ai-overlay' : ''}`} hidden={!visible} aria-label="国内 AI 与公司工作区">
+    {(task || opened) && <div className="bos-web-ai-task-heading"><strong>{task ? `${current.name} · ${task.stage}` : `${current.name} · ${pageName}登录`}</strong><div className="bos-script-actions">{task?.manualWeb && <button type="button" onClick={() => onNavigate('batch')}>前往 DeepSeek 分析结果</button>}<button type="button" onClick={() => task ? taskAction('cancel') : setOpened('')}>{task?.kind === 'draft-scan' ? '中断扫描 · F10' : task ? '中断分析' : '返回工作空间'}</button></div></div>}
      {task && <div className="bos-web-ai-task"><p role="status">{task.message}</p><div className="bos-script-actions"><button type="button" onClick={() => taskAction('copy')}>复制当前任务</button><small>{task.manualOnly ? `复制任务到 ${current.name} 官网发送，再将完整回答粘贴到下方导入。` : task.manualWeb ? task.requiresPaste ? '请手动发送音乐匹配提示词，复制完整回答到「DeepSeek 分析结果」的音乐推荐结果框并导入。' : '请手动发送；剧情解析回答会自动读取，音乐匹配回答需手动复制到结果选项卡。' : '网页回答会自动读取并接回原任务，无需 API 配置。'}</small></div>{!task.manualWeb && <details open={task.manualOnly || undefined}><summary>{task.manualOnly ? `粘贴 ${current.name} 完整回答` : "网页无法自动读取时，粘贴回答继续"}</summary><textarea aria-label="网页分析结果" value={manualReply} onChange={event => setManualReply(event.target.value)} rows={3} placeholder="粘贴网页返回的完整 JSON 回答" /><button type="button" disabled={!manualReply.trim()} onClick={() => taskAction('import')}>导入结果并继续</button></details>}</div>}
     <div className="bos-web-ai-bar">
       <div className="bos-web-ai-toolbar">
         <div className="bos-source-choice" role="group" aria-label="选择国内 AI">{WEB_AI_PROVIDERS.map(item => <button type="button" key={item.id} disabled={!!task} aria-pressed={provider === item.id} onClick={() => changeProvider(item.id)}>{item.name}</button>)}</div>
-        <div className="bos-web-ai-meta" title={status?.url || current.url}><strong>{current.name} 官方网页 · 无需 API 密钥</strong><small>{status?.loading ? '正在加载…' : status?.url || current.url}</small></div>
+        <div className="bos-web-ai-meta" title={status?.url || companyEntry || current.url}><strong>{current.name} {pageName} · 无需 API 密钥</strong><small>{status?.loading ? '正在加载…' : status?.url || (company ? companyEntry || '请配置公司入口' : current.url)}</small></div>
         <div className="bos-script-actions"><button type="button" disabled={!ready} onClick={() => action('login')}>登录</button><button type="button" disabled={!ready || !!task} onClick={() => action('home')}>首页</button><button type="button" disabled={!ready} onClick={() => action('reload')}>刷新</button><button type="button" disabled={!ready} onClick={() => action('external')}>浏览器打开 ↗</button></div>
       </div>
+      {company && <div className="bos-dsh-config"><label>公司入口<input aria-label="公司 DSH 入口地址" type="url" placeholder="http://公司内网IP:端口/" value={companyInput} disabled={!!task || companySaving} onChange={event => setCompanyInput(event.target.value)} onKeyDown={event => { if (event.key === 'Enter' && !companySaving && !task) void saveCompany(); }} /></label><button type="button" disabled={!!task || companySaving || !companyInput.trim()} onClick={saveCompany}>{companySaving ? '正在保存…' : '保存并打开'}</button><small>飞书登录 → 在剧本分析模型中选择“公司 DSH” → 自动发送、读取回答并匹配本地音乐</small></div>}
       {!task && <details className="bos-web-ai-script"><summary><span>剧本快捷指令 · 自行粘贴</span><small>{projects.project.draft.script.trim() ? `已载入 ${projects.project.draft.script.length} 字 · ${projects.project.draft.segmented ? '分段模式' : '整篇模式'}` : '未填写剧本'}</small></summary><div className="bos-script-actions"><button type="button" disabled={!projects.project.draft.script.trim()} onClick={() => copyTask('keywords')}>复制剧本关键词任务</button><button type="button" disabled={!projects.project.draft.script.trim()} onClick={() => copyTask('suno')}>复制 Suno 提示词任务</button><button type="button" onClick={() => onNavigate('workspace')}>前往工作空间</button><button type="button" onClick={() => onNavigate('music')}>前往音乐页</button></div></details>}
     </div>
     {notice && <p className="bos-script-message" role="status">{notice}</p>}
     {(error || status?.error) && <p className="bos-script-warning" role="alert">{error || status.error}</p>}
     {status?.pageNotice && <p className="bos-script-warning" role="status">{status.pageNotice}</p>}
     {!ready && <p className="bos-script-warning">请更新桌面程序后使用内嵌网页。也可通过官网访问：<a href={current.url} target="_blank" rel="noreferrer">{current.name}</a></p>}
-    <div ref={slot} className="bos-web-ai-slot" aria-label={`${current.name} 网页显示区域`}><span>正在准备 {current.name} 官方网页…</span></div>
+    <div ref={slot} className="bos-web-ai-slot" aria-label={`${current.name} 网页显示区域`}><span>{company && !companyEntry ? '填写公司入口并保存，即可在这里登录 DSH。' : `正在准备 ${current.name} ${pageName}…`}</span></div>
   </section>;
 }

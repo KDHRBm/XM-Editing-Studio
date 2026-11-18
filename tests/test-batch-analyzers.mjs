@@ -10,5 +10,6 @@ test('batch analysis offers every official web provider and keeps Gemini connect
   assert.equal(models[2].model, '千问');
   assert.equal(models[3].model, 'Kimi');
   assert.equal(webAnalyzer(models[3])?.provider.webId, 'kimi');
-  assert.equal(models[4].model, 'gemini-2.5-pro');
+  assert.equal(models[4].provider.webId, 'dsh');
+  assert.equal(models[5].model, 'gemini-2.5-pro');
 });

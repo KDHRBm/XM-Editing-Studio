@@ -14,7 +14,7 @@ using Microsoft.Web.WebView2.WinForms;
 
 namespace XM.Native {
     internal sealed partial class StudioHost : ApplicationContext {
-        internal const string Origin = "https://xm.local", Version = "1.6.4";
+        internal const string Origin = "https://xm.local", Version = "1.6.5";
         internal readonly string BaseDir, DataDir, ClientDir;
         internal StudioWindow MainWindow, PanelWindow;
         internal WebView2 MainView, PanelView;
@@ -60,7 +60,7 @@ namespace XM.Native {
         }
         private static bool Http(string value) { Uri uri; return Uri.TryCreate(value, UriKind.Absolute, out uri) && (uri.Scheme == "https" || uri.Scheme == "http") && uri.UserInfo.Length == 0; }
         internal static void OpenPath(string path) { Process.Start(new ProcessStartInfo(path) { UseShellExecute = true }); }
-        private async Task InitializeView(WebView2 view, string partition, string url, bool local) {
+        private async Task InitializeView(WebView2 view, string partition, string url, bool local, Func<string, bool> remoteAllowed = null, Func<string, bool> returnToView = null) {
             Log("view-initialize " + partition);
             Task<CoreWebView2Environment> environment;
             if (!environments.TryGetValue(partition, out environment)) environments[partition] = environment = CoreWebView2Environment.CreateAsync(null, Path.Combine(DataDir, "native-webview", partition));
@@ -119,15 +119,24 @@ namespace XM.Native {
                 };
             } else {
                 core.Settings.IsWebMessageEnabled = false;
-                core.NavigationStarting += (s, e) => { if (!Http(e.Uri) && e.Uri != "about:blank") e.Cancel = true; };
+                Func<string, bool> allowed = remoteAllowed ?? (value => Http(value) || value == "about:blank");
+                core.NavigationStarting += (s, e) => { if (!allowed(e.Uri)) e.Cancel = true; };
                 core.PermissionRequested += (s, e) => { e.State = e.PermissionKind == CoreWebView2PermissionKind.ClipboardRead ? CoreWebView2PermissionState.Default : CoreWebView2PermissionState.Deny; };
                 core.NewWindowRequested += async (s, e) => {
-                    e.Handled = true; if (!Http(e.Uri)) return; var deferral = e.GetDeferral();
+                    e.Handled = true; if (!allowed(e.Uri)) return;
+                    if (returnToView != null && returnToView(e.Uri)) { core.Navigate(e.Uri); return; }
+                    var deferral = e.GetDeferral();
                     try {
-                        var popup = new Form { Width = 960, Height = 740, Text = "官方账号登录" }; var web = new WebView2 { Dock = DockStyle.Fill };
+                        var popup = new Form { Width = 960, Height = 740, Text = returnToView == null ? "官方账号登录" : "公司 DSH · 飞书登录" }; var web = new WebView2 { Dock = DockStyle.Fill };
                         popup.Controls.Add(web); popups.Add(popup); popup.FormClosed += (_s, _e) => popups.Remove(popup);
                         await web.EnsureCoreWebView2Async(env); web.CoreWebView2.Settings.AreHostObjectsAllowed = false; web.CoreWebView2.Settings.IsWebMessageEnabled = false;
-                        web.CoreWebView2.NavigationStarting += (_s, nav) => { if (!Http(nav.Uri) && nav.Uri != "about:blank") nav.Cancel = true; };
+                        web.CoreWebView2.NavigationStarting += (_s, nav) => { if (!allowed(nav.Uri)) nav.Cancel = true; };
+                        web.CoreWebView2.PermissionRequested += (_s, request) => { request.State = request.PermissionKind == CoreWebView2PermissionKind.ClipboardRead ? CoreWebView2PermissionState.Default : CoreWebView2PermissionState.Deny; };
+                        if (returnToView != null) web.CoreWebView2.NavigationCompleted += (_s, nav) => {
+                            if (nav.IsSuccess && !view.IsDisposed && returnToView(web.CoreWebView2.Source)) {
+                                core.Navigate(web.CoreWebView2.Source); popup.Close();
+                            }
+                        };
                         e.NewWindow = web.CoreWebView2; popup.Show(MainWindow);
                     } finally { deferral.Complete(); }
                 };

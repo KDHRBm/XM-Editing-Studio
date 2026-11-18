@@ -2,7 +2,7 @@ import { WEB_AI_PROVIDERS } from './web-ai.mjs';
 
 export const WEB_ANALYZERS = WEB_AI_PROVIDERS.map(site => {
   const provider = { id: `webai:${site.id}`, name: site.name, protocol: 'official-web', baseUrl: site.url, webId: site.id };
-  return { key: `${provider.id}::${site.name}`, providerId: provider.id, protocol: provider.protocol, baseUrl: provider.baseUrl, model: site.name, provider, label: `${site.name} 官方网页版 · 无需配置` };
+  return { key: `${provider.id}::${site.name}`, providerId: provider.id, protocol: provider.protocol, baseUrl: provider.baseUrl, model: site.name, provider, label: site.configurable ? `${site.name} · 飞书登录 · 自动分析` : `${site.name} 官方网页版 · 无需配置` };
 });
 export function webAnalyzer(value) {
   const id = typeof value === 'string' ? value : value?.providerId || value?.provider?.id || value?.id;

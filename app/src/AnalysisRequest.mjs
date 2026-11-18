@@ -1,4 +1,5 @@
 import { webAnalyzer } from '../shared/script-analyzers.mjs';
+import { withAbortScope, throwIfAborted } from '../shared/request-abort.mjs';
 
 export async function requestScriptAnalysis(purpose, body, signal, onStage = () => {}) {
   const web = webAnalyzer(body.provider);
@@ -7,16 +8,19 @@ export async function requestScriptAnalysis(purpose, body, signal, onStage = () 
     const stage = event => { if (event.detail?.id === progressId) onStage(event.detail.phase); };
     globalThis.window?.addEventListener('xm-batch-analysis-stage', stage);
     try {
-      const response = await fetch(`/api/script/${purpose}`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ...body, progressId }), signal });
-      const value = await response.json();
-      if (!response.ok) throw Object.assign(new Error(value.error || '剧本分析失败。'), {usage:value.usage,...(typeof value.rawAnalysis==='string'?{rawAnalysis:value.rawAnalysis.slice(0,200000)}:{})});
-      return value;
+      const timeoutMs = purpose === 'score' ? (body.provider?.protocol === 'ollama' ? 720000 : 135000) : 730000;
+      return await withAbortScope({ timeoutMs, signals: [signal] }, async requestSignal => {
+        const response = await fetch(`/api/script/${purpose}`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ...body, progressId }), signal: requestSignal });
+        const value = await response.json();
+        if (!response.ok) throw Object.assign(new Error(value.error || '剧本分析失败。'), {usage:value.usage,...(typeof value.rawAnalysis==='string'?{rawAnalysis:value.rawAnalysis.slice(0,200000)}:{})});
+        return value;
+      });
     } finally { globalThis.window?.removeEventListener('xm-batch-analysis-stage', stage); }
   }
   onStage('web');
   const api = globalThis.blackObsidian;
   if (!api?.analyzeWebScript) throw new Error('请更新桌面程序后使用内嵌网页分析。');
-  signal?.throwIfAborted();
+  throwIfAborted(signal);
   const id = crypto.randomUUID();
   const cancel = () => { void api.webAnalysisAction(id, 'cancel').catch(() => {}); };
   signal?.addEventListener('abort', cancel, { once: true });

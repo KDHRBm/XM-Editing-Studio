@@ -107,6 +107,11 @@
 .bos-web-ai-meta { flex: 1; min-width: 170px; display: grid; gap: 5px; }
 .bos-web-ai-meta strong { font-size: 13px; font-weight: 600; }
 .bos-web-ai-meta small { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--ui-muted); font-size: 10px; }
+.bos-web-ai-bar:has(.bos-dsh-config) { flex-wrap: wrap; }
+.bos-dsh-config { flex: 1 0 100%; order: 3; display: flex; flex-wrap: wrap; align-items: end; gap: 10px; padding-top: 10px; border-top: 1px solid var(--ui-border); }
+.bos-dsh-config label { display: grid; gap: 6px; flex: 1; min-width: 240px; color: var(--ui-muted); font-size: 12px; }
+.bos-dsh-config input { box-sizing: border-box; width: 100%; min-height: 36px; padding: 8px 10px; border: 1px solid var(--ui-border); border-radius: 8px; background: var(--ui-surface); color: var(--ui-text); }
+.bos-dsh-config small { flex-basis: 100%; color: var(--ui-muted); line-height: 1.6; }
 .bos-web-ai-bar .bos-script-actions { gap: 6px; margin: 0; }
 .bos-web-ai-bar .bos-script-actions button { padding: 8px 12px; white-space: nowrap; }
 .bos-web-ai-bar .bos-web-ai-script { flex: 0 0 190px; margin: 0; padding: 12px; background: transparent; }

@@ -61,7 +61,7 @@ test('cancelled or switched pages cannot receive a delayed Enter fallback', asyn
   await assert.rejects(second, /网页已切换/); assert.equal(events.length, 0); f.host.dispose();
 });
 test('only known providers and HTTPS pages are allowed; lookalike domains are not official', () => {
-  assert.equal(WEB_AI_PROVIDERS.length, 4);
+  assert.deepEqual(WEB_AI_PROVIDERS.map(site => site.id), ['deepseek', 'doubao', 'qwen', 'kimi', 'dsh']);
   assert.throws(() => webAIProvider('https://example.com'), /请选择/);
   for (const url of ['file:///C:/private', 'javascript:alert(1)', 'http://localhost', 'data:text/html,x', 'https://user:password@example.com']) assert.equal(isSecureWebURL(url), false);
   assert.equal(isWebAIPage('deepseek', 'https://chat.deepseek.com/'), true);

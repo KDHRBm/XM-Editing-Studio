@@ -25,6 +25,7 @@ export function createWebAIHost({ View, getWindow, shell }) {
   function entry(id) {
     if (disposed) throw new Error('网页窗口已关闭。');
     const provider = webAIProvider(id);
+    if (provider.nativeOnly) throw new Error('公司 DSH 入口需要使用 WebView2 原生版剪辑台。');
     if (!entries.has(id)) {
       const partition = `persist:xm-official-ai-${id}`;
       const view = new View({ webPreferences: { partition, nodeIntegration: false, contextIsolation: true, sandbox: true, webSecurity: true, devTools: false, backgroundThrottling: false } });

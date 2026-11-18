@@ -1,3 +1,4 @@
+import { throwIfAborted } from '../shared/request-abort.mjs';
 import { MusicUsageHistory } from './MusicUsageHistory.jsx';
 import { SegmentRecommendations } from './SegmentRecommendations.jsx';
 import { MusicDragButton } from './MusicDragButton.jsx';
@@ -6,7 +7,7 @@ import { usePanelCollapsed } from './PanelState.jsx';
 import { CUSTOM_KEYWORDS_LIMIT, parseCustomKeywords, searchMusicTitles, sameLibraryRequest } from '../shared/library-search.mjs';
 import { excludeUsedMusic, shuffleMusicResults, MUSIC_USAGE_LIMIT } from '../shared/library-usage.mjs';
 import { musicUsage } from './MusicUsage.mjs';
-import { analysisName, analysisReady, webAnalyzer } from '../shared/script-analyzers.mjs';
+import { analysisName, analysisReady } from '../shared/script-analyzers.mjs';
 import { requestScriptAnalysis } from './AnalysisRequest.mjs';
 import { requireMusicCatalog, watchMusicCatalog } from '../shared/music-catalog-state.mjs';
 const RESULT_KEY = 'black-obsidian.library-match.v1';
@@ -101,9 +102,9 @@ export function MusicLibrary({ input, projectId, savedRecommendation, onAnalysis
     const captured = { script: input.script, title: input.title, hint: input.hint, customKeywords: keywordText, segmented: !!input.segmented, segmentCount: Number(input.segmentCount || 3), analyzer: analyzerName, libraryGeminiKey: gemini.key || input.libraryGeminiKey || '' };
     try {
       const catalog = requireMusicCatalog(await api?.getMusicLibrary?.());
-      request.controller.signal.throwIfAborted();
+      throwIfAborted(request.controller.signal);
       setCatalog(catalog);
-      const value = await requestScriptAnalysis('library-match', { ...captured, provider: gemini.provider, model: gemini.model, tracks: excludeUsedMusic(catalog.tracks, musicUsage.snapshot().history).map(({ id, title }) => ({ id, title })) }, webAnalyzer(gemini) ? request.controller.signal : AbortSignal.any([request.controller.signal, AbortSignal.timeout(730000)]));
+      const value = await requestScriptAnalysis('library-match', { ...captured, provider: gemini.provider, model: gemini.model, tracks: excludeUsedMusic(catalog.tracks, musicUsage.snapshot().history).map(({ id, title }) => ({ id, title })) }, request.controller.signal);
       if (activeRequest !== request) return;
       if (value.segments) value.segments = value.segments.map(segment => ({ ...segment, matches: segment.matches.map(match => ({ ...match, title: catalog.tracks.find(track => track.id === match.id)?.title || match.id })) }));
       const record = { ...captured, revision: catalog.revision, value: { ...value, matches: (value.matches || []).map(m => ({ ...m, title: catalog.tracks.find(t => t.id === m.id)?.title || m.id })) } };

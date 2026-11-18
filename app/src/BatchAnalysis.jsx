@@ -69,11 +69,12 @@ function DramaPicker({ id, label, projects, tasks, activeProjectId, disabled, de
     </div>}
   </div>;
 }
-function TaskDialog({ task, preserve, catalog, busy, analyzerName, previousTask, nextTask, position, total, onNavigate, onClose, onRetry, onSupplement }) {
+function TaskDialog({ task, preserve, catalog, busy, analyzerName, webAnalysis, previousTask, nextTask, position, total, onNavigate, onClose, onRetry, onSupplement }) {
   const dialog = i.useRef(null);
   const body = i.useRef(null), copyLock = i.useRef(false), retryLock = i.useRef(false);
   const [tab, setTab] = i.useState('subtitles'), [feedback, setFeedback] = i.useState({}), [drafts, setDrafts] = i.useState({});
   const [copying, setCopying] = i.useState(false), [submitting, setSubmitting] = i.useState(false);
+  const [webHandoff, setWebHandoff] = i.useState(false);
   const notice = feedback.taskId === task.id ? feedback.notice : '', error = feedback.taskId === task.id ? feedback.error : '';
   const setNotice = notice => setFeedback({ taskId: task.id, notice });
   const setError = error => setFeedback({ taskId: task.id, error });
@@ -83,7 +84,13 @@ function TaskDialog({ task, preserve, catalog, busy, analyzerName, previousTask,
   const usage = i.useSyncExternalStore(musicUsage.subscribe, musicUsage.snapshot);
   const extraction = i.useMemo(() => { try { return { lines: batchSubtitleLines(task, preserve) }; } catch (err) { return { lines: [], error: err.message }; } }, [task.script, task.settings.subtitleLanguage, preserve]);
   const subtitleText = extraction.lines.map(line => line.text).join('\n');
-  i.useEffect(() => { const element = dialog.current; element.showModal(); return () => element.close(); }, []);
+  // Native AI pages hide behind modal dialogs. Yield the top layer for the
+  // entire web retry, retaining the selected episode and music tab for return.
+  i.useEffect(() => {
+    const element = dialog.current;
+    if (!webHandoff) element.showModal();
+    return () => element.close();
+  }, [webHandoff]);
   i.useEffect(() => { if (body.current) body.current.scrollTop = 0; }, [task.id, tab]);
   const copySubtitles = async () => {
     if (copyLock.current) return;
@@ -97,11 +104,12 @@ function TaskDialog({ task, preserve, catalog, busy, analyzerName, previousTask,
   const reanalyze = async () => {
     if (busy || retryLock.current) return;
     retryLock.current = true; setSubmitting(true); setNotice(''); setTab('music');
+    setWebHandoff(!!webAnalysis);
     try {
       const status = await onRetry(task, options);
       if (status === 'complete') setNotice('本集音乐推荐已更新。');
     } catch (err) { setError(err.message || '重新分析失败，请重试。'); }
-    finally { retryLock.current = false; setSubmitting(false); }
+    finally { retryLock.current = false; setSubmitting(false); setWebHandoff(false); }
   };
   return <dialog role="dialog" ref={dialog} className="bos-batch-dialog bos-script" aria-labelledby="bos-batch-dialog-title" onCancel={event => { event.preventDefault(); onClose(); }} onClick={event => { if (event.target === event.currentTarget) { const r = event.currentTarget.getBoundingClientRect(); if (event.clientX < r.left || event.clientX > r.right || event.clientY < r.top || event.clientY > r.bottom) onClose(); } }}>
     <button type="button" className="bos-batch-episode-nav bos-batch-episode-prev" aria-label="上一集" title={previousTask ? `上一集：${previousTask.title}` : '已是第一集'} disabled={!previousTask || copying} onClick={() => onNavigate(previousTask.id)}><span className="bos-batch-episode-surface" aria-hidden="true"><svg focusable="false" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="m15 6-6 6 6 6" /></svg></span></button>
@@ -368,7 +376,7 @@ export function BatchAnalysis({ active, providers, onNavigate }) {
     })}
     <section className="bos-batch-library"><div><strong>本地音乐库</strong><p role="status">{scanning ? '正在读取音乐库，请稍候…' : `${catalog.tracks.length} 首可用音乐 · ${catalog.directories.length} 个文件夹`}</p><small>{catalog.directories.map(folder => `${folder.path}（${folder.count ?? 0} 首${folder.error ? `；${folder.error}` : ''}）`).join(' · ') || (scanning ? '共享文件夹首次扫描可能需要一些时间，分析会等待曲库读取完成。' : '未连接音乐时，先分析剧本关键词；连接后可仅补缺失音乐。')}</small>{(catalog.warning || catalog.error) && <p className="bos-script-warning" role="status">{catalog.warning || catalog.error}</p>}</div><div className="bos-script-actions"><button type="button" disabled={scanning || busy} onClick={() => libraryAction('connectMusicLibrary')}>{scanning ? '扫描中…' : '连接音乐文件夹'}</button><button type="button" disabled={scanning || busy} onClick={() => libraryAction('refreshMusicLibrary')}>刷新</button></div></section>
     <MusicUsageHistory tracks={catalog.tracks} scope="batch" />
-    {current && <TaskDialog task={current} preserve={preserve} catalog={catalog} busy={busy} analyzerName={analysisName(model)} previousTask={currentTasks[currentIndex - 1]} nextTask={currentTasks[currentIndex + 1]} position={currentIndex + 1} total={currentTasks.length} onNavigate={setSelected} onClose={() => setSelected('')} onRetry={retry} onSupplement={canSupplement(current) ? async task => { await batchQueue.supplement(task.id); await batchQueue.start([task.id]); const latest=batchQueue.snapshot(); if(latest.error)throw new Error(latest.error); const result=latest.tasks.find(t=>t.id===task.id);if(result?.error)throw new Error(result.error); } : null} />}
+    {current && <TaskDialog task={current} preserve={preserve} catalog={catalog} busy={busy} analyzerName={analysisName(model)} webAnalysis={!!webAnalyzer(model)} previousTask={currentTasks[currentIndex - 1]} nextTask={currentTasks[currentIndex + 1]} position={currentIndex + 1} total={currentTasks.length} onNavigate={setSelected} onClose={() => setSelected('')} onRetry={retry} onSupplement={canSupplement(current) ? async task => { await batchQueue.supplement(task.id); await batchQueue.start([task.id]); const latest=batchQueue.snapshot(); if(latest.error)throw new Error(latest.error); const result=latest.tasks.find(t=>t.id===task.id);if(result?.error)throw new Error(result.error); } : null} />}
     <BatchProgressCard state={state} providers={providers} onNavigate={onNavigate} />
   </section>;
 }

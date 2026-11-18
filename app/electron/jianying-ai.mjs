@@ -1,5 +1,6 @@
+import { createAbortScope, throwIfAborted } from '../shared/request-abort.mjs';
 const wait = (ms, _value, { signal } = {}) => new Promise((resolve, reject) => {
-  signal?.throwIfAborted();
+  throwIfAborted(signal);
   const abort = () => { clearTimeout(timer); reject(signal.reason); };
   const timer = setTimeout(() => { signal?.removeEventListener('abort', abort); resolve(); }, ms);
   signal?.addEventListener('abort', abort, { once: true });
@@ -28,18 +29,20 @@ export function buildJianyingAIRequest(connection, input) {
 export async function requestJianyingAI(connection, input, signal, fetcher = fetch, { onRetry = () => {}, delay = (ms, signal) => wait(ms, undefined, { signal }), attemptTimeoutMs = 140000, totalTimeoutMs = 140000 } = {}) {
   const { url, headers, body } = buildJianyingAIRequest(connection, input);
   // All attempts, response reads and retry waits share the native worker's deadline.
-  const total = signal ? AbortSignal.any([signal, AbortSignal.timeout(totalTimeoutMs)]) : AbortSignal.timeout(totalTimeoutMs);
+  const totalScope = createAbortScope({ timeoutMs: totalTimeoutMs, signals: [signal] });
+  const total = totalScope.signal;
   const transient = new Set([500, 502, 503, 504]);
   let attempt = 0;
   try {
     for (attempt = 1; attempt <= 3; attempt++) {
-      total.throwIfAborted();
-      const requestSignal = AbortSignal.any([total, AbortSignal.timeout(attemptTimeoutMs)]);
+      throwIfAborted(total);
+      const attemptScope = createAbortScope({ timeoutMs: attemptTimeoutMs, signals: [total] });
+      const requestSignal = attemptScope.signal;
       let retry = false, failure;
       try {
         const response = await fetcher(url, { method: 'POST', headers, body: JSON.stringify(body), signal: requestSignal });
         const raw = await response.text();
-        total.throwIfAborted();
+        throwIfAborted(total);
         if (raw.length > 2000000) throw new Error('模型响应过大，请减少文件数量。');
         let data; try { data = JSON.parse(raw); } catch { /* Relays may return a text/HTML 5xx response. */ }
         if (!response.ok) {
@@ -56,10 +59,10 @@ export async function requestJianyingAI(connection, input, signal, fetcher = fet
           return text;
         }
       } catch (error) {
-        total.throwIfAborted();
+        throwIfAborted(total);
         retry = requestSignal.aborted || error instanceof TypeError && /fetch|network|socket/i.test(error.message);
         failure = retry ? new Error(requestSignal.aborted ? `Gemini 单次请求超时，已尝试 ${attempt} 次。请检查连接或稍后重试。` : `Gemini 网络连接失败，已尝试 ${attempt} 次。请检查网络或模型连接。`) : error;
-      }
+      } finally { attemptScope.dispose(); }
       if (!retry || attempt === 3) throw failure;
       onRetry(`Gemini 请求暂时失败，正在重试（${attempt + 1}/3），按 F10 可中断`);
       await delay(attempt * 1000, total);
@@ -68,5 +71,5 @@ export async function requestJianyingAI(connection, input, signal, fetcher = fet
     if (signal?.aborted) throw new Error('AI 任务已中断。');
     if (total.aborted) throw new Error(`Gemini 请求超时（已尝试 ${attempt} 次），请检查网络或更换可用的 Gemini 连接。`);
     throw new Error(String(error?.message || 'AI 请求失败').replaceAll(connection.provider.apiKey, '[密钥]').slice(0, 600));
-  }
+  } finally { totalScope.dispose(); }
 }

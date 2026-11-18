@@ -13,6 +13,7 @@ import { installMusicPlayback } from './music-playback.mjs';
 import { WEB_ANALYZERS, webAnalyzer, analysisName, analysisReady, openWebAnalyzer } from '../shared/script-analyzers.mjs';
 import { requestScriptAnalysis } from './AnalysisRequest.mjs';
 import { groupMusicJobs, musicBatchMetadata } from '../shared/music-batches.mjs';
+import { withAbortScope } from '../shared/request-abort.mjs';
 
 const DRAFT = 'black-obsidian.script-draft.v1';
 const SETTINGS = 'black-obsidian.script-settings.v1';
@@ -28,11 +29,13 @@ function getRuntime() {
     save: jobs => { if (loadError) throw new Error(loadError); localStorage.setItem(QUEUE_KEY, JSON.stringify(jobs)); },
     getProvider: id => providersNow.find(p => p.id === id),
     request: async (url, body) => {
-      if (url === '/api/script/score') return requestScriptAnalysis('score', body, webAnalyzer(body.provider) ? undefined : AbortSignal.timeout(body.provider?.protocol === 'ollama' ? 720000 : 135000));
-      const response = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body), signal: AbortSignal.timeout(url.endsWith('generate') ? 195000 : 135000) });
-      const result = await response.json();
-      if (!response.ok) throw new Error(result.error || `请求失败（HTTP ${response.status}）`);
-      return result;
+      if (url === '/api/script/score') return requestScriptAnalysis('score', body);
+      return withAbortScope({ timeoutMs: url.endsWith('generate') ? 195000 : 135000 }, async signal => {
+        const response = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body), signal });
+        const result = await response.json();
+        if (!response.ok) throw new Error(result.error || `请求失败（HTTP ${response.status}）`);
+        return result;
+      });
     },
     exportMaterials: payload => {
       if (!globalThis.blackObsidian?.exportScriptMaterials) throw new Error('导出本地素材需要使用更新后的桌面程序。');

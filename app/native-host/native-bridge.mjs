@@ -1,3 +1,4 @@
+import { withAbortScope, throwIfAborted, abortReason } from '../shared/request-abort.mjs';
 import { createApiService } from '../shared/api-service.mjs';
 import { createWebAnalysis } from '../electron/web-ai-analysis.mjs';
 import { createJianyingWebScan } from '../electron/jianying-web-scan.mjs';
@@ -32,10 +33,10 @@ chrome.webview.addEventListener('message', ({ data }) => {
   pending.delete(data.id); clearTimeout(item.timer); data.error ? item.reject(new Error(data.error)) : item.resolve(data.result);
 });
 async function nativeFetch(url, options = {}) {
-  const requestId = crypto.randomUUID(), signal = options.signal; signal?.throwIfAborted();
+  const requestId = crypto.randomUUID(), signal = options.signal; throwIfAborted(signal);
   const cancel = () => { void invoke('http-cancel', { requestId }).catch(() => {}); };
   let rejectAbort;
-  const abort = () => { cancel(); rejectAbort(signal.reason || new DOMException('请求已中断', 'AbortError')); };
+  const abort = () => { cancel(); rejectAbort(abortReason(signal)); };
   try {
     const interrupted = new Promise((_, reject) => { rejectAbort = reject; signal?.addEventListener('abort', abort, { once: true }); });
     const localModel = new URL(String(url)).origin === 'http://127.0.0.1:11435';
@@ -44,22 +45,23 @@ async function nativeFetch(url, options = {}) {
   } finally { signal?.removeEventListener('abort', abort); }
 }
 const browserFetch = window.fetch.bind(window);
+const jsonResponse = (body, options = {}) => new Response(JSON.stringify(body), { ...options, headers: { 'Content-Type': 'application/json' } });
 window.fetch = async (input, options = {}) => {
   const url = new URL(typeof input === 'string' || input instanceof URL ? input : input.url, location.href);
   if (url.origin === location.origin && url.pathname.startsWith('/api/')) {
     const signal = options.signal || input?.signal || new AbortController().signal;
-    if ((options.method || input?.method || 'GET').toUpperCase() !== 'POST') return Response.json({ error: '仅支持 POST 请求。' }, { status: 405 });
+    if ((options.method || input?.method || 'GET').toUpperCase() !== 'POST') return jsonResponse({ error: '仅支持 POST 请求。' }, { status: 405 });
     try {
       const raw = options.body ?? (input instanceof Request ? await input.text() : '{}');
       const max = /library-match$/.test(url.pathname) ? 5 * 1024 * 1024 : 2 * 1024 * 1024;
-      if (new TextEncoder().encode(raw).length > max) return Response.json({ error: '请求内容过大。' }, { status: 413 });
-      let body; try { body = JSON.parse(raw || '{}'); } catch { return Response.json({ error: '请求内容不是有效 JSON。' }, { status: 400 }); }
-      const api = createApiService((address, init = {}) => nativeFetch(address, { ...init, signal: init.signal ? AbortSignal.any([signal, init.signal]) : signal }), (id, phase) => {
+      if (new TextEncoder().encode(raw).length > max) return jsonResponse({ error: '请求内容过大。' }, { status: 413 });
+      let body; try { body = JSON.parse(raw || '{}'); } catch { return jsonResponse({ error: '请求内容不是有效 JSON。' }, { status: 400 }); }
+      const api = createApiService((address, init = {}) => withAbortScope({ signals: [signal, init.signal] }, combined => nativeFetch(address, { ...init, signal: combined })), (id, phase) => {
         if (typeof id === 'string') window.dispatchEvent(new CustomEvent('xm-batch-analysis-stage', { detail: { id, phase } }));
       });
-      const result = await api(url.pathname, body, signal); signal.throwIfAborted();
-      return Response.json(result.body, { status: result.status });
-    } catch (error) { signal.throwIfAborted(); return Response.json({ error: error.message, ...(error.usage?{usage:error.usage}:{}), ...(error.rawAnalysis?{rawAnalysis:error.rawAnalysis}:{}) }, { status: error.status || 500 }); }
+      const result = await api(url.pathname, body, signal); throwIfAborted(signal);
+      return jsonResponse(result.body, { status: result.status });
+    } catch (error) { throwIfAborted(signal); return jsonResponse({ error: error.message, ...(error.usage?{usage:error.usage}:{}), ...(error.rawAnalysis?{rawAnalysis:error.rawAnalysis}:{}) }, { status: error.status || 500 }); }
   }
   return browserFetch(input, options);
 };
@@ -98,13 +100,13 @@ on('bos:native-ai-cancel', cancelJianying);
 on('bos:native-ai', async input => {
   const connection = jyConnection, signal = jyController?.signal; let result;
   try {
-    if (!connection || !signal) throw new Error('未选择 AI 连接。'); signal.throwIfAborted();
+    if (!connection || !signal) throw new Error('未选择 AI 连接。'); throwIfAborted(signal);
     const report = message => invoke('progress-message', { message }).catch(() => {});
     if (isDeepSeekScan(connection) && input.fallback === true && jyFallbackGemini) jyUseFallback = true;
     if (jyUseFallback && isDeepSeekScan(connection)) report('DeepSeek 坐标未通过校验，正在用 Gemini 重新识别');
     const selected = jyUseFallback && isDeepSeekScan(connection) ? jyFallbackGemini : connection;
     const text = isDeepSeekScan(selected) ? await scan.request(input, signal, report) : await requestJianyingAI(selected, input, signal, nativeFetch, { onRetry: report });
-    signal.throwIfAborted();
+    throwIfAborted(signal);
     result = { text };
   } catch (error) { result = { error: error.message }; }
   await invoke('jianying-action', { action: 'ai_result', args: { token: input.token, ...result } }).catch(() => {});
@@ -163,6 +165,10 @@ window.blackObsidian = Object.freeze({
     if (site.manualOnly) return { ...state, pageNotice: `请在 ${site.name} 网页中手动登录和发送，回答可复制回剪辑台导入。` };
     if (['login', 'page-status'].includes(action) && driver.visible(provider)) { try { const access = await driver.run(provider, { command: action === 'login' ? 'login' : 'probe' }); return { ...state, access: access.state, pageNotice: access.message }; } catch {} }
     return state;
+  },
+  companyDSHConfig: (action = 'config', url = '') => {
+    if (action === 'configure' && analysis.snapshot()?.provider === 'dsh') return Promise.reject(new Error('请先结束公司 DSH 分析，再修改入口地址。'));
+    return invoke('web-ai-action', { provider: 'dsh', action, url });
   },
   copyWebAITask: (draft, purpose) => copy(webAIScriptPrompt(draft, purpose)),
   analyzeWebScript: request => { if (scan.snapshot()) throw new Error('已有草稿扫描任务，请先完成或中断。'); return analysis.run(request); },

@@ -1,0 +1,10 @@
+[
+  {"id":"concealed-threat","script":"林月笑着说会照顾孩子，转身却把孩子的位置发给绑匪。阿宁仍以为她在帮忙。","keywords":["阴谋","悬疑","危险"],"expectedMood":"阴谋","avoid":"只因笑容或照顾孩子就选温暖亲情"},
+  {"id":"hospital-call","script":"医生电话通知：必须在今晚找到解药。林川挂断电话冲出门，尚未见到病人。","keywords":["紧张","危机","紧急"],"expectedMood":"危机","avoid":"编造团聚或将医院来电当检索词"},
+  {"id":"joyful-tears","script":"失散多年的母女终于认出对方，笑着流泪拥抱。两人决定一起回家。","keywords":["温暖","亲情","治愈"],"expectedMood":"温暖","avoid":"将流泪误判为悲伤或离别"},
+  {"id":"verbal-standoff","script":"董事会上，顾言被逼交出股份。门口有人守着，他握紧文件与对方对峙，双方都没有动手。","keywords":["对峙","压迫","紧张"],"expectedMood":"对峙","avoid":"把口头威胁当战斗或爽燃胜利"},
+  {"id":"actual-chase","script":"敌人挥刀扑来。陆遥挡开刀锋，冲出仓库，驾车躲过追击后折返救人。","keywords":["战斗","追逐","激烈"],"expectedMood":"战斗","avoid":"仅因仓库黑暗就只选安静悬疑"},
+  {"id":"turning-point","script":"众人举杯庆祝婚礼。\n新娘打开信封，发现新郎伪造的身份。\n她藏起信封继续微笑，决定暗中调查。","keywords":["悬疑","阴谋"],"expectedMood":"悬疑","segmented":true,"avoid":"全段甜蜜或将下一段阴谋写入庆祝段"},
+  {"id":"user-preference","script":"朋友误把求婚戒指装进蛋糕，众人手忙脚乱寻找，最后一起笑出声。","keywords":["喜剧","轻松","欢快"],"expectedMood":"喜剧","hint":"轻松诙谐，不要浪漫煽情","customKeywords":["喜剧"],"avoid":"关键词求婚压过用户偏好和喜剧情节"},
+  {"id":"holdout-english","holdout":true,"script":"Mara promises to return tomorrow. Alone, Evan studies the forged signature and locks the evidence away. Nobody has died or reunited.","keywords":["悬疑","阴谋"],"expectedMood":"悬疑","avoid":"编造死亡、离别或重逢；曲名只有Track 01时伪造音色理由"}
+]

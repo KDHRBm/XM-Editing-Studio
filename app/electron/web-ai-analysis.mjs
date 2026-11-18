@@ -5,13 +5,17 @@ import { analyzeWithWeb, webTaskPrompt, webTaskResult } from '../shared/web-scri
 export function createWebAnalysis({ driver, notify, copy, now = Date.now, delay = ms => new Promise(resolve => setTimeout(resolve, ms)), uuid = randomUUID, pageTimeoutMs = 15000 }) {
   let current = null;
   let lastAutoInputAt = null;
-  const inputIntervalMs = 3000;
+  const inputIntervalMs = task => task.provider === 'dsh' ? 1000 : 3000;
   const snapshot = () => current ? { id: current.id, provider: current.provider, stage: current.stage, message: current.message, prompt: current.prompt || '', token: current.token || '', manualWeb: !!current.manualWeb, manualOnly: !!current.manualOnly, requiresPaste: !!current.requiresPaste } : null;
   const update = values => { if (current && Object.entries(values).some(([key, value]) => current[key] !== value)) { Object.assign(current, values); notify(snapshot()); } };
   const check = task => { if (task.cancelled || current !== task) throw new Error('网页分析已中断。'); };
+  const checkPageFailure = value => {
+    if (value.state === 'limited' || value.state === 'failed')
+      throw Object.assign(new Error(value.message || '网页本轮运行失败，请检查网页提示后重试。'), { pageFailure: true });
+  };
   async function paceInput(task) {
     check(task);
-    const remaining = lastAutoInputAt === null ? 0 : inputIntervalMs - (now() - lastAutoInputAt);
+    const remaining = lastAutoInputAt === null ? 0 : inputIntervalMs(task) - (now() - lastAutoInputAt);
     if (remaining <= 0) return;
     update({ message: '正在等待自动输入间隔。' });
     let cancel;
@@ -38,7 +42,7 @@ export function createWebAnalysis({ driver, notify, copy, now = Date.now, delay 
     check(task);
     const token = uuid(), prompt = webTaskPrompt(messages, token);
     const requiresPaste = task.manualOnly || task.manualWeb && /^(批量匹配|联合补充与纠正)/.test(stage);
-    update({ stage, token, prompt, manualResult: null, manualMode: false, requiresPaste, message: task.manualOnly ? `请复制当前任务，在 ${webAIProvider(task.provider).name} 官网粘贴并发送，再将完整回答粘贴回此处导入。` : '正在准备网页，请在官网完成登录。' });
+    update({ stage, token, prompt, manualResult: null, manualMode: false, requiresPaste, message: task.manualOnly ? `请复制当前任务，在 ${webAIProvider(task.provider).name} 官网粘贴并发送，再将完整回答粘贴回此处导入。` : task.provider === 'dsh' ? '正在准备公司 DSH；请完成飞书登录，进入工作区后自动继续。' : '正在准备网页，请在官网完成登录。' });
     let filled = false, attempted = false, stable = '', stableCount = 0;
     const deadline = now() + (task.manualWeb || task.manualOnly ? 60 : 8) * 60 * 1000;
     while (now() < deadline) {
@@ -52,7 +56,7 @@ export function createWebAnalysis({ driver, notify, copy, now = Date.now, delay 
             await paceInput(task);
             const value = await runPage(task, { command: 'fill', prompt, token });
             check(task);
-            if (value.state === 'limited') throw Object.assign(new Error(value.message), { limited: true });
+            checkPageFailure(value);
             if (value.state === 'filled') { lastAutoInputAt = now(); filled = true; update({ message: task.manualWeb ? (requiresPaste ? '音乐匹配提示词已填入。请手动发送，再将 DeepSeek 的完整回答复制到「音乐推荐结果」并点击导入。' : '剧本提示词已填入；请检查后手动发送，回答完成后会生成下一步提示词。') : '任务已完整填入，正在提交网页分析。' }); }
             else { if (value.state === 'manual') attempted = true; update({ message: value.message || '请在官网完成登录后继续。' }); }
           } else if (!attempted && !task.manualWeb) {
@@ -61,7 +65,7 @@ export function createWebAnalysis({ driver, notify, copy, now = Date.now, delay 
             attempted = true;
             const value = await runPage(task, { command: 'send', prompt, token });
             check(task);
-            if (value.state === 'limited') throw Object.assign(new Error(value.message), { limited: true });
+            checkPageFailure(value);
             if (value.state === 'sent') lastAutoInputAt = now();
             update({ message: value.state === 'sent' ? '等待网页回答，完成后自动接回配乐流程。' : value.message || '请在网页点击发送，回答完成后会自动读取。' });
           }
@@ -71,7 +75,7 @@ export function createWebAnalysis({ driver, notify, copy, now = Date.now, delay 
           }
           const result = await runPage(task, { command: 'read', prompt, token });
           check(task);
-          if (result.state === 'limited') throw Object.assign(new Error(result.message), { limited: true });
+          checkPageFailure(result);
           const candidates = (result.texts || []).map(text => webTaskResult(text, token)).filter(Boolean);
           const candidate = candidates.at(-1) || '';
           stableCount = candidate && candidate === stable && !result.busy ? stableCount + 1 : 0;
@@ -79,14 +83,16 @@ export function createWebAnalysis({ driver, notify, copy, now = Date.now, delay 
           if (candidate && stableCount >= 2 && !result.busy) return candidate;
         } catch (error) {
           check(task);
-          if (error.limited) throw error;
+          if (error.pageFailure || error.limited) throw error;
           if (error.pageTimeout) {
             attempted = true;
             update({ message: '网页响应超时，已停止自动提交。可中断分析，或复制任务后手动发送并粘贴结果继续。' });
           } else update({ message: '网页尚未就绪，或登录/页面结构发生变化。可完成登录，或复制任务后手动粘贴结果继续。' });
         }
       }
-      await delay(1500);
+      // DSH's one-second send must not be held by the normal 1.5s answer poll.
+      const awaitingDshSend = task.provider === 'dsh' && filled && !attempted;
+      await delay(awaitingDshSend ? Math.max(0, inputIntervalMs(task) - (now() - lastAutoInputAt)) : 1500);
     }
     throw new Error('网页分析等待超时。请检查登录、额度及网页提示后重试。');
   }
@@ -98,7 +104,7 @@ export function createWebAnalysis({ driver, notify, copy, now = Date.now, delay 
       webAIProvider(request.provider);
       const task = { id: request.id, provider: request.provider, manualWeb: request.provider === 'deepseek' && request.manualWeb === true, manualOnly: webAIProvider(request.provider).manualOnly === true, cancelled: false };
       current = task;
-      try { return await analyzeWithWeb(request.purpose, request.input, (messages, stage) => ask(task, messages, stage)); }
+      try { return await analyzeWithWeb(request.purpose, request.input, (messages, stage) => ask(task, messages, stage), { companyDsh: task.provider === 'dsh' }); }
       catch (error) { throw new Error((error.message || '网页分析失败。').replaceAll('Gemini', webAIProvider(task.provider).name)); }
       finally { if (current === task) { current = null; notify(null); } }
     },

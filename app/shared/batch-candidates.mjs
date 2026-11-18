@@ -14,16 +14,17 @@ const normalize = text => text.normalize('NFKC').toLowerCase().replace(/[^\p{L}\
 const includes = (text, term) => /\p{Script=Han}/u.test(term) ? text.includes(term) : ` ${text} `.includes(` ${term} `);
 const titleFamily = text => normalize(text).replace(/\b\d+\b/g, '').trim();
 export function batchCandidates(tracks, keywords, limit = 40, options = {}) {
+  const emotionFirst = options.localModel || options.emotionFirst === true;
   const exact = [...new Set(keywords.map(normalize))];
   const expanded = new Set(exact.flatMap(word => word.split(' ').filter(word => word.length > 1)));
   for (const family of families) if (family.some(term => exact.some(word => includes(word, term)))) for (const term of family) expanded.add(term);
-  let primary = options.localModel ? exact.find(word => musicKeywordWeight(word) >= 4) : undefined;
+  let primary = emotionFirst ? exact.find(word => musicKeywordWeight(word) >= 4) : undefined;
   // A concrete action is more informative than the tension shared by a fight,
   // investigation, and office confrontation. Do not override grief or warmth.
   if (['紧张', '激烈', '压迫'].includes(primary)) primary = ['战斗', '打架', '追逐', '对峙'].find(word => exact.includes(word)) || primary;
   const primaryTerms = primary ? [primary, ...families.filter(family => family.some(term => includes(primary, term))).flat()] : [];
-  const weights = new Map([...exact, ...expanded].map(word => [word, options.localModel ? musicKeywordWeight(word) : 1]));
-  const preferred = options.localModel ? (options.customKeywords || []).map(normalize) : [];
+  const weights = new Map([...exact, ...expanded].map(word => [word, emotionFirst ? musicKeywordWeight(word) : 1]));
+  const preferred = emotionFirst ? (options.customKeywords || []).map(normalize) : [];
   const scored = tracks.map((track, index) => {
     const title = normalize(track.title);
     const weight = word => weights.get(word);

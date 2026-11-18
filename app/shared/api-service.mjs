@@ -10,6 +10,7 @@ import { analyzeFastBatchMusic } from './fast-batch-music.mjs';
 import { analysisCallUsage, summarizeAnalysisUsage } from './analysis-usage.mjs';
 import { supplementBatchMusic } from './supplement-batch-music.mjs';
 import { analyzeTargetedBatchMusic } from './targeted-batch-music.mjs';
+import { withAbortScope, throwIfAborted } from './request-abort.mjs';
 
 const DEFAULT_GEMINI_BASE_URL = 'https://generativelanguage.googleapis.com/v1beta';
 const DEEPSEEK_BASE_URL = 'https://api.deepseek.com';
@@ -18,6 +19,15 @@ const OLLAMA_BASE_URL = 'http://127.0.0.1:11435/v1';
 
 // Protocol and validation are shared by the legacy server and the native renderer.
 export function createApiService(fetch = globalThis.fetch, onBatchStage = () => {}) {
+// These endpoints consume complete text responses. Include body reads in the
+// deadline, then release the timer before parsing or sending a follow-up request.
+async function fetchResponse(url, { timeoutMs, signal, ...options }) {
+  return withAbortScope({ timeoutMs, signals: [signal] }, async requestSignal => {
+    const response = await fetch(url, { ...options, signal: requestSignal });
+    const text = await response.text();
+    return { ok: response.ok, status: response.status, text: async () => text };
+  });
+}
 function providerBaseUrl(provider) {
   if (provider?.protocol === 'deepseek') return DEEPSEEK_BASE_URL;
   if (provider?.protocol === 'qwen') return QWEN_BASE_URL;
@@ -93,7 +103,7 @@ async function requestProviderModels(provider) {
       pageUrl.searchParams.set('pageSize', '1000');
       if (pageToken) pageUrl.searchParams.set('pageToken', pageToken);
     }
-    const response = await fetch(pageUrl, { method: 'GET', headers, signal: AbortSignal.timeout(30_000) });
+    const response = await fetchResponse(pageUrl, { method: 'GET', headers, timeoutMs: 30_000 });
     const { payload } = await readUpstreamResponse(response, provider.apiKey, '拉取模型列表失败');
     entries.push(...(Array.isArray(payload?.models) ? payload.models : Array.isArray(payload?.data) ? payload.data : []));
     pageToken = protocol === 'gemini' ? String(payload?.nextPageToken || '') : '';
@@ -151,10 +161,10 @@ async function requestSunoModelTest(provider, model) {
   const modelsUrl = endpointUrl(provider.baseUrl, "/models");
   let response;
   try {
-    response = await fetch(modelsUrl, {
+    response = await fetchResponse(modelsUrl, {
       method: "GET",
       headers: { Authorization: `Bearer ${provider.apiKey}` },
-      signal: AbortSignal.timeout(45_000),
+      timeoutMs: 45_000,
     });
   } catch (error) {
     const message = error?.name === "TimeoutError" || error?.name === "AbortError"
@@ -179,11 +189,11 @@ async function requestSunoModelTest(provider, model) {
   // task lookup route with an impossible ID; this never creates a billable job.
   const probeUrl = sunoEndpointUrl(provider.baseUrl, "fetch");
   try {
-    response = await fetch(probeUrl, {
+    response = await fetchResponse(probeUrl, {
       method: "POST",
       headers: { "Content-Type": "application/json", Authorization: `Bearer ${provider.apiKey}` },
       body: JSON.stringify({ ids: ["codex-connection-probe-no-task"] }),
-      signal: AbortSignal.timeout(45_000),
+      timeoutMs: 45_000,
     });
   } catch (error) {
     const message = error?.name === "TimeoutError" || error?.name === "AbortError"
@@ -313,13 +323,14 @@ async function requestProvider(provider, model, messages, timeoutMs = 120_000, s
   if (provider.protocol === 'ollama') timeoutMs = Math.max(timeoutMs, 720_000);
   let response;
   try {
-    response = await fetch(url, {
+    response = await fetchResponse(url, {
       method: "POST",
       headers,
       body: JSON.stringify(body),
-      signal: signal ? AbortSignal.any([signal, AbortSignal.timeout(timeoutMs)]) : AbortSignal.timeout(timeoutMs),
+      signal, timeoutMs,
     });
   } catch (error) {
+    throwIfAborted(signal);
     const message = error?.name === "TimeoutError" || error?.name === "AbortError"
       ? "请求超时，请检查服务地址或稍后重试。"
       : `无法连接到服务地址：${error?.message || "网络错误"}`;
@@ -338,7 +349,7 @@ async function requestProvider(provider, model, messages, timeoutMs = 120_000, s
     if (canRetryGeminiJson(provider, model, structured, response.status, String(detail))) {
       // Only a definitive schema-parameter rejection permits this one retry.
       // Passing true retains JSON mode and prevents another schema fallback.
-      signal?.throwIfAborted();
+      throwIfAborted(signal);
       return requestProvider(provider, model, messages, timeoutMs, signal, true, requestOptions);
     }
     throw Object.assign(new Error(`连接失败（${response.status}）：${String(detail).slice(0, 400)}`), { status: 502 });
@@ -476,11 +487,11 @@ async function requestMusic(provider, model, options) {
     : body;
   let response;
   try {
-    response = await fetch(url, {
+    response = await fetchResponse(url, {
       method: "POST",
       headers,
       body: JSON.stringify(requestBody),
-      signal: AbortSignal.timeout(180_000),
+      timeoutMs: 180_000,
     });
   } catch (error) {
     const message = error?.name === "TimeoutError" || error?.name === "AbortError"
@@ -509,11 +520,11 @@ async function requestSunoMusic(provider, model, options) {
   const body = buildSunoBody(model, options);
   let response;
   try {
-    response = await fetch(url, {
+    response = await fetchResponse(url, {
       method: "POST",
       headers: { "Content-Type": "application/json", Authorization: `Bearer ${provider.apiKey}` },
       body: JSON.stringify(body),
-      signal: AbortSignal.timeout(90_000),
+      timeoutMs: 90_000,
     });
   } catch (error) {
     const message = error?.name === "TimeoutError" || error?.name === "AbortError"
@@ -539,10 +550,10 @@ async function queryMusic(provider, model, ids) {
   const url = musicQueryUrl(provider.baseUrl, ids);
   let response;
   try {
-    response = await fetch(url, {
+    response = await fetchResponse(url, {
       method: "GET",
       headers: { Authorization: `Bearer ${provider.apiKey}` },
-      signal: AbortSignal.timeout(45_000),
+      timeoutMs: 45_000,
     });
   } catch (error) {
     const detail = error?.name === "TimeoutError" || error?.name === "AbortError" ? "音乐任务状态查询超时。" : `无法查询音乐任务：${error?.message || "网络错误"}`;
@@ -562,11 +573,11 @@ async function querySunoMusic(provider, model, ids) {
   const url = sunoEndpointUrl(provider.baseUrl, "fetch");
   let response;
   try {
-    response = await fetch(url, {
+    response = await fetchResponse(url, {
       method: "POST",
       headers: { "Content-Type": "application/json", Authorization: `Bearer ${provider.apiKey}` },
       body: JSON.stringify({ ids }),
-      signal: AbortSignal.timeout(45_000),
+      timeoutMs: 45_000,
     });
   } catch (error) {
     const detail = error?.name === "TimeoutError" || error?.name === "AbortError" ? "Suno 任务状态查询超时。" : `无法查询 Suno 任务：${error?.message || "网络错误"}`;
@@ -575,10 +586,10 @@ async function querySunoMusic(provider, model, ids) {
   if (response.status === 404 || response.status === 405) {
     const results = await Promise.all(ids.map(async (id) => {
       const singleUrl = sunoEndpointUrl(provider.baseUrl, `fetch/${encodeURIComponent(id)}`);
-      const singleResponse = await fetch(singleUrl, {
+      const singleResponse = await fetchResponse(singleUrl, {
         method: "GET",
         headers: { Authorization: `Bearer ${provider.apiKey}` },
-        signal: AbortSignal.timeout(45_000),
+        timeoutMs: 45_000,
       });
       return (await readUpstreamResponse(singleResponse, provider.apiKey, "Suno 任务查询失败")).payload;
     }));
@@ -591,7 +602,7 @@ async function querySunoMusic(provider, model, ids) {
 
 const reply = (status, body) => ({ status, body });
 return async function dispatch(url, body, signal = new AbortController().signal) {
-signal.throwIfAborted();
+throwIfAborted(signal);
   if (url === '/api/script/batch-library-match') {
     if (!isScriptAnalysisModel(body.provider, body.model)) throw Object.assign(new Error('请选择可用的剧本分析模型。'), { status: 400 });
     const abort = { signal };
@@ -604,7 +615,7 @@ signal.throwIfAborted();
     let lastReply='';
     try {
       const result = await (targeted ? analyzeTargetedBatchMusic : supplement ? supplementBatchMusic : fast ? analyzeFastBatchMusic : analyzeBatchMusic)(body, async (messages, _label, schema) => {
-        abort.signal.throwIfAborted();
+        throwIfAborted(abort.signal);
         const callStarted=Date.now();
         let result;
         try {
@@ -617,7 +628,7 @@ signal.throwIfAborted();
         calls.push({...analysisCallUsage(result.payload,{label:_label,elapsedMs:Date.now()-callStarted,provider:body.provider,model:body.model}),
           ...(targeted?{requestedModel:body.model,thinking:'disabled',startedAt:new Date(callStarted).toISOString(),finishedAt:new Date().toISOString(),inputCharacters:JSON.stringify(messages).length,outputCharacters:result.text.length,finishReason:result.finishReason||null,outcome:'response'}: {})});
         if(fast) lastReply=result.text;
-        abort.signal.throwIfAborted();
+        throwIfAborted(abort.signal);
         if (['deepseek', 'deepseek-relay'].includes(body.provider.protocol)) {
           if (result.finishReason === 'length') throw Object.assign(new Error('DeepSeek API 输出达到长度上限，音乐匹配未完成；请减少本批集数或分段数后重试。'), { status: 502 });
           if (!result.text.trim()) throw Object.assign(new Error(`DeepSeek API 返回空白内容${result.finishReason ? `（${result.finishReason}）` : ''}；请检查模型连接后重试。`), { status: 502 });
@@ -634,17 +645,17 @@ signal.throwIfAborted();
     try {
       if (body.provider.protocol === 'ollama') {
         const result = await analyzeBatchMusic({ ...body, episodes: [{ id: 'single-script', episodeNumber: 1, title: body.title, script: body.script }] }, async (messages, _label, schema) => {
-          abort.signal.throwIfAborted();
+          throwIfAborted(abort.signal);
           const answer = await requestProvider(body.provider, body.model, messages, 240_000, abort.signal, schema || true);
-          abort.signal.throwIfAborted();
+          throwIfAborted(abort.signal);
           return answer.text;
         }, { localModel: true, deepseekApi: true });
         return reply(200, { ...result.episodes[0].value, customKeywords: validateLibraryInput(body).customKeywords });
       }
       const result = await analyzeWithWeb('library-match', body, async messages => {
-        abort.signal.throwIfAborted();
+        throwIfAborted(abort.signal);
         const answer = await requestProvider(body.provider, body.model, messages, 120_000, abort.signal, ['qwen', 'ollama'].includes(body.provider.protocol));
-        abort.signal.throwIfAborted();
+        throwIfAborted(abort.signal);
         return answer.text;
       });
       return reply(200, result);

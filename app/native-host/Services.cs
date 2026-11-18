@@ -149,7 +149,8 @@ namespace XM.Native {
                 foreach (var value in aiViews.Values) BrowserInput.Hide(value, MainView);
                 return null;
             }
-            string provider = J.Str(p, "provider"); if (provider != "deepseek" && provider != "doubao" && provider != "qwen" && provider != "kimi") throw new Exception("无效的网页模型。");
+            string provider = J.Str(p, "provider"); if (provider != "deepseek" && provider != "doubao" && provider != "qwen" && provider != "kimi" && provider != "dsh") throw new Exception("无效的网页模型。");
+            OfficialAIUrl(provider); // Validate configuration before creating a browser.
             if (requestedAi != provider) { requestedAi = provider; aiInput.Invalidate(); }
             WebView2 view;
             if (!aiViews.TryGetValue(provider, out view)) {
@@ -174,24 +175,29 @@ namespace XM.Native {
             if (visible && changed) view.BringToFront(); activeAi = visible ? provider : "";
             return AIState(provider);
         }
-        private static string OfficialAIUrl(string provider) {
+        private string OfficialAIUrl(string provider) {
             if (provider == "deepseek") return "https://chat.deepseek.com/";
             if (provider == "doubao") return "https://www.doubao.com/chat/";
             if (provider == "qwen") return "https://www.qianwen.com/";
             if (provider == "kimi") return "https://www.kimi.com/";
+            if (provider == "dsh") { if (DshEntry().Length == 0) throw new Exception("请先填写并保存公司 DSH 入口地址。"); return CompanyDSH.Normalize(DshEntry()); }
             throw new Exception("无效的网页模型。");
         }
         private async Task InitializeAI(WebView2 view, string provider) {
             aiLoading.Add(provider);
-            await InitializeView(view, "official-" + provider, OfficialAIUrl(provider), false);
+            string entry = OfficialAIUrl(provider);
+            string partition = provider == "dsh" ? "company-dsh-" + J.Hash(new Uri(entry).GetLeftPart(UriPartial.Authority)).Substring(0, 16) : "official-" + provider;
+            await InitializeView(view, partition, entry, false, provider == "dsh" ? (Func<string, bool>)(value => CompanyDSH.Navigation(entry, value)) : null, provider == "dsh" ? (Func<string, bool>)(value => CompanyDSH.Workspace(entry, value)) : null);
             view.CoreWebView2.NavigationStarting += (s, e) => { if (activeAi == provider) aiInput.Invalidate(); aiLoading.Add(provider); aiErrors[provider] = ""; };
             view.CoreWebView2.NavigationCompleted += (s, e) => { aiLoading.Remove(provider); aiErrors[provider] = e.IsSuccess ? "" : "网页加载失败：" + e.WebErrorStatus + "，可刷新重试。"; };
         }
         private object AIState(string provider) { WebView2 view; string error; aiErrors.TryGetValue(provider, out error); bool found = aiViews.TryGetValue(provider, out view); return J.Obj("provider", provider, "visible", found && view.Visible && activeAi == provider, "loading", aiLoading.Contains(provider), "url", found && view.CoreWebView2 != null ? view.CoreWebView2.Source : "", "error", error ?? ""); }
         private async Task<object> AIAction(object p) {
             string provider = J.Str(p, "provider"), action = J.Str(p, "action"); WebView2 view;
+            if (provider == "dsh" && action == "config") return DshConfig();
+            if (provider == "dsh" && action == "configure") return SaveDshEntry(J.Str(p, "url"));
             if (action == "external") { OpenPath(OfficialAIUrl(provider)); return J.Obj("external", true); }
-            if (!aiViews.TryGetValue(provider, out view) || view.CoreWebView2 == null) throw new Exception("请先打开官方 AI 页面。");
+            if (!aiViews.TryGetValue(provider, out view) || view.CoreWebView2 == null) throw new Exception("请先打开 AI 页面。");
             if (action == "reload") view.CoreWebView2.Reload();
             if (action == "home") view.CoreWebView2.Navigate(OfficialAIUrl(provider));
             await Task.Yield(); return AIState(provider);
@@ -200,7 +206,10 @@ namespace XM.Native {
             string provider = J.Str(p, "provider"); WebView2 view;
             if (provider == "qwen" || provider == "kimi") return J.Obj("state", "manual", "message", "请在 " + (provider == "qwen" ? "千问" : "Kimi") + " 官网手动发送并复制回答到剪辑台导入。");
             if (activeAi != provider || !aiViews.TryGetValue(provider, out view) || !view.Visible || view.CoreWebView2 == null) throw new Exception("请在内嵌官方页面完成登录。");
-            Uri uri; if (!Uri.TryCreate(view.CoreWebView2.Source, UriKind.Absolute, out uri) || uri.Scheme != "https" || !(provider == "deepseek" ? uri.Host == "chat.deepseek.com" : uri.Host == "www.doubao.com" || uri.Host == "doubao.com")) return J.Obj("state", "login", "message", "请在官网完成登录。");
+            Uri uri;
+            if (provider == "dsh") {
+                if (!CompanyDSH.Workspace(DshEntry(), view.CoreWebView2.Source)) return J.Obj("state", "login", "message", "请在公司入口完成飞书登录并进入 DSH 对话页。");
+            } else if (!Uri.TryCreate(view.CoreWebView2.Source, UriKind.Absolute, out uri) || uri.Scheme != "https" || !(provider == "deepseek" ? uri.Host == "chat.deepseek.com" : uri.Host == "www.doubao.com" || uri.Host == "doubao.com")) return J.Obj("state", "login", "message", "请在官网完成登录。");
             string script = J.Str(p, "script"); if (script.Length > 16 * 1024 * 1024) throw new Exception("截图内容过大。");
             return await aiInput.Run(J.Str(p, "requestId"),
                 async () => J.Decode(await view.CoreWebView2.ExecuteScriptAsync(script)),
